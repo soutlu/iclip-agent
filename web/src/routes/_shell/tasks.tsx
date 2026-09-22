@@ -2,6 +2,7 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 import { TasksRoute } from '@/features/tasks'
 import { ensureSessionUser } from '@/shared/auth'
 import { useStartTaskCreation } from '../-use-start-task-creation'
+import { TaskRelatedConversations } from '../-task-related-conversations'
 
 // 需求单路由要求登录，会话失效后返回首页。
 export const Route = createFileRoute('/_shell/tasks')({
@@ -15,5 +16,10 @@ export const Route = createFileRoute('/_shell/tasks')({
 
 function TasksIndexRoute() {
   const startCreation = useStartTaskCreation()
-  return <TasksRoute onStartCreation={startCreation} />
+  return (
+    <TasksRoute
+      onStartCreation={startCreation}
+      relatedContent={(taskId) => <TaskRelatedConversations taskId={taskId} />}
+    />
+  )
 }

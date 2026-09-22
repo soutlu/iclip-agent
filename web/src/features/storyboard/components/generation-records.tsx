@@ -1,20 +1,17 @@
 /** 仅展示当前镜头组的视频生成记录。 */
 
-import { Tooltip } from 'radix-ui'
-import { useState, type ReactNode } from 'react'
-import { useMediaDownload } from '@/shared/api/media-download'
+import { useState } from 'react'
 import { Icon } from '@/shared/icons'
 import { formatDateTime } from '@/shared/lib/date-time'
 import { videoSnapshotUrl } from '@/shared/lib/media-url'
-import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
 import { MediaLightbox } from '@/shared/ui/media-lightbox'
-import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { StatusBadge } from '@/shared/ui/status-badge'
 import { readStoryboardMetadata } from '../generation-metadata'
 import type { Shot } from '../shot-document'
 import { phaseOfStatus } from '../shots'
 import { historyShotOf, type GenerationJob } from '../storyboard.api'
+import { GenerationDownload } from './generation-download'
 
 /** request 是不透明 JSON，只从里面读两个字串来展示：prompt 与 model。 */
 const promptOf = (job: GenerationJob): string | undefined => {
@@ -135,7 +132,7 @@ function RecordCard({ job, editCount, onEditPrompt, onEditVideo }: RecordCardPro
           {formatDateTime(job.createdAt)}
         </time>
         {phase === 'completed' && job.outputUrl !== null ? (
-          <RecordDownload url={job.outputUrl} watermarkUrl={job.watermarkOutputUrl} />
+          <GenerationDownload url={job.outputUrl} watermarkUrl={job.watermarkOutputUrl} />
         ) : null}
         <IconButton
           aria-expanded={open}
@@ -207,62 +204,6 @@ function RecordCard({ job, editCount, onEditPrompt, onEditVideo }: RecordCardPro
         </div>
       ) : null}
     </article>
-  )
-}
-
-type RecordDownloadProps = { url: string; watermarkUrl: string | null }
-
-/** 只有原片时点了就下；上游也给了水印版时先选哪一份。 */
-function RecordDownload({ url, watermarkUrl }: RecordDownloadProps) {
-  const { downloading, download } = useMediaDownload()
-  const label = downloading ? '正在准备下载…' : '下载视频'
-
-  const trigger = (
-    <IconButton
-      aria-busy={downloading}
-      className={cn(
-        'shrink-0 border-[0.5px] border-chat-hairline text-on-surface disabled:cursor-wait disabled:opacity-60',
-        downloading && '[&_svg]:animate-spin',
-      )}
-      disabled={downloading}
-      label={label}
-      name={downloading ? 'loading' : 'download'}
-      onClick={watermarkUrl === null ? () => void download(url, '生成的视频') : undefined}
-      size="sm"
-    />
-  )
-  if (watermarkUrl === null) return <DownloadTooltip label={label}>{trigger}</DownloadTooltip>
-  return (
-    <MenuRoot>
-      <DownloadTooltip label={label}>
-        <MenuTrigger asChild>{trigger}</MenuTrigger>
-      </DownloadTooltip>
-      <MenuSurface align="end">
-        <MenuItem onSelect={() => void download(url, '生成的视频')}>下载原片</MenuItem>
-        <MenuItem onSelect={() => void download(watermarkUrl, '生成的视频（水印版）')}>
-          下载水印版
-        </MenuItem>
-      </MenuSurface>
-    </MenuRoot>
-  )
-}
-
-function DownloadTooltip({ children, label }: { children: ReactNode; label: string }) {
-  return (
-    <Tooltip.Provider delayDuration={300}>
-      <Tooltip.Root>
-        <Tooltip.Trigger asChild>{children}</Tooltip.Trigger>
-        <Tooltip.Portal>
-          <Tooltip.Content
-            className="layer-popup rounded-sm bg-inverse-surface px-3 py-2 text-label text-inverse-on-surface shadow-[var(--shadow-1)]"
-            sideOffset={6}
-          >
-            {label}
-            <Tooltip.Arrow className="fill-inverse-surface" />
-          </Tooltip.Content>
-        </Tooltip.Portal>
-      </Tooltip.Root>
-    </Tooltip.Provider>
   )
 }
 

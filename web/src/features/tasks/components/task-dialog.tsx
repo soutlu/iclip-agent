@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { useUser } from '@/shared/auth'
 import { ApiError } from '@/shared/api/client'
-import { Button } from '@/shared/ui/button'
+import { Button, IconButton } from '@/shared/ui/button'
+import { cn } from '@/shared/lib/utils'
 import {
   DialogBody,
   DialogFooter,
@@ -39,6 +40,7 @@ const PLANNER_EDITABLE = new Set([
 ])
 
 type TaskDialogProps = {
+  relatedContent?: ((taskId: string) => ReactNode) | undefined
   onStartCreation?: ((draft: TaskCreationDraft) => Promise<void>) | undefined
   onOpenChange: (open: boolean) => void
   open: boolean
@@ -49,18 +51,26 @@ type TaskDialogProps = {
 const toIso = (local: string): string | null => (local ? new Date(local).toISOString() : null)
 
 /** 详情使用完整数据执行 PUT，遗漏字段会被清空；发布后仅管理信息和 PLANNER 字段可编辑，撤回后只读。 */
-export function TaskDialog({ onOpenChange, onStartCreation, open, taskId }: TaskDialogProps) {
+export function TaskDialog({
+  relatedContent,
+  onOpenChange,
+  onStartCreation,
+  open,
+  taskId,
+}: TaskDialogProps) {
   const isCreate = taskId === undefined
   const { data: currentUser } = useUser()
   const [creationDraft, setCreationDraft] = useState<TaskCreationDraft | null>(null)
   const [sending, setSending] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
+  const [closedRelatedTask, setClosedRelatedTask] = useState<string | null>(null)
   const sendingRef = useRef(false)
   const changeOpen = (next: boolean) => {
     if (sendingRef.current) return
     if (!next) {
       setCreationDraft(null)
       setStartError(null)
+      setClosedRelatedTask(null)
     }
     onOpenChange(next)
   }
@@ -104,69 +114,102 @@ export function TaskDialog({ onOpenChange, onStartCreation, open, taskId }: Task
     queryFn: () => getTask(taskId ?? ''),
     queryKey: tasksQueryKeys.detail(taskId ?? ''),
   })
+  const hasRelated = Boolean(task && relatedContent && !creationDraft)
+  const showRelated = hasRelated && closedRelatedTask !== taskId
 
   return (
     <DialogRoot open={open} onOpenChange={changeOpen}>
       <DialogSurface
-        className={creationDraft ? 'task-creation-dialog' : 'task-form-dialog'}
+        className={cn(
+          creationDraft ? 'task-creation-dialog' : 'task-form-dialog',
+          showRelated && 'task-detail-dialog',
+        )}
         aria-label={creationDraft ? '发起创作' : isCreate ? '新建需求单' : '需求单详情'}
       >
-        <DialogHeader
-          actions={
-            task && !creationDraft ? (
-              <TaskStatusTag appearance="dot" status={task.status} />
-            ) : undefined
-          }
-          className="min-h-16 items-center border-b-border/60 px-6 py-3"
-          closeLabel="关闭"
-          title={
-            creationDraft ? '发起创作' : isCreate ? '新建需求单' : (task?.title ?? '需求单详情')
-          }
-        />
-        {open &&
-          (creationDraft ? (
-            <TaskCreationPreview
-              draft={creationDraft}
-              error={startError}
-              blockedReason={creationBlockReason(task)}
-              sending={sending}
-              onBack={() => {
-                setCreationDraft(null)
-                setStartError(null)
-              }}
-              onConfirm={() => void startCreation()}
-            />
-          ) : isCreate || task ? (
-            // 切换需求单或新建模式时重挂表单，以重新初始化 useState。
-            <TaskDialogForm
-              key={taskId ?? 'create'}
-              onOpenChange={changeOpen}
-              task={task}
-              onPreview={
-                onStartCreation
-                  ? (draft) => {
-                      setCreationDraft(draft)
-                      setStartError(null)
-                    }
-                  : undefined
+        <div className={cn('task-detail-layout', showRelated && 'task-detail-layout-expanded')}>
+          <div className="task-detail-main">
+            <DialogHeader
+              actions={
+                task && !creationDraft ? (
+                  <>
+                    {hasRelated && !showRelated && (
+                      <IconButton
+                        label="打开关联对话与视频"
+                        name="panel-right"
+                        size="sm"
+                        onClick={() => setClosedRelatedTask(null)}
+                      />
+                    )}
+                    <TaskStatusTag appearance="dot" status={task.status} />
+                  </>
+                ) : undefined
+              }
+              className="min-h-16 items-center border-b-border/60 px-6 py-3"
+              closeLabel="关闭"
+              title={
+                creationDraft ? '发起创作' : isCreate ? '新建需求单' : (task?.title ?? '需求单详情')
               }
             />
-          ) : (
-            <DialogBody>
-              {error ? (
-                <div className="flex flex-col items-start gap-3">
-                  <p className="text-body-sm text-error" role="alert">
-                    {error instanceof ApiError ? error.message : '读取需求单失败，请重试'}
-                  </p>
-                  <Button onClick={() => void refetch()} variant="outlined">
-                    重试
-                  </Button>
-                </div>
+            {open &&
+              (creationDraft ? (
+                <TaskCreationPreview
+                  draft={creationDraft}
+                  error={startError}
+                  blockedReason={creationBlockReason(task)}
+                  sending={sending}
+                  onBack={() => {
+                    setCreationDraft(null)
+                    setStartError(null)
+                  }}
+                  onConfirm={() => void startCreation()}
+                />
+              ) : isCreate || task ? (
+                // 切换需求单或新建模式时重挂表单，以重新初始化 useState。
+                <TaskDialogForm
+                  key={taskId ?? 'create'}
+                  onOpenChange={changeOpen}
+                  task={task}
+                  onPreview={
+                    onStartCreation
+                      ? (draft) => {
+                          setCreationDraft(draft)
+                          setStartError(null)
+                        }
+                      : undefined
+                  }
+                />
               ) : (
-                <p className="text-body-sm text-on-surface-variant">加载中…</p>
-              )}
-            </DialogBody>
-          ))}
+                <DialogBody>
+                  {error ? (
+                    <div className="flex flex-col items-start gap-3">
+                      <p className="text-body-sm text-error" role="alert">
+                        {error instanceof ApiError ? error.message : '读取需求单失败，请重试'}
+                      </p>
+                      <Button onClick={() => void refetch()} variant="outlined">
+                        重试
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="text-body-sm text-on-surface-variant">加载中…</p>
+                  )}
+                </DialogBody>
+              ))}
+          </div>
+          {open && showRelated && task && (
+            <aside aria-label="关联对话与视频" className="task-related-panel">
+              <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border/60 px-6 py-3">
+                <h2 className="text-title-lg font-semibold">关联对话与视频</h2>
+                <IconButton
+                  label="收起关联对话与视频"
+                  name="close"
+                  size="md"
+                  onClick={() => setClosedRelatedTask(task.id)}
+                />
+              </header>
+              <div className="task-related-body px-6 pb-6">{relatedContent?.(task.id)}</div>
+            </aside>
+          )}
+        </div>
       </DialogSurface>
     </DialogRoot>
   )

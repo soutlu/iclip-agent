@@ -238,6 +238,14 @@ export const handlers = [
     return HttpResponse.json({ items })
   }),
 
+  http.get('*/api/conversations/by-task/:taskId', ({ params }) =>
+    HttpResponse.json({
+      items: mine()
+        .filter((item) => item.taskId === params['taskId'] && item.deletedAt === null)
+        .sort(byRecent),
+    }),
+  ),
+
   // 分页游标使用 updatedAt|id；前端将其视为不透明值。
   http.get('*/api/conversations', ({ request }) => {
     const state = new URL(request.url).searchParams.get('state')
