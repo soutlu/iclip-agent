@@ -1,10 +1,9 @@
-import { useQuery } from '@tanstack/react-query'
 import { useId, useState, type ReactNode } from 'react'
 import { hasPermission, PERMISSION, useUser } from '@/shared/auth'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/field'
 import type { TaskCreationDraft } from '../task-creation'
-import { listAllTasks, listMyTasks, tasksQueryKeys, type Task } from '../tasks.api'
+import { useTasksPages, type Task } from '../tasks.api'
 import { RenameTaskDialog } from './rename-task-dialog'
 import { TaskCard } from './task-card'
 import { TaskDialog } from './task-dialog'
@@ -24,25 +23,19 @@ export function TasksRoute({ onStartCreation, relatedContent }: TasksRouteProps 
   const [dialog, setDialog] = useState<{ open: boolean; taskId?: string }>({ open: false })
   const [rename, setRename] = useState<{ open: boolean; task?: Task }>({ open: false })
 
-  const myTasks = useQuery({
-    enabled: Boolean(user),
-    queryFn: listMyTasks,
-    queryKey: tasksQueryKeys.list('mine'),
-  })
-  const allTasks = useQuery({
-    enabled: Boolean(user),
-    queryFn: ({ signal }) => listAllTasks(signal),
-    queryKey: tasksQueryKeys.list('all'),
-  })
+  const myTasks = useTasksPages('mine', Boolean(user))
+  const allTasks = useTasksPages('all', Boolean(user))
+  const loadedMine = myTasks.data?.pages.flatMap((page) => page.items) ?? []
+  const loadedAll = allTasks.data?.pages.flatMap((page) => page.items) ?? []
 
-  const filter = (items: Task[] | undefined): Task[] => {
-    const list = items ?? []
+  // 搜索只在已读取的页里筛；还有下一页时页脚说明已读取了多少。
+  const filter = (items: Task[]): Task[] => {
     const kw = keyword.trim().toLowerCase()
-    return kw ? list.filter((task) => task.title.toLowerCase().includes(kw)) : list
+    return kw ? items.filter((task) => task.title.toLowerCase().includes(kw)) : items
   }
 
-  const mine = filter(myTasks.data)
-  const all = filter(allTasks.data)
+  const mine = filter(loadedMine)
+  const all = filter(loadedAll)
   const searching = keyword.trim().length > 0
   const visibleMine = searching || myTasksExpanded ? mine : mine.slice(0, 3)
 
@@ -120,6 +113,15 @@ export function TasksRoute({ onStartCreation, relatedContent }: TasksRouteProps 
                 </Button>
               </div>
             )}
+            {/* 折叠着只看前三张，翻页入口等展开或搜索时再出现，不和「展开更多」挤在一起。 */}
+            {(searching || myTasksExpanded) && myTasks.hasNextPage ? (
+              <MoreTasks
+                isFetching={myTasks.isFetchingNextPage}
+                loaded={loadedMine.length}
+                onMore={() => void myTasks.fetchNextPage()}
+                total={myTasks.data?.pages.at(-1)?.total}
+              />
+            ) : null}
           </section>
 
           <section aria-label="全部需求单" className="flex flex-col gap-4">
@@ -135,6 +137,14 @@ export function TasksRoute({ onStartCreation, relatedContent }: TasksRouteProps 
                 ))}
               </div>
             )}
+            {allTasks.hasNextPage ? (
+              <MoreTasks
+                isFetching={allTasks.isFetchingNextPage}
+                loaded={loadedAll.length}
+                onMore={() => void allTasks.fetchNextPage()}
+                total={allTasks.data?.pages.at(-1)?.total}
+              />
+            ) : null}
           </section>
         </div>
       </div>
@@ -152,5 +162,27 @@ export function TasksRoute({ onStartCreation, relatedContent }: TasksRouteProps 
         task={rename.task}
       />
     </main>
+  )
+}
+
+/** 分区的翻页页脚：已读取几张、一共几张，以及读下一页的入口。 */
+function MoreTasks({
+  isFetching,
+  loaded,
+  onMore,
+  total,
+}: {
+  isFetching: boolean
+  loaded: number
+  onMore: () => void
+  total: number | undefined
+}) {
+  return (
+    <footer className="flex items-center justify-between gap-4 px-3 py-2 text-body text-on-surface-variant">
+      <span>{total === undefined ? `已显示 ${loaded}` : `已显示 ${loaded} / ${total}`}</span>
+      <Button disabled={isFetching} leadingIcon="expand" onClick={onMore} size="md" variant="ghost">
+        {isFetching ? '正在读取…' : '展开显示更多需求单'}
+      </Button>
+    </footer>
   )
 }

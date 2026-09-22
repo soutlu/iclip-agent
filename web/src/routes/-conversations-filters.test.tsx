@@ -45,7 +45,7 @@ afterEach(() => {
 })
 
 describe('全部对话的需求单预览', () => {
-  it('列表中的需求单直接展示创作要求与商品图，只有参考图的没有缩略图，历史需求单只补取一次', async () => {
+  it('列表中的需求单直接展示创作要求与商品图，只有参考图的没有缩略图，关联到的需求单去重后一批读取', async () => {
     signedInAsGovernor()
     const recent = addMockTask('夏季上新')
     recent.inputs.creative_requirement = '用自然光展示亚麻衬衫的质感'
@@ -59,12 +59,13 @@ describe('全部对话的需求单预览', () => {
     addMockConversation('衬衫尝试').taskId = recent.id
     addMockConversation('外套尝试一').taskId = historical.id
     addMockConversation('外套尝试二').taskId = historical.id
-    const detailRequests: string[] = []
+    // 同一个接口还会被筛选条的候选查询（不带 ids）打到，只记按 id 批量读取的那些。
+    const batchRequests: string[][] = []
     server.use(
-      http.get('*/api/tasks', () => HttpResponse.json({ items: [recent] })),
-      http.get('*/api/tasks/:taskId', ({ params }) => {
-        detailRequests.push(String(params['taskId']))
-        return HttpResponse.json({ task: historical })
+      http.get('*/api/tasks', ({ request }) => {
+        const ids = new URL(request.url).searchParams.getAll('ids')
+        if (ids.length > 0) batchRequests.push(ids)
+        return HttpResponse.json({ items: [historical, recent], nextCursor: null, total: 2 })
       }),
     )
 
@@ -83,39 +84,38 @@ describe('全部对话的需求单预览', () => {
       expect(within(row).queryByRole('img')).toBeNull()
       expect(within(row).getByText('暂无图片')).toBeVisible()
     }
-    expect(detailRequests).toEqual([historical.id])
+    expect(batchRequests).toEqual([[historical.id, recent.id].sort()])
   })
 
-  it('历史需求单读取失败仍保留成功预览，并将失败与未关联区分', async () => {
+  it('需求单读取失败时把失败与未关联分开说，重试成功后预览补上', async () => {
     signedInAsGovernor()
-    const recent = addMockTask('可读取的需求')
-    recent.inputs.creative_requirement = '拍摄背包容量与收纳分区'
-    const historical = addMockTask('历史需求')
-    historical.inputs.creative_requirement = '用街拍风格表现皮鞋的日常穿搭'
-    addMockConversation('背包演示').taskId = recent.id
-    addMockConversation('历史尝试').taskId = historical.id
+    const task = addMockTask('历史需求')
+    task.inputs.creative_requirement = '用街拍风格表现皮鞋的日常穿搭'
+    addMockConversation('历史尝试').taskId = task.id
     addMockConversation('自由创作')
     server.use(
-      http.get('*/api/tasks', () => HttpResponse.json({ items: [recent] })),
-      http.get('*/api/tasks/:taskId', () =>
-        HttpResponse.json({ message: '读取失败' }, { status: 500 }),
-      ),
+      http.get('*/api/tasks', () => HttpResponse.json({ message: '读取失败' }, { status: 500 })),
     )
 
     await renderAt('/conversations')
 
-    const recentRow = await screen.findByRole('link', { name: /背包演示/ })
-    expect(await within(recentRow).findByText(recent.inputs.creative_requirement)).toBeVisible()
     const failedRow = await screen.findByRole('link', { name: /历史尝试/ })
-    expect((await within(failedRow).findAllByText('需求单信息暂不可用')).length).toBeGreaterThan(0)
+    // 查询默认重试一次再报错，等它过了那一秒。
+    expect(
+      (await within(failedRow).findAllByText('需求单信息暂不可用', {}, { timeout: 3000 })).length,
+    ).toBeGreaterThan(0)
     const unlinkedRow = await screen.findByRole('link', { name: /自由创作/ })
     expect(within(unlinkedRow).getByText('未关联需求单')).toBeVisible()
 
-    server.use(http.get('*/api/tasks/:taskId', () => HttpResponse.json({ task: historical })))
+    server.use(
+      http.get('*/api/tasks', () =>
+        HttpResponse.json({ items: [task], nextCursor: null, total: 1 }),
+      ),
+    )
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: '重新读取需求单' }))
 
-    expect(await within(failedRow).findByText(historical.inputs.creative_requirement)).toBeVisible()
+    expect(await within(failedRow).findByText(task.inputs.creative_requirement)).toBeVisible()
     expect(screen.queryByRole('button', { name: '重新读取需求单' })).toBeNull()
   })
 
@@ -136,7 +136,7 @@ describe('全部对话的需求单预览', () => {
     server.use(
       http.get('*/api/tasks', ({ request }) => {
         requests.push(request.url)
-        return HttpResponse.json({ items: [] })
+        return HttpResponse.json({ items: [], nextCursor: null, total: 0 })
       }),
       http.get('*/api/tasks/:taskId', ({ request }) => {
         requests.push(request.url)

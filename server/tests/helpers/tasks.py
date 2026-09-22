@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -12,6 +13,7 @@ from iclip.domains.tasks.models import (
     STATUS_DRAFT,
     STATUS_PUBLISHED,
     Task,
+    TaskCursor,
     TaskStatus,
 )
 from iclip.domains.tasks.schemas import TaskInputs
@@ -81,19 +83,52 @@ class InMemoryTaskRepository:
             raise NotFound("没有这张需求单")
         return found
 
+    def _matching(
+        self,
+        status: TaskStatus | None,
+        assignee_user_id: uuid.UUID | None,
+        ids: Sequence[uuid.UUID] | None,
+    ) -> list[Task]:
+        """与真仓储同一条排序键：``(created_at, id)`` 倒序。"""
+
+        rows = sorted(
+            self.tasks.values(), key=lambda task: (task.created_at, task.id), reverse=True
+        )
+        if status is not None:
+            rows = [task for task in rows if task.status == status]
+        if assignee_user_id is not None:
+            rows = [task for task in rows if assignee_user_id in task.assignee_user_ids]
+        if ids is not None:
+            wanted = set(ids)
+            rows = [task for task in rows if task.id in wanted]
+        return rows
+
     async def list_recent(
         self,
         *,
         status: TaskStatus | None = None,
         assignee_user_id: uuid.UUID | None = None,
+        ids: Sequence[uuid.UUID] | None = None,
         limit: int,
+        after: TaskCursor | None = None,
     ) -> tuple[Task, ...]:
-        rows = sorted(self.tasks.values(), key=lambda task: task.updated_at, reverse=True)
-        if status is not None:
-            rows = [task for task in rows if task.status == status]
-        if assignee_user_id is not None:
-            rows = [task for task in rows if assignee_user_id in task.assignee_user_ids]
+        rows = self._matching(status, assignee_user_id, ids)
+        if after is not None:
+            rows = [
+                task
+                for task in rows
+                if (task.created_at, task.id) < (after.created_at, after.task_id)
+            ]
         return tuple(rows[:limit])
+
+    async def count(
+        self,
+        *,
+        status: TaskStatus | None = None,
+        assignee_user_id: uuid.UUID | None = None,
+        ids: Sequence[uuid.UUID] | None = None,
+    ) -> int:
+        return len(self._matching(status, assignee_user_id, ids))
 
     async def save(
         self,

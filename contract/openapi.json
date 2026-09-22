@@ -177,6 +177,36 @@
         "title": "AnomaliesOut",
         "type": "object"
       },
+      "AnomalyCountOut": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "retry",
+              "idle",
+              "slow",
+              "stuck",
+              "spend",
+              "task_stuck",
+              "deleted",
+              "no_task",
+              "missing_shot"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "count"
+        ],
+        "title": "AnomalyCountOut",
+        "type": "object"
+      },
       "AnomalyOut": {
         "additionalProperties": false,
         "description": "一条异常。``ref`` 是「种类:对象」的稳定文本，与 ``at`` 一起构成排序键与游标，不出接口。",
@@ -3421,6 +3451,13 @@
       "SummaryOut": {
         "additionalProperties": false,
         "properties": {
+          "anomalyCounts": {
+            "items": {
+              "$ref": "#/components/schemas/AnomalyCountOut"
+            },
+            "title": "Anomalycounts",
+            "type": "array"
+          },
           "attemptDistribution": {
             "items": {
               "$ref": "#/components/schemas/AttemptBucketOut"
@@ -3465,7 +3502,8 @@
           "users",
           "tasks",
           "series",
-          "attemptDistribution"
+          "attemptDistribution",
+          "anomalyCounts"
         ],
         "title": "SummaryOut",
         "type": "object"
@@ -4112,6 +4150,7 @@
       },
       "TasksPageOut": {
         "additionalProperties": false,
+        "description": "一页需求单。``nextCursor`` 为空即没有更多了；``total`` 是当前筛选下一共几张，不随翻页变。",
         "properties": {
           "items": {
             "items": {
@@ -4119,10 +4158,27 @@
             },
             "title": "Items",
             "type": "array"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextcursor"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
           }
         },
         "required": [
-          "items"
+          "items",
+          "nextCursor",
+          "total"
         ],
         "title": "TasksPageOut",
         "type": "object"
@@ -9229,6 +9285,7 @@
     },
     "/tasks": {
       "get": {
+        "description": "按建立时间倒序翻页。``ids`` 可重复给，按 id 集合批量读取，一次最多 100 个。",
         "operationId": "list_tasks_tasks_get",
         "parameters": [
           {
@@ -9255,6 +9312,26 @@
           },
           {
             "in": "query",
+            "name": "ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ids"
+            }
+          },
+          {
+            "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
@@ -9263,6 +9340,22 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
             }
           },
           {

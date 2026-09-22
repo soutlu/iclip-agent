@@ -290,6 +290,27 @@ async def test_viewer_reads_everyones_tasks_but_writes_none(
     assert forbidden.status_code == 403
 
 
+async def test_list_pages_by_cursor_and_reads_a_batch_by_ids(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """数据库时钟下依次建三张，按建立时间倒序翻页，续页不重不漏；``ids`` 批量读取只回点名的。"""
+
+    await login_as_editor(client, pg_url)
+    created = [(await create(client, title=f"第 {i} 张")).json()["task"]["id"] for i in range(3)]
+
+    first = (await client.get(URL, params={"limit": 2})).json()
+    assert [item["id"] for item in first["items"]] == created[:0:-1]
+    assert first["total"] == 3 and first["nextCursor"] is not None
+
+    rest = (await client.get(URL, params={"limit": 2, "cursor": first["nextCursor"]})).json()
+    assert [item["id"] for item in rest["items"]] == created[:1]
+    assert rest["total"] == 3 and rest["nextCursor"] is None
+
+    batch = (await client.get(URL, params=(("ids", created[0]), ("ids", created[2])))).json()
+    assert [item["id"] for item in batch["items"]] == [created[2], created[0]]
+    assert batch["total"] == 2
+
+
 async def test_second_claim_adds_a_person_without_touching_the_task_row(
     app: object, client: httpx.AsyncClient, pg_url: str
 ) -> None:

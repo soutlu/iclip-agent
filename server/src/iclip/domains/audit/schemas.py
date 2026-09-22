@@ -148,6 +148,11 @@ class PeriodMetricsOut(CamelModel):
     metrics: MetricsOut
 
 
+class AnomalyCountOut(CamelModel):
+    kind: AnomalyKind
+    count: int
+
+
 class SummaryOut(CamelModel):
     overall: MetricsOut
     users: list[UserMetricsOut]
@@ -156,6 +161,8 @@ class SummaryOut(CamelModel):
     """只在给了 ``bucket`` 时有。"""
     attempt_distribution: list[AttemptBucketOut]
     """出片次数分布，次数少的在前，不封顶；只给全体一档。"""
+    anomaly_counts: list[AnomalyCountOut]
+    """整个筛选范围里每种异常各几条，按缺省阈值判定，只列出现过的种类，多的在前。"""
 
 
 class ShotOut(CamelModel):
@@ -216,6 +223,7 @@ __all__ = [
     "EMPTY_METRICS",
     "NO_USAGE",
     "AnomaliesOut",
+    "AnomalyCountOut",
     "AnomalyOut",
     "AttemptBucketOut",
     "AuditConversationsOut",

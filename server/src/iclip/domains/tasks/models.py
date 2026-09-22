@@ -44,6 +44,14 @@ class Task:
     """task_assignees 表中认领关系的读取投影。"""
 
 
+@dataclass(frozen=True, slots=True)
+class TaskCursor:
+    """按（建立时刻，需求单 id）倒序续页的位置：上一页末行的排序键。"""
+
+    created_at: datetime
+    task_id: uuid.UUID
+
+
 __all__ = [
     "ACTIVE_STATUSES",
     "STATUS_CONFIRMED",
@@ -52,5 +60,6 @@ __all__ = [
     "STATUS_WITHDRAWN",
     "TASK_STATUSES",
     "Task",
+    "TaskCursor",
     "TaskStatus",
 ]

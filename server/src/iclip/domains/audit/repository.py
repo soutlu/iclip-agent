@@ -14,6 +14,7 @@ from iclip.domains.audit.models import (
     Thresholds,
 )
 from iclip.domains.audit.schemas import (
+    AnomalyCountOut,
     AnomalyOut,
     AttemptBucketOut,
     ConversationAuditOut,
@@ -63,6 +64,12 @@ class AuditReports(Protocol):
         after: AnomalyCursor | None,
     ) -> Sequence[AnomalyOut]:
         """异常按发生时刻倒序；``kinds`` 为 ``None`` 时全部种类都要。"""
+        ...
+
+    async def anomaly_counts(
+        self, scope: Scope, thresholds: Thresholds
+    ) -> Sequence[AnomalyCountOut]:
+        """整个筛选范围里每种异常各有几条，只列出现过的种类，多的排前面。"""
         ...
 
 

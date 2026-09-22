@@ -21,6 +21,7 @@ from iclip.domains.audit.models import (
 )
 from iclip.domains.audit.schemas import (
     EMPTY_METRICS,
+    AnomalyCountOut,
     AnomalyOut,
     AttemptBucketOut,
     ConversationAuditOut,
@@ -84,6 +85,11 @@ ATTEMPT_ROWS: Sequence[AttemptBucketOut] = (
     AttemptBucketOut(attempts=5, shots=2),
 )
 
+ANOMALY_COUNT_ROWS: Sequence[AnomalyCountOut] = (
+    AnomalyCountOut(kind="retry", count=3),
+    AnomalyCountOut(kind="idle", count=1),
+)
+
 
 @dataclass
 class RecordingReports:
@@ -133,6 +139,12 @@ class RecordingReports:
         self.calls.append(("anomalies", (scope, thresholds, kinds, after)))
         return self.anomaly_rows[:limit]
 
+    async def anomaly_counts(
+        self, scope: Scope, thresholds: Thresholds
+    ) -> Sequence[AnomalyCountOut]:
+        self.calls.append(("anomaly_counts", (scope, thresholds)))
+        return ANOMALY_COUNT_ROWS
+
 
 async def test_only_governors_may_read() -> None:
     service = AuditService(RecordingReports())
@@ -152,6 +164,9 @@ async def test_summary_normalises_the_window_and_only_buckets_on_request() -> No
     assert plain.series is None and bucketed.series == []
     assert plain.attempt_distribution == list(ATTEMPT_ROWS)
     assert ("attempt_distribution", Scope()) in reports.calls
+    # 异常计数跟着汇总走，阈值取缺省，与异常页不带参数时一致。
+    assert plain.anomaly_counts == list(ANOMALY_COUNT_ROWS)
+    assert ("anomaly_counts", (Scope(), Thresholds())) in reports.calls
     scopes = [scope for name, scope in reports.calls if name == "overall"]
     assert scopes[0] == Scope(
         since=datetime(2026, 9, 1, tzinfo=UTC), until=datetime(2026, 9, 2, tzinfo=UTC)

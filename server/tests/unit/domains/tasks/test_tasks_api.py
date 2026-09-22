@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -410,6 +412,49 @@ async def test_list_filters_by_status_and_rejects_out_of_range_limit() -> None:
         assert (await http.get("/tasks?status=nonsense")).status_code == 422
         assert (await http.get("/tasks?limit=0")).status_code == 422
         assert (await http.get("/tasks?limit=1000")).status_code == 422
+
+
+async def test_list_pages_by_created_at_and_id_and_keeps_the_total() -> None:
+    """满页给游标、末页不给；同一时刻建的按 id 倒序兜底，续页不跳行；总数不随翻页变。"""
+
+    base = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
+    tasks = [replace(make_task(), created_at=base - timedelta(minutes=i)) for i in range(3)]
+    twins = sorted(
+        (replace(make_task(), created_at=base - timedelta(hours=1)) for _ in range(2)),
+        key=lambda task: task.id,
+        reverse=True,
+    )
+    repo = InMemoryTaskRepository([*tasks, *twins])
+    expected = [str(task.id) for task in (*tasks, *twins)]
+    async with client(build_test_app(repo, granted=principal("tasks:read"))) as http:
+        first = (await http.get("/tasks", params={"limit": 2})).json()
+        second = (
+            await http.get("/tasks", params={"limit": 2, "cursor": first["nextCursor"]})
+        ).json()
+        third = (
+            await http.get("/tasks", params={"limit": 2, "cursor": second["nextCursor"]})
+        ).json()
+
+        assert [item["id"] for item in first["items"]] == expected[:2]
+        assert [item["id"] for item in second["items"]] == expected[2:4]
+        assert [item["id"] for item in third["items"]] == expected[4:]
+        assert (first["total"], second["total"], third["total"]) == (5, 5, 5)
+        assert third["nextCursor"] is None
+        assert (await http.get("/tasks?cursor=nonsense")).status_code == 422
+
+
+async def test_list_by_ids_reads_a_batch_and_caps_at_one_page() -> None:
+    wanted = [make_task(), make_task()]
+    repo = InMemoryTaskRepository([*wanted, make_task()])
+    async with client(build_test_app(repo, granted=principal("tasks:read"))) as http:
+        params = (*(("ids", str(task.id)) for task in wanted), ("ids", str(uuid.uuid4())))
+        page = (await http.get("/tasks", params=params)).json()
+        assert {item["id"] for item in page["items"]} == {str(task.id) for task in wanted}
+        assert page["total"] == 2 and page["nextCursor"] is None
+
+        too_many = tuple(("ids", str(uuid.uuid4())) for _ in range(101))
+        assert (await http.get("/tasks", params=too_many)).status_code == 422
+        assert (await http.get("/tasks?ids=not-a-uuid")).status_code == 422
 
 
 async def test_confirm_records_who_claimed() -> None:

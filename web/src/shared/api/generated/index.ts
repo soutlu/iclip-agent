@@ -20,6 +20,7 @@ export type {
   AnomaliesAuditAnomaliesGetResponse,
   AnomaliesAuditAnomaliesGetResponses,
   AnomaliesOut,
+  AnomalyCountOut,
   AnomalyOut,
   ApiKeyCreatedEnvelope,
   ApiKeyCreatedOut,

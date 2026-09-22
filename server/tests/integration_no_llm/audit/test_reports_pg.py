@@ -700,6 +700,34 @@ async def test_anomalies_respect_scope_filters(reports: PgAuditReports, seed: Se
     assert {item.kind for item in in_task} == {"retry", "idle", "slow", "stuck", "missing_shot"}
 
 
+async def test_anomaly_counts_share_the_anomaly_judgement(
+    reports: PgAuditReports, seed: Seed
+) -> None:
+    """计数与列表同一套判定：全范围九种各一条，筛到 Donnie 只剩空转与悬挂，放宽阈值就少一种；同数按种类名排。"""
+
+    everything = await reports.anomaly_counts(Scope(), Thresholds())
+    by_donnie = await reports.anomaly_counts(Scope(user_name=DONNIE), Thresholds())
+    lenient = await reports.anomaly_counts(Scope(), Thresholds(retry_over=3))
+
+    assert {(row.kind, row.count) for row in everything} == {
+        (kind, 1)
+        for kind in (
+            "retry",
+            "idle",
+            "slow",
+            "stuck",
+            "spend",
+            "task_stuck",
+            "deleted",
+            "no_task",
+            "missing_shot",
+        )
+    }
+    assert [row.kind for row in everything] == sorted(row.kind for row in everything)
+    assert [(row.kind, row.count) for row in by_donnie] == [("idle", 1), ("stuck", 1)]
+    assert "retry" not in {row.kind for row in lenient}
+
+
 async def test_forks_do_not_count_toward_any_metric(
     reports: PgAuditReports, seed: Seed, engine: AsyncEngine
 ) -> None:

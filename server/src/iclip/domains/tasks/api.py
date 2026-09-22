@@ -41,13 +41,23 @@ def create_tasks_router(service: TaskService, *, act_as: ActAs) -> APIRouter:
     async def list_tasks(
         principal: Annotated[Principal, Depends(require_permission("tasks:read"))],
         status: TaskStatus | None = None,
+        ids: Annotated[list[uuid.UUID] | None, Query()] = None,
         limit: Annotated[int, Query(ge=1, le=MAX_LIST_LIMIT)] = DEFAULT_LIST_LIMIT,
+        cursor: str | None = None,
         claimed_by: Annotated[str | None, Query(alias="claimedBy", pattern="^me$")] = None,
     ) -> TasksPageOut:
+        """按建立时间倒序翻页。``ids`` 可重复给，按 id 集合批量读取，一次最多 100 个。"""
+
         # 「我认领的」只认 me：认领人必须从服务端身份来，不能是调用方报上来的 id。
         assignee = principal.user_id if claimed_by == "me" else None
-        found = await service.list_recent(status=status, assignee_user_id=assignee, limit=limit)
-        return TasksPageOut(items=[task_out(task) for task in found])
+        page = await service.list_recent(
+            status=status, assignee_user_id=assignee, ids=ids, limit=limit, cursor=cursor
+        )
+        return TasksPageOut(
+            items=[task_out(task) for task in page.items],
+            next_cursor=page.next_cursor,
+            total=page.total,
+        )
 
     @router.get("/{task_id}", response_model=TaskEnvelope)
     async def get_task(

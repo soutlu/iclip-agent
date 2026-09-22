@@ -189,7 +189,11 @@ class TaskEnvelope(CamelModel):
 
 
 class TasksPageOut(CamelModel):
+    """一页需求单。``nextCursor`` 为空即没有更多了；``total`` 是当前筛选下一共几张，不随翻页变。"""
+
     items: list[TaskOut]
+    next_cursor: str | None
+    total: int
 
 
 def task_out(task: Task) -> TaskOut:

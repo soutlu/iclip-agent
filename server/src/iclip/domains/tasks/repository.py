@@ -6,10 +6,11 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Protocol
 
-from iclip.domains.tasks.models import Task, TaskStatus
+from iclip.domains.tasks.models import Task, TaskCursor, TaskStatus
 from iclip.domains.tasks.schemas import TaskInputs
 
 
@@ -31,9 +32,22 @@ class TaskRepository(Protocol):
         *,
         status: TaskStatus | None = None,
         assignee_user_id: uuid.UUID | None = None,
+        ids: Sequence[uuid.UUID] | None = None,
         limit: int,
+        after: TaskCursor | None = None,
     ) -> tuple[Task, ...]:
-        """按建立时间倒序返回需求单，可按状态和认领人筛选。"""
+        """按 ``(created_at, id)`` 倒序返回一页需求单，可按状态、认领人与 id 集合筛选；
+        ``after`` 是上一页末行的排序键。"""
+        ...
+
+    async def count(
+        self,
+        *,
+        status: TaskStatus | None = None,
+        assignee_user_id: uuid.UUID | None = None,
+        ids: Sequence[uuid.UUID] | None = None,
+    ) -> int:
+        """同一组筛选下的总条数，不受翻页影响。"""
         ...
 
     async def save(
