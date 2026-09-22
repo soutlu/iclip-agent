@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -553,6 +554,160 @@ async def test_root_job_migration_refuses_a_clip_without_a_root(migrated_pg: str
     await _root_job_migration_refuses(
         migrated_pg, kind="clip", metadata=None, message="clip 记录没有原作号"
     )
+
+
+BEFORE_BASE_EDIT = "b6e2f4a9c713"
+"""0013：编辑坐标里「基于哪一版」还写着记录 id（baseJob）的那一版。"""
+
+_INSERT_CHAIN_JOB = text(
+    "INSERT INTO iclip.generation_jobs (id, owner_user_id, kind, provider, request, status, "
+    "metadata, root_job_id, created_at, updated_at) VALUES (:id, :owner, :kind, 'test', "
+    "CAST(:request AS jsonb), 'completed', CAST(:metadata AS jsonb), :root, now(), now())"
+)
+
+
+async def _seed_chain(
+    conn: AsyncConnection,
+    owner: uuid.UUID,
+    rows: Sequence[tuple[uuid.UUID, str, str, str | None, uuid.UUID | None]],
+) -> None:
+    """(id, kind, request, metadata, root_job_id) 各一行，都已完成。"""
+
+    await _insert_generation_owner(conn, owner)
+    for job_id, kind, request, metadata, root_id in rows:
+        await conn.execute(
+            _INSERT_CHAIN_JOB,
+            {
+                "id": job_id,
+                "owner": owner,
+                "kind": kind,
+                "request": request,
+                "metadata": metadata,
+                "root": root_id,
+            },
+        )
+
+
+async def _metadata_by_id(migrated_pg: str, owner: uuid.UUID) -> dict[uuid.UUID, object]:
+    engine = create_async_engine(migrated_pg)
+    try:
+        async with engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    text(
+                        "SELECT id, metadata FROM iclip.generation_jobs WHERE owner_user_id = :owner"
+                    ),
+                    {"owner": owner},
+                )
+            ).mappings()
+            return {row["id"]: _jsonb(row["metadata"]) for row in rows}
+    finally:
+        await engine.dispose()
+
+
+async def test_base_edit_migration_rewrites_base_job_into_edit_ids(migrated_pg: str) -> None:
+    """0014：baseJob 指向根的擦掉（基于原片不写），指向成片的换成那条成片的 editId；降级写回记录 id。"""
+
+    cfg = _alembic(migrated_pg)
+    owner = uuid.uuid4()
+    root, master, reference, edited = (uuid.uuid4() for _ in range(4))
+    # 第二轮编辑基于成片 e1：参考片段与编辑结果同一个 editId，baseJob 都写着成片的 id。
+    second = {"baseJob": str(master), "editId": "e2", "editStart": 2, "editEnd": 5}
+    engine = create_async_engine(migrated_pg)
+    try:
+        await engine.dispose()
+        command.downgrade(cfg, BEFORE_BASE_EDIT)
+        async with engine.begin() as conn:
+            await _seed_chain(
+                conn,
+                owner,
+                (
+                    (root, "video", '{"prompt": "p"}', '{"shot": 1}', None),
+                    (
+                        master,
+                        "clip",
+                        '{"purpose": "master", "segments": []}',
+                        json.dumps(
+                            {"baseJob": str(root), "editId": "e1", "editStart": 1, "editEnd": 4}
+                        ),
+                        root,
+                    ),
+                    (
+                        reference,
+                        "clip",
+                        '{"purpose": "reference", "segments": []}',
+                        json.dumps(second),
+                        root,
+                    ),
+                    (edited, "video", '{"prompt": "p"}', json.dumps(second), root),
+                ),
+            )
+        await engine.dispose()
+        command.upgrade(cfg, "head")
+        found = await _metadata_by_id(migrated_pg, owner)
+        command.downgrade(cfg, BEFORE_BASE_EDIT)
+        restored = await _metadata_by_id(migrated_pg, owner)
+    finally:
+        await engine.dispose()
+        command.upgrade(cfg, "head")
+        await _remove_generation_owner(migrated_pg, owner)
+
+    upgraded_second = {"baseEdit": "e1", "editId": "e2", "editStart": 2, "editEnd": 5}
+    assert found[root] == {"shot": 1}, "独立记录不动"
+    assert found[master] == {"editId": "e1", "editStart": 1, "editEnd": 4}, "基于原片：键擦掉"
+    assert found[reference] == upgraded_second
+    assert found[edited] == upgraded_second
+    assert restored[master] == {"baseJob": str(root), "editId": "e1", "editStart": 1, "editEnd": 4}
+    assert restored[reference] == second
+    assert restored[edited] == second
+
+
+async def test_base_edit_migration_refuses_a_dangling_base_job(migrated_pg: str) -> None:
+    """对不上的 baseJob 不能静默当成基于原片：带 id 报错，库停在 0013。"""
+
+    cfg = _alembic(migrated_pg)
+    owner = uuid.uuid4()
+    root, edited = uuid.uuid4(), uuid.uuid4()
+    engine = create_async_engine(migrated_pg)
+    try:
+        await engine.dispose()
+        command.downgrade(cfg, BEFORE_BASE_EDIT)
+        async with engine.begin() as conn:
+            await _seed_chain(
+                conn,
+                owner,
+                (
+                    (root, "video", '{"prompt": "p"}', '{"shot": 1}', None),
+                    (
+                        edited,
+                        "video",
+                        '{"prompt": "p"}',
+                        json.dumps(
+                            {
+                                "baseJob": str(uuid.uuid4()),
+                                "editId": "e2",
+                                "editStart": 2,
+                                "editEnd": 5,
+                            }
+                        ),
+                        root,
+                    ),
+                ),
+            )
+        await engine.dispose()
+        with pytest.raises(RuntimeError, match="baseJob 指向不存在的记录") as refused:
+            command.upgrade(cfg, "head")
+        async with engine.connect() as conn:
+            version = (
+                await conn.execute(text("SELECT version_num FROM iclip.alembic_version"))
+            ).scalar_one()
+    finally:
+        await engine.dispose()
+        await _remove_generation_owner(migrated_pg, owner)
+        command.upgrade(cfg, "head")
+
+    assert str(edited) in str(refused.value)
+    assert version == BEFORE_BASE_EDIT
 
 
 BEFORE_LAST_RUN_BACKFILL = "2d6f8a1b4c07"
