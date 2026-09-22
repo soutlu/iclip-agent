@@ -6312,7 +6312,7 @@
     },
     "/audit/anomalies": {
       "get": {
-        "description": "异常按发生时刻倒序。``kind`` 可重复给，不给就全部种类。\n\n阈值参数只管数得出来的那几种；``slow`` 与 ``spend`` 的门槛按当前筛选范围现算 P90 / P95，\n范围小时门槛会抖。",
+        "description": "异常按发生时刻倒序。``kind`` 可重复给，不给就全部种类。\n\n九种异常的判定、阈值参数管哪几种、``slow`` 与 ``spend`` 的门槛按筛选范围现算，见合同 §12。",
         "operationId": "anomalies_audit_anomalies_get",
         "parameters": [
           {
@@ -6516,7 +6516,7 @@
     },
     "/audit/conversations": {
       "get": {
-        "description": "有成片的对话，最后成片晚的排前面；时间窗作用在最后成片时刻上。\n\n每行的指标、镜明细与按模型用量都是这段对话的全量。属主删掉的对话照列，``deletedAt`` 非空。",
+        "description": "有成片的对话，最后成片晚的排前面；每行的指标、镜明细与按模型用量都是这段对话的全量。\n\n时间窗与翻页规则见合同 §12。",
         "operationId": "conversations_audit_conversations_get",
         "parameters": [
           {
@@ -6646,7 +6646,7 @@
     },
     "/audit/summary": {
       "get": {
-        "description": "全体一格、每人一行、每单一行；给 ``bucket`` 再多一条按 ``timezone`` 切的时段序列。\n\n``attemptDistribution`` 是全体的出片次数分布，次数按镜上的出片记录数分档、不封顶，\n锚点与每镜次数一样看该镜首次出片时刻；按人、按需求单的行上没有这份数据。\n\n``since`` / ``until`` 作用在各指标自己的锚点上：成片与视频耗时看完成时刻，每镜次数看\n该镜首次出片时刻，交付周期看最后成片时刻，模型用量整段对话按最后记账时刻归期。",
+        "description": "全体一格、每人一行、每单一行；给 ``bucket`` 再多一条按 ``timezone`` 切的时段序列。\n\n各指标的定义、时间窗落在哪个时刻上、``attemptDistribution`` 只给全体一档，见合同 §12。",
         "operationId": "summary_audit_summary_get",
         "parameters": [
           {
@@ -7339,7 +7339,7 @@
     },
     "/conversations/audit": {
       "get": {
-        "description": "治理者查全平台的对话：按人、按单、按时间段、按状态、按删没删筛，最近建的排前面。\n\n没有 ``users:manage`` 就 403。``since`` / ``until`` 作用在建立时刻上，与排序同一列——\n同页报表按各指标自己的事件时刻分期，两边不是同一批对话（ADR-0030）；\n``state`` 的三值与侧栏同一口径；``deleted`` 缺省只看活着的，``deleted`` 只看属主删掉的，\n``all`` 都看。``total`` 与 ``runningTotal`` 是真总数，不随翻页变。",
+        "description": "治理者查全平台的对话：按人、按单、按时间段、按状态、按删没删筛，最近建的排前面。\n\n没有 ``users:manage`` 就 403。``since`` / ``until`` 作用在建立时刻上，与排序同一列——\n同页报表按各指标自己的事件时刻分期，两边不是同一批对话（ADR-0030）；\n``state`` 的四值与侧栏同一口径；``deleted`` 缺省只看活着的，``deleted`` 只看属主删掉的，\n``all`` 都看。``total`` 与 ``runningTotal`` 是真总数，不随翻页变。",
         "operationId": "audit_conversations_conversations_audit_get",
         "parameters": [
           {

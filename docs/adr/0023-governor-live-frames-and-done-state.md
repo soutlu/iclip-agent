@@ -1,6 +1,6 @@
 # ADR-0023：治理者收全平台的实时帧，「已完成」按 `last_run_id` 算
 
-- 状态：已接受（2026-09-12）
+- 状态：已接受（2026-09-12）；决策 2 的 `done` 口径被 [ADR-0031](0031-conversation-completion-flag.md) 替代（2026-09-18）
 - 修订 **[ADR-0008](0008-activity-from-agent-jobs.md)** 决策 2 的派发范围、决策 3 的 `done` 口径，以及取舍里「筛选的 id 集在应用层算好再传 IN 列表」那句的算法。
 - 前提：**[ADR-0002](0002-unified-permission-model.md)** 的 `users:manage` 是治理者读全平台的权限；**[ADR-0013](0013-transcript-protocol-freeze.md)** 决定新字段只能可选，REST 信封字段以 `title` 为先例。
 - 合同 [§5 全局帧与文件订阅](../../contract/conventions.md#全局帧)、[§6 治理者复盘](../../contract/conventions.md#治理者复盘)随本文改口径。
@@ -18,6 +18,8 @@
 连接归谁由握手主体定：属主自己的连接收，持 `users:manage` 的连接也收，别人的不收。四种帧同一条判定（`_Connection.receives`），`watch_fs_add` 的受理范围与投递范围因此一致。权限在握手时快照，吊销后要重连才生效；派发仍是单进程、易失，与 ADR-0008 一致。
 
 ### 2. 「已完成」= 跑过且此刻没在跑
+
+> 本条已被 [ADR-0031](0031-conversation-completion-flag.md) 替代（2026-09-18）：`done` 改按属主标记的 `completed_at` 筛，`state` 变四值，`running` 与 `open` / `done` 可以交叉。下文保留原决策。
 
 只查一个小集合：此刻占着的对话（`agent_jobs.status IN ('running', 'awaiting')`，按属主或全平台，走占用部分索引）。`running` 是这个集合；`done` 是 `last_run_id IS NOT NULL AND id NOT IN busy`；`all` 不筛。侧栏与审计同一条规则；审计接口收 `state`，并给两个真总数 `total` / `runningTotal`。
 
