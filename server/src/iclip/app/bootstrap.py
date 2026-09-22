@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 import signal
 import uuid
-from collections.abc import AsyncGenerator, Callable, Mapping, Sequence
+from collections.abc import AsyncGenerator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 import httpx
 import procrastinate
@@ -187,32 +187,6 @@ class AnnouncingFileStore:
 
     async def search(self, namespace: str, query: str, *, limit: int) -> SearchResult:
         return await self._inner.search(namespace, query, limit=limit)
-
-
-def _openapi_with_string_validation_error(app: FastAPI) -> Callable[[], dict[str, Any]]:
-    """让文档里的 422 与实际返回一致：字符串信封，不是 FastAPI 默认的逐条列表。
-
-    路由没声明 422 时 FastAPI 自动注入 ``HTTPValidationError``，改不了声明只能改成品；
-    合同由 ``scripts/dump_openapi.py`` 从这里导出，前端类型跟着走。
-    """
-
-    default_openapi = app.openapi
-
-    def openapi() -> dict[str, Any]:
-        document = default_openapi()
-        schemas = document.get("components", {}).get("schemas", {})
-        if "HTTPValidationError" in schemas:
-            schemas["HTTPValidationError"] = {
-                "description": "请求校验失败，与领域错误同一个信封。",
-                "properties": {"detail": {"title": "Detail", "type": "string"}},
-                "required": ["detail"],
-                "title": "HTTPValidationError",
-                "type": "object",
-            }
-            schemas.pop("ValidationError", None)
-        return document
-
-    return openapi
 
 
 def _conversation_of(deps: object) -> str | None:
@@ -631,7 +605,6 @@ def build_app(
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
     install_error_handlers(app)
-    app.openapi = _openapi_with_string_validation_error(app)  # type: ignore[method-assign]
 
     @app.get("/healthz")
     async def healthz() -> dict[str, object]:

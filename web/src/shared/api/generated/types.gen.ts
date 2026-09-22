@@ -82,6 +82,8 @@ export type AnomaliesOut = {
 
 /**
  * AnomalyOut
+ *
+ * 一条异常。``ref`` 是「种类:对象」的稳定文本，与 ``at`` 一起构成排序键与游标，不出接口。
  */
 export type AnomalyOut = {
   /**
@@ -300,7 +302,7 @@ export type AttachmentSource = {
 /**
  * AttemptBucketOut
  *
- * 出片次数正好是 ``attempts`` 次的镜有多少个。
+ * 出片次数正好是 ``attempts`` 次的镜有多少个。次数按镜上全部出片记录数，不看终态。
  */
 export type AttemptBucketOut = {
   /**
@@ -532,7 +534,7 @@ export type ConversationAgentsOut = {
 /**
  * ConversationAuditOut
  *
- * 一段有成片的对话；指标与镜、用量都是这段对话的全量。
+ * 一段有成片的对话；指标与镜、用量都是这段对话的全量，不按时间窗裁。
  */
 export type ConversationAuditOut = {
   /**
@@ -1311,7 +1313,7 @@ export type MetricFiltersIn = {
 /**
  * MetricsOut
  *
- * 一格指标。每一层都是这个形状，见合同 §12。
+ * 一格指标。全体、人、需求单、时段、对话各层都是这个形状，只是维度键不同；见合同 §12。
  */
 export type MetricsOut = {
   /**
@@ -1321,7 +1323,7 @@ export type MetricsOut = {
   /**
    * Attemptspershot
    */
-  attemptsPerShot: number | null
+  readonly attemptsPerShot: number | null
   /**
    * Completedvideos
    */
@@ -1341,12 +1343,16 @@ export type MetricsOut = {
   deliveredTasks: number
   /**
    * Deliveries
+   *
+   * 成片件数：有成片的需求单各一件，加没挂需求单却有成片的对话各一件。
    */
-  deliveries: number
+  readonly deliveries: number
   /**
    * Onetakerate
+   *
+   * 一次通过率：只出了一条且成了的镜占全部镜的比例。
    */
-  oneTakeRate: number | null
+  readonly oneTakeRate: number | null
   /**
    * Onetakeshots
    */
@@ -1366,7 +1372,7 @@ export type MetricsOut = {
   /**
    * Tokensperdelivery
    */
-  tokensPerDelivery: number | null
+  readonly tokensPerDelivery: number | null
   upstreamSeconds: SpreadOut | null
   usage: UsageOut
   videoSeconds: SpreadOut | null
@@ -1669,7 +1675,7 @@ export type SidebarOut = {
 /**
  * SpreadOut
  *
- * 时长分布，单位秒。
+ * 一组时长样本的分布，单位秒。
  */
 export type SpreadOut = {
   /**
@@ -2747,8 +2753,10 @@ export type UploadTicketOut = {
 export type UsageOut = {
   /**
    * Cachehitrate
+   *
+   * 缓存读取 ÷（新输入 + 缓存读取 + 缓存写入）；没有输入时为空。
    */
-  cacheHitRate: number | null
+  readonly cacheHitRate: number | null
   /**
    * Cachereadtokens
    */
@@ -2772,7 +2780,7 @@ export type UsageOut = {
   /**
    * Totaltokens
    */
-  totalTokens: number
+  readonly totalTokens: number
 }
 
 /**

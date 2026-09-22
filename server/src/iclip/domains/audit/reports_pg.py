@@ -16,24 +16,26 @@ from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from iclip.domains.audit.models import (
-    EMPTY_METRICS,
-    Anomaly,
     AnomalyCursor,
     AnomalyKind,
-    AttemptBucket,
     Bucket,
     ConversationCursor,
-    ConversationReport,
-    Metrics,
-    ModelUsage,
-    PeriodMetrics,
     Scope,
-    ShotReport,
-    Spread,
-    TaskMetrics,
     Thresholds,
-    UsageTotals,
-    UserMetrics,
+)
+from iclip.domains.audit.schemas import (
+    EMPTY_METRICS,
+    AnomalyOut,
+    AttemptBucketOut,
+    ConversationAuditOut,
+    MetricsOut,
+    ModelUsageOut,
+    PeriodMetricsOut,
+    ShotOut,
+    SpreadOut,
+    TaskMetricsOut,
+    UsageOut,
+    UserMetricsOut,
 )
 
 # ---------------------------------------------------------------------------
@@ -43,6 +45,9 @@ from iclip.domains.audit.models import (
 # 分叉出来的副本一律不进报表（``forked_from`` 非空）：它带着源对话拷来的出片记录，
 # 算进去会把原作者的产量重计一遍，副本自己跑的也是试验数据。挡在 videos / person / runs
 # 三个根 CTE 上，其余口径都从它们派生。
+# SQL 里的 'video' / 'completed' / 'submitted' 镜像生成域的 KIND_VIDEO / STATUS_COMPLETED /
+# STATUS_SUBMITTED（ADR-0027：报表按表名直接查，不 import 业务模块）；集成测试的种子取自那些
+# 常量，生成域改词这里的用例就红。
 # ---------------------------------------------------------------------------
 
 _VIDEOS: Final = """
@@ -508,15 +513,15 @@ def _int(value: Any) -> int:
     return 0 if value is None else int(value)
 
 
-def _spread_of(row: RowMapping, prefix: str) -> Spread | None:
+def _spread_of(row: RowMapping, prefix: str) -> SpreadOut | None:
     avg, median, p90 = (_float(row[f"{prefix}_{name}"]) for name in ("avg", "median", "p90"))
     if avg is None or median is None or p90 is None:
         return None
-    return Spread(avg=avg, median=median, p90=p90)
+    return SpreadOut(avg=avg, median=median, p90=p90)
 
 
-def _usage_of(row: RowMapping) -> UsageTotals:
-    return UsageTotals(
+def _usage_of(row: RowMapping) -> UsageOut:
+    return UsageOut(
         requests=_int(row["requests"]),
         input_tokens=_int(row["input_tokens"]),
         cache_read_tokens=_int(row["cache_read_tokens"]),
@@ -525,8 +530,8 @@ def _usage_of(row: RowMapping) -> UsageTotals:
     )
 
 
-def _metrics_of(row: RowMapping) -> Metrics:
-    return Metrics(
+def _metrics_of(row: RowMapping) -> MetricsOut:
+    return MetricsOut(
         completed_videos=_int(row["completed_videos"]),
         delivered_tasks=_int(row["delivered_tasks"]),
         delivered_orphan_conversations=_int(row["delivered_orphan_conversations"]),
@@ -543,7 +548,7 @@ def _metrics_of(row: RowMapping) -> Metrics:
     )
 
 
-def _rank(metrics: Metrics) -> tuple[int, int, int]:
+def _rank(metrics: MetricsOut) -> tuple[int, int, int]:
     """人与需求单的排序：成片件数多的在前，再看成片视频条数，最后看运行次数。"""
 
     return (-metrics.deliveries, -metrics.completed_videos, -metrics.runs)
@@ -564,16 +569,16 @@ class PgAuditReports:
         async with self._engine.connect() as fresh:
             return (await fresh.execute(statement, params)).mappings().all()
 
-    async def overall(self, scope: Scope) -> Metrics:
+    async def overall(self, scope: Scope) -> MetricsOut:
         rows = await self._metrics("overall", _scope_params(scope))
         return _metrics_of(rows[0]) if rows else EMPTY_METRICS
 
-    async def by_user(self, scope: Scope) -> Sequence[UserMetrics]:
+    async def by_user(self, scope: Scope) -> Sequence[UserMetricsOut]:
         rows = await self._metrics("user", _scope_params(scope))
-        found = [UserMetrics(user_name=str(row["k"]), metrics=_metrics_of(row)) for row in rows]
+        found = [UserMetricsOut(user_name=str(row["k"]), metrics=_metrics_of(row)) for row in rows]
         return sorted(found, key=lambda item: (_rank(item.metrics), item.user_name))
 
-    async def by_task(self, scope: Scope) -> Sequence[TaskMetrics]:
+    async def by_task(self, scope: Scope) -> Sequence[TaskMetricsOut]:
         async with self._engine.connect() as conn:
             rows = await self._metrics("task", _scope_params(scope), conn=conn)
             ids = [row["k"] for row in rows]
@@ -586,28 +591,31 @@ class PgAuditReports:
                 else {}
             )
         found = [
-            TaskMetrics(task_id=row["k"], title=titles.get(row["k"], ""), metrics=_metrics_of(row))
+            TaskMetricsOut(
+                task_id=row["k"], title=titles.get(row["k"], ""), metrics=_metrics_of(row)
+            )
             for row in rows
         ]
         return sorted(found, key=lambda item: (_rank(item.metrics), str(item.task_id)))
 
     async def by_period(
         self, scope: Scope, *, bucket: Bucket, timezone: str
-    ) -> Sequence[PeriodMetrics]:
+    ) -> Sequence[PeriodMetricsOut]:
         params = {**_scope_params(scope), "bucket": bucket, "timezone": timezone}
         rows = await self._metrics("period", params)
-        return [PeriodMetrics(period_start=row["k"], metrics=_metrics_of(row)) for row in rows]
+        return [PeriodMetricsOut(period_start=row["k"], metrics=_metrics_of(row)) for row in rows]
 
-    async def attempt_distribution(self, scope: Scope) -> Sequence[AttemptBucket]:
+    async def attempt_distribution(self, scope: Scope) -> Sequence[AttemptBucketOut]:
         async with self._engine.connect() as conn:
             rows = (await conn.execute(_ATTEMPTS, _scope_params(scope))).mappings().all()
         return [
-            AttemptBucket(attempts=_int(row["attempts"]), shots=_int(row["shots"])) for row in rows
+            AttemptBucketOut(attempts=_int(row["attempts"]), shots=_int(row["shots"]))
+            for row in rows
         ]
 
     async def conversations(
         self, scope: Scope, *, limit: int, after: ConversationCursor | None
-    ) -> Sequence[ConversationReport]:
+    ) -> Sequence[ConversationAuditOut]:
         params = {
             **_scope_params(scope),
             "after_at": after.delivered_at if after else None,
@@ -627,10 +635,10 @@ class PgAuditReports:
             usage_rows = (await conn.execute(_USAGE_OF, {"ids": ids})).mappings().all()
 
         metrics = {row["k"]: _metrics_of(row) for row in metric_rows}
-        shots: dict[uuid.UUID, list[ShotReport]] = {}
+        shots: dict[uuid.UUID, list[ShotOut]] = {}
         for row in shot_rows:
             shots.setdefault(row["conversation_id"], []).append(
-                ShotReport(
+                ShotOut(
                     shot=int(row["shot"]),
                     attempts=int(row["attempts"]),
                     one_take=bool(row["one_take"]),
@@ -638,13 +646,13 @@ class PgAuditReports:
                     last_at=row["last_at"],
                 )
             )
-        usage: dict[uuid.UUID, list[ModelUsage]] = {}
+        usage: dict[uuid.UUID, list[ModelUsageOut]] = {}
         for row in usage_rows:
             usage.setdefault(row["conversation_id"], []).append(
-                ModelUsage(model_name=row["model_name"], usage=_usage_of(row))
+                ModelUsageOut(model_name=row["model_name"], usage=_usage_of(row))
             )
         return [
-            ConversationReport(
+            ConversationAuditOut(
                 conversation_id=head["conversation_id"],
                 title=head["title"],
                 owner_user_id=head["owner_user_id"],
@@ -654,8 +662,8 @@ class PgAuditReports:
                 started_at=head["started_at"],
                 delivered_at=head["delivered_at"],
                 metrics=metrics.get(head["conversation_id"], EMPTY_METRICS),
-                shots=tuple(shots.get(head["conversation_id"], ())),
-                usage=tuple(usage.get(head["conversation_id"], ())),
+                shots=shots.get(head["conversation_id"], []),
+                usage=usage.get(head["conversation_id"], []),
             )
             for head in heads
         ]
@@ -668,7 +676,7 @@ class PgAuditReports:
         kinds: Sequence[AnomalyKind] | None,
         limit: int,
         after: AnomalyCursor | None,
-    ) -> Sequence[Anomaly]:
+    ) -> Sequence[AnomalyOut]:
         params = {
             **_scope_params(scope),
             "retry_over": thresholds.retry_over,
@@ -683,7 +691,7 @@ class PgAuditReports:
         async with self._engine.connect() as conn:
             rows = (await conn.execute(_ANOMALIES, params)).mappings().all()
         return [
-            Anomaly(
+            AnomalyOut(
                 kind=row["kind"],
                 at=row["at"],
                 ref=row["ref"],

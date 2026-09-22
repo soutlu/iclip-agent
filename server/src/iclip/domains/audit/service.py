@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Final, get_args
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -12,49 +11,21 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from iclip.common.errors import PermissionDenied, ValidationFailed
 from iclip.domains.audit.models import (
     DEFAULT_THRESHOLDS,
-    Anomaly,
     AnomalyCursor,
     AnomalyKind,
-    AttemptBucket,
     Bucket,
     ConversationCursor,
-    ConversationReport,
-    Metrics,
-    PeriodMetrics,
     Scope,
-    TaskMetrics,
     Thresholds,
-    UserMetrics,
 )
 from iclip.domains.audit.repository import AuditReports
+from iclip.domains.audit.schemas import AnomaliesOut, AuditConversationsOut, SummaryOut
 from iclip.domains.identity.public import Principal
 from iclip.platform.paging import check_limit, decode_cursor, encode_cursor
 
 MANAGE_PERMISSION: Final = "users:manage"
 
 _ANOMALY_KINDS: Final[frozenset[str]] = frozenset(get_args(AnomalyKind))
-
-
-@dataclass(frozen=True, slots=True)
-class Summary:
-    overall: Metrics
-    users: Sequence[UserMetrics]
-    tasks: Sequence[TaskMetrics]
-    series: Sequence[PeriodMetrics] | None
-    attempt_distribution: Sequence[AttemptBucket]
-    """出片次数分布，只给全体一档；按人、按需求单的行上没有这份数据。"""
-
-
-@dataclass(frozen=True, slots=True)
-class ConversationsPage:
-    items: Sequence[ConversationReport]
-    next_cursor: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class AnomaliesPage:
-    items: Sequence[Anomaly]
-    next_cursor: str | None
 
 
 def _as_utc(moment: datetime | None) -> datetime | None:
@@ -126,7 +97,7 @@ class AuditService:
         task_id: uuid.UUID | None = None,
         bucket: Bucket | None = None,
         timezone: str = "UTC",
-    ) -> Summary:
+    ) -> SummaryOut:
         """全体一格、每人一行、每单一行；给了 ``bucket`` 再按 ``timezone`` 的日 / 周 / 月切一条序列。"""
 
         self._require_governor(principal)
@@ -136,12 +107,12 @@ class AuditService:
             series = await self._reports.by_period(
                 scope, bucket=bucket, timezone=_check_timezone(timezone)
             )
-        return Summary(
+        return SummaryOut(
             overall=await self._reports.overall(scope),
-            users=await self._reports.by_user(scope),
-            tasks=await self._reports.by_task(scope),
-            series=series,
-            attempt_distribution=await self._reports.attempt_distribution(scope),
+            users=list(await self._reports.by_user(scope)),
+            tasks=list(await self._reports.by_task(scope)),
+            series=None if series is None else list(series),
+            attempt_distribution=list(await self._reports.attempt_distribution(scope)),
         )
 
     async def conversations(
@@ -154,7 +125,7 @@ class AuditService:
         task_id: uuid.UUID | None = None,
         limit: int = 20,
         cursor: str | None = None,
-    ) -> ConversationsPage:
+    ) -> AuditConversationsOut:
         """有成片的对话，最后成片晚的排前面。满页才给下一页游标。"""
 
         self._require_governor(principal)
@@ -167,7 +138,7 @@ class AuditService:
         next_cursor = (
             None if last is None else encode_cursor(last.delivered_at, last.conversation_id)
         )
-        return ConversationsPage(items=items, next_cursor=next_cursor)
+        return AuditConversationsOut(items=list(items), next_cursor=next_cursor)
 
     async def anomalies(
         self,
@@ -181,7 +152,7 @@ class AuditService:
         thresholds: Thresholds = DEFAULT_THRESHOLDS,
         limit: int = 20,
         cursor: str | None = None,
-    ) -> AnomaliesPage:
+    ) -> AnomaliesOut:
         """异常按发生时刻倒序。``kinds`` 为空即全部种类。"""
 
         self._require_governor(principal)
@@ -196,13 +167,7 @@ class AuditService:
         )
         last = items[-1] if len(items) == limit else None
         next_cursor = None if last is None else encode_cursor(last.at, last.ref)
-        return AnomaliesPage(items=items, next_cursor=next_cursor)
+        return AnomaliesOut(items=list(items), next_cursor=next_cursor)
 
 
-__all__ = [
-    "MANAGE_PERMISSION",
-    "AnomaliesPage",
-    "AuditService",
-    "ConversationsPage",
-    "Summary",
-]
+__all__ = ["MANAGE_PERMISSION", "AuditService"]

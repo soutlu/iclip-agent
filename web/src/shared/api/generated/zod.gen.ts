@@ -33,6 +33,8 @@ export const zAgentStatusMeta = z.object({
 
 /**
  * AnomalyOut
+ *
+ * 一条异常。``ref`` 是「种类:对象」的稳定文本，与 ``at`` 一起构成排序键与游标，不出接口。
  */
 export const zAnomalyOut = z.object({
   at: z.iso.datetime(),
@@ -137,7 +139,7 @@ export const zAttachmentSource = z.object({
 /**
  * AttemptBucketOut
  *
- * 出片次数正好是 ``attempts`` 次的镜有多少个。
+ * 出片次数正好是 ``attempts`` 次的镜有多少个。次数按镜上全部出片记录数，不看终态。
  */
 export const zAttemptBucketOut = z.object({
   attempts: z.int(),
@@ -688,7 +690,7 @@ export const zSidebarOut = z.object({
 /**
  * SpreadOut
  *
- * 时长分布，单位秒。
+ * 一组时长样本的分布，单位秒。
  */
 export const zSpreadOut = z.object({
   avg: z.number(),
@@ -1084,13 +1086,13 @@ export const zUsageOut = z.object({
   inputTokens: z.int(),
   outputTokens: z.int(),
   requests: z.int(),
-  totalTokens: z.int(),
+  totalTokens: z.int().readonly(),
 })
 
 /**
  * MetricsOut
  *
- * 一格指标。每一层都是这个形状，见合同 §12。
+ * 一格指标。全体、人、需求单、时段、对话各层都是这个形状，只是维度键不同；见合同 §12。
  */
 export const zMetricsOut = z.object({
   attempts: z.int(),
@@ -1100,7 +1102,7 @@ export const zMetricsOut = z.object({
   deliveredConversations: z.int(),
   deliveredOrphanConversations: z.int(),
   deliveredTasks: z.int(),
-  deliveries: z.int(),
+  deliveries: z.int().readonly(),
   oneTakeRate: z.number().nullable(),
   oneTakeShots: z.int(),
   producers: z.int(),
@@ -1123,7 +1125,7 @@ export const zModelUsageOut = z.object({
 /**
  * ConversationAuditOut
  *
- * 一段有成片的对话；指标与镜、用量都是这段对话的全量。
+ * 一段有成片的对话；指标与镜、用量都是这段对话的全量，不按时间窗裁。
  */
 export const zConversationAuditOut = z.object({
   conversationId: z.uuid(),

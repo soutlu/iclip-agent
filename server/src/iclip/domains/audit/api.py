@@ -8,19 +8,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from iclip.domains.audit.models import AnomalyKind, Bucket, Thresholds
-from iclip.domains.audit.schemas import (
-    AnomaliesOut,
-    AuditConversationsOut,
-    SummaryOut,
-    anomaly_out,
-    attempt_bucket_out,
-    conversation_out,
-    metrics_out,
-    period_metrics_out,
-    task_metrics_out,
-    user_metrics_out,
-)
+from iclip.domains.audit.models import DEFAULT_THRESHOLDS, AnomalyKind, Bucket, Thresholds
+from iclip.domains.audit.schemas import AnomaliesOut, AuditConversationsOut, SummaryOut
 from iclip.domains.audit.service import AuditService
 from iclip.domains.identity.public import Principal, require_authenticated
 from iclip.platform.paging import DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT
@@ -47,7 +36,7 @@ def create_audit_router(service: AuditService) -> APIRouter:
         各指标的定义、时间窗落在哪个时刻上、``attemptDistribution`` 只给全体一档，见合同 §12。
         """
 
-        found = await service.summary(
+        return await service.summary(
             principal,
             since=since,
             until=until,
@@ -55,15 +44,6 @@ def create_audit_router(service: AuditService) -> APIRouter:
             task_id=task_id,
             bucket=bucket,
             timezone=timezone,
-        )
-        return SummaryOut(
-            overall=metrics_out(found.overall),
-            users=[user_metrics_out(item) for item in found.users],
-            tasks=[task_metrics_out(item) for item in found.tasks],
-            series=None
-            if found.series is None
-            else [period_metrics_out(item) for item in found.series],
-            attempt_distribution=[attempt_bucket_out(item) for item in found.attempt_distribution],
         )
 
     @router.get("/conversations", response_model=AuditConversationsOut)
@@ -81,7 +61,7 @@ def create_audit_router(service: AuditService) -> APIRouter:
         时间窗与翻页规则见合同 §12。
         """
 
-        page = await service.conversations(
+        return await service.conversations(
             principal,
             since=since,
             until=until,
@@ -89,9 +69,6 @@ def create_audit_router(service: AuditService) -> APIRouter:
             task_id=task_id,
             limit=limit,
             cursor=cursor,
-        )
-        return AuditConversationsOut(
-            items=[conversation_out(item) for item in page.items], next_cursor=page.next_cursor
         )
 
     @router.get("/anomalies", response_model=AnomaliesOut)
@@ -102,10 +79,14 @@ def create_audit_router(service: AuditService) -> APIRouter:
         user_name: UserNameQuery = None,
         task_id: TaskIdQuery = None,
         kind: Annotated[list[AnomalyKind] | None, Query()] = None,
-        retry_over: Annotated[int, Query(alias="retryOver", ge=1)] = 2,
-        idle_hours: Annotated[int, Query(alias="idleHours", ge=1)] = 24,
-        stuck_hours: Annotated[int, Query(alias="stuckHours", ge=1)] = 1,
-        task_conversations: Annotated[int, Query(alias="taskConversations", ge=1)] = 3,
+        retry_over: Annotated[int, Query(alias="retryOver", ge=1)] = DEFAULT_THRESHOLDS.retry_over,
+        idle_hours: Annotated[int, Query(alias="idleHours", ge=1)] = DEFAULT_THRESHOLDS.idle_hours,
+        stuck_hours: Annotated[
+            int, Query(alias="stuckHours", ge=1)
+        ] = DEFAULT_THRESHOLDS.stuck_hours,
+        task_conversations: Annotated[
+            int, Query(alias="taskConversations", ge=1)
+        ] = DEFAULT_THRESHOLDS.task_conversations,
         limit: Annotated[int, Query(ge=1, le=MAX_LIST_LIMIT)] = DEFAULT_LIST_LIMIT,
         cursor: str | None = None,
     ) -> AnomaliesOut:
@@ -114,7 +95,7 @@ def create_audit_router(service: AuditService) -> APIRouter:
         九种异常的判定、阈值参数管哪几种、``slow`` 与 ``spend`` 的门槛按筛选范围现算，见合同 §12。
         """
 
-        page = await service.anomalies(
+        return await service.anomalies(
             principal,
             since=since,
             until=until,
@@ -129,9 +110,6 @@ def create_audit_router(service: AuditService) -> APIRouter:
             ),
             limit=limit,
             cursor=cursor,
-        )
-        return AnomaliesOut(
-            items=[anomaly_out(item) for item in page.items], next_cursor=page.next_cursor
         )
 
     return router

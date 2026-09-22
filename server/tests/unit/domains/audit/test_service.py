@@ -12,22 +12,24 @@ import pytest
 
 from iclip.common.errors import PermissionDenied, ValidationFailed
 from iclip.domains.audit.models import (
-    EMPTY_METRICS,
-    Anomaly,
     AnomalyCursor,
     AnomalyKind,
-    AttemptBucket,
     Bucket,
     ConversationCursor,
-    ConversationReport,
-    Metrics,
-    PeriodMetrics,
     Scope,
-    Spread,
-    TaskMetrics,
     Thresholds,
-    UsageTotals,
-    UserMetrics,
+)
+from iclip.domains.audit.schemas import (
+    EMPTY_METRICS,
+    AnomalyOut,
+    AttemptBucketOut,
+    ConversationAuditOut,
+    MetricsOut,
+    PeriodMetricsOut,
+    SpreadOut,
+    TaskMetricsOut,
+    UsageOut,
+    UserMetricsOut,
 )
 from iclip.domains.audit.service import AuditService
 from iclip.domains.identity.public import Principal
@@ -45,8 +47,8 @@ GOVERNOR = principal("users:manage", "agent:read")
 EDITOR = principal("agent:read", "generation:read")
 
 
-def report(conversation_id: uuid.UUID, delivered_at: datetime) -> ConversationReport:
-    return ConversationReport(
+def report(conversation_id: uuid.UUID, delivered_at: datetime) -> ConversationAuditOut:
+    return ConversationAuditOut(
         conversation_id=conversation_id,
         title="t",
         owner_user_id=uuid.uuid4(),
@@ -56,13 +58,13 @@ def report(conversation_id: uuid.UUID, delivered_at: datetime) -> ConversationRe
         started_at=delivered_at - timedelta(hours=1),
         delivered_at=delivered_at,
         metrics=EMPTY_METRICS,
-        shots=(),
-        usage=(),
+        shots=[],
+        usage=[],
     )
 
 
-def anomaly(kind: AnomalyKind, at: datetime, ref: str) -> Anomaly:
-    return Anomaly(
+def anomaly(kind: AnomalyKind, at: datetime, ref: str) -> AnomalyOut:
+    return AnomalyOut(
         kind=kind,
         at=at,
         ref=ref,
@@ -76,10 +78,10 @@ def anomaly(kind: AnomalyKind, at: datetime, ref: str) -> Anomaly:
     )
 
 
-ATTEMPT_ROWS: Sequence[AttemptBucket] = (
-    AttemptBucket(attempts=1, shots=62),
-    AttemptBucket(attempts=2, shots=24),
-    AttemptBucket(attempts=5, shots=2),
+ATTEMPT_ROWS: Sequence[AttemptBucketOut] = (
+    AttemptBucketOut(attempts=1, shots=62),
+    AttemptBucketOut(attempts=2, shots=24),
+    AttemptBucketOut(attempts=5, shots=2),
 )
 
 
@@ -87,35 +89,35 @@ ATTEMPT_ROWS: Sequence[AttemptBucket] = (
 class RecordingReports:
     """记下每次调用的参数，按需要回放固定结果。"""
 
-    conversation_rows: list[ConversationReport] = field(default_factory=list)
-    anomaly_rows: list[Anomaly] = field(default_factory=list)
+    conversation_rows: list[ConversationAuditOut] = field(default_factory=list)
+    anomaly_rows: list[AnomalyOut] = field(default_factory=list)
     calls: list[tuple[str, Any]] = field(default_factory=list)
 
-    async def overall(self, scope: Scope) -> Metrics:
+    async def overall(self, scope: Scope) -> MetricsOut:
         self.calls.append(("overall", scope))
         return EMPTY_METRICS
 
-    async def by_user(self, scope: Scope) -> Sequence[UserMetrics]:
+    async def by_user(self, scope: Scope) -> Sequence[UserMetricsOut]:
         self.calls.append(("by_user", scope))
         return []
 
-    async def by_task(self, scope: Scope) -> Sequence[TaskMetrics]:
+    async def by_task(self, scope: Scope) -> Sequence[TaskMetricsOut]:
         self.calls.append(("by_task", scope))
         return []
 
     async def by_period(
         self, scope: Scope, *, bucket: Bucket, timezone: str
-    ) -> Sequence[PeriodMetrics]:
+    ) -> Sequence[PeriodMetricsOut]:
         self.calls.append(("by_period", (scope, bucket, timezone)))
         return []
 
-    async def attempt_distribution(self, scope: Scope) -> Sequence[AttemptBucket]:
+    async def attempt_distribution(self, scope: Scope) -> Sequence[AttemptBucketOut]:
         self.calls.append(("attempt_distribution", scope))
         return ATTEMPT_ROWS
 
     async def conversations(
         self, scope: Scope, *, limit: int, after: ConversationCursor | None
-    ) -> Sequence[ConversationReport]:
+    ) -> Sequence[ConversationAuditOut]:
         self.calls.append(("conversations", (scope, limit, after)))
         return self.conversation_rows[:limit]
 
@@ -127,7 +129,7 @@ class RecordingReports:
         kinds: Sequence[AnomalyKind] | None,
         limit: int,
         after: AnomalyCursor | None,
-    ) -> Sequence[Anomaly]:
+    ) -> Sequence[AnomalyOut]:
         self.calls.append(("anomalies", (scope, thresholds, kinds, after)))
         return self.anomaly_rows[:limit]
 
@@ -148,7 +150,7 @@ async def test_summary_normalises_the_window_and_only_buckets_on_request() -> No
     bucketed = await service.summary(GOVERNOR, bucket="day", timezone="Asia/Shanghai")
 
     assert plain.series is None and bucketed.series == []
-    assert plain.attempt_distribution == ATTEMPT_ROWS
+    assert plain.attempt_distribution == list(ATTEMPT_ROWS)
     assert ("attempt_distribution", Scope()) in reports.calls
     scopes = [scope for name, scope in reports.calls if name == "overall"]
     assert scopes[0] == Scope(
@@ -233,14 +235,14 @@ async def test_limit_out_of_range_is_422() -> None:
 
 
 def test_metrics_derive_ratios_and_go_blank_on_zero_denominators() -> None:
-    usage = UsageTotals(
+    usage = UsageOut(
         requests=3,
         input_tokens=100,
         cache_read_tokens=300,
         cache_write_tokens=100,
         output_tokens=50,
     )
-    metrics = Metrics(
+    metrics = MetricsOut(
         completed_videos=4,
         delivered_tasks=1,
         delivered_orphan_conversations=1,
@@ -250,7 +252,7 @@ def test_metrics_derive_ratios_and_go_blank_on_zero_denominators() -> None:
         one_take_shots=3,
         runs=5,
         delivered_conversations=2,
-        cycle_seconds=Spread(avg=1, median=1, p90=1),
+        cycle_seconds=SpreadOut(avg=1, median=1, p90=1),
         video_seconds=None,
         upstream_seconds=None,
         usage=usage,

@@ -179,6 +179,7 @@
       },
       "AnomalyOut": {
         "additionalProperties": false,
+        "description": "一条异常。``ref`` 是「种类:对象」的稳定文本，与 ``at`` 一起构成排序键与游标，不出接口。",
         "properties": {
           "at": {
             "format": "date-time",
@@ -623,7 +624,7 @@
       },
       "AttemptBucketOut": {
         "additionalProperties": false,
-        "description": "出片次数正好是 ``attempts`` 次的镜有多少个。",
+        "description": "出片次数正好是 ``attempts`` 次的镜有多少个。次数按镜上全部出片记录数，不看终态。",
         "properties": {
           "attempts": {
             "title": "Attempts",
@@ -1022,7 +1023,7 @@
       },
       "ConversationAuditOut": {
         "additionalProperties": false,
-        "description": "一段有成片的对话；指标与镜、用量都是这段对话的全量。",
+        "description": "一段有成片的对话；指标与镜、用量都是这段对话的全量，不按时间窗裁。",
         "properties": {
           "conversationId": {
             "format": "uuid",
@@ -2471,7 +2472,7 @@
       },
       "MetricsOut": {
         "additionalProperties": false,
-        "description": "一格指标。每一层都是这个形状，见合同 §12。",
+        "description": "一格指标。全体、人、需求单、时段、对话各层都是这个形状，只是维度键不同；见合同 §12。",
         "properties": {
           "attempts": {
             "title": "Attempts",
@@ -2486,6 +2487,7 @@
                 "type": "null"
               }
             ],
+            "readOnly": true,
             "title": "Attemptspershot"
           },
           "completedVideos": {
@@ -2515,6 +2517,8 @@
             "type": "integer"
           },
           "deliveries": {
+            "description": "成片件数：有成片的需求单各一件，加没挂需求单却有成片的对话各一件。",
+            "readOnly": true,
             "title": "Deliveries",
             "type": "integer"
           },
@@ -2527,6 +2531,8 @@
                 "type": "null"
               }
             ],
+            "description": "一次通过率：只出了一条且成了的镜占全部镜的比例。",
+            "readOnly": true,
             "title": "Onetakerate"
           },
           "oneTakeShots": {
@@ -2554,6 +2560,7 @@
                 "type": "null"
               }
             ],
+            "readOnly": true,
             "title": "Tokensperdelivery"
           },
           "upstreamSeconds": {
@@ -2581,22 +2588,22 @@
           }
         },
         "required": [
-          "deliveries",
+          "completedVideos",
           "deliveredTasks",
           "deliveredOrphanConversations",
-          "completedVideos",
           "producers",
           "shots",
           "attempts",
           "oneTakeShots",
-          "attemptsPerShot",
-          "oneTakeRate",
           "runs",
           "deliveredConversations",
           "cycleSeconds",
           "videoSeconds",
           "upstreamSeconds",
           "usage",
+          "deliveries",
+          "attemptsPerShot",
+          "oneTakeRate",
           "tokensPerDelivery"
         ],
         "title": "MetricsOut",
@@ -3172,7 +3179,7 @@
       },
       "SpreadOut": {
         "additionalProperties": false,
-        "description": "时长分布，单位秒。",
+        "description": "一组时长样本的分布，单位秒。",
         "properties": {
           "avg": {
             "title": "Avg",
@@ -5329,6 +5336,8 @@
                 "type": "null"
               }
             ],
+            "description": "缓存读取 ÷（新输入 + 缓存读取 + 缓存写入）；没有输入时为空。",
+            "readOnly": true,
             "title": "Cachehitrate"
           },
           "cacheReadTokens": {
@@ -5352,6 +5361,7 @@
             "type": "integer"
           },
           "totalTokens": {
+            "readOnly": true,
             "title": "Totaltokens",
             "type": "integer"
           }
