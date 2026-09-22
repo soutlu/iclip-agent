@@ -106,6 +106,9 @@ test('需求详情可直接播放、切版、下载和放大，关闭预览保�
       animations: 'disabled',
     })
   }
+  await page.setViewportSize({ width: 1210, height: 1324 })
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.screenshot({ path: `${SHOT_DIR}/desktop-tall.png`, animations: 'disabled' })
 })
 
 test('手机单列可滚动查看视频、长标题和操作，面板重开不丢表单', async ({ page }) => {
