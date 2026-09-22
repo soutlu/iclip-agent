@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { Icon } from '@/shared/icons'
 import { formatDateTime } from '@/shared/lib/date-time'
 import { cn } from '@/shared/lib/utils'
-import { Button } from '@/shared/ui/button'
+import { ListEmpty, ListError, ListPending, LoadMoreFooter } from '@/shared/ui/list-state'
 import { Tag } from '@/shared/ui/tag'
 import { useAuditConversationReports, type AuditScope, type ConversationReport } from '../audit.api'
 import { formatCount, formatDuration, formatRate, formatTimes, formatTokens } from '../format'
@@ -21,39 +21,11 @@ export function ConversationsPanel({ scope, nameOf, taskTitleOf }: Conversations
   const query = useAuditConversationReports(scope)
   const rows = query.data?.pages.flatMap((page) => page.items) ?? []
 
-  if (query.isPending) {
-    return (
-      <p
-        className="flex items-center justify-center gap-2 py-16 text-body text-on-surface-variant"
-        role="status"
-      >
-        <Icon className="animate-spin" decorative name="loading" size="sm" />
-        正在读取对话明细
-      </p>
-    )
-  }
+  if (query.isPending) return <ListPending label="正在读取对话明细" />
   if (query.isError) {
-    return (
-      <div className="flex flex-col items-center gap-3 py-16" role="alert">
-        <p className="text-body text-error">{query.error.message}</p>
-        <Button
-          leadingIcon="refresh"
-          onClick={() => void query.refetch()}
-          size="md"
-          variant="outlined"
-        >
-          重新加载
-        </Button>
-      </div>
-    )
+    return <ListError message={query.error.message} onRetry={() => void query.refetch()} />
   }
-  if (rows.length === 0) {
-    return (
-      <p className="py-16 text-center text-body text-on-surface-variant">
-        这个范围里没有出过片的对话
-      </p>
-    )
-  }
+  if (rows.length === 0) return <ListEmpty>这个范围里没有出过片的对话</ListEmpty>
 
   return (
     <section
@@ -80,17 +52,11 @@ export function ConversationsPanel({ scope, nameOf, taskTitleOf }: Conversations
         ))}
       </ul>
       {query.hasNextPage ? (
-        <footer className="flex justify-center px-3 py-4">
-          <Button
-            disabled={query.isFetchingNextPage}
-            leadingIcon="expand"
-            onClick={() => void query.fetchNextPage()}
-            size="md"
-            variant="ghost"
-          >
-            {query.isFetchingNextPage ? '正在读取…' : '显示更多对话'}
-          </Button>
-        </footer>
+        <LoadMoreFooter
+          isFetching={query.isFetchingNextPage}
+          label="显示更多对话"
+          onMore={() => void query.fetchNextPage()}
+        />
       ) : null}
     </section>
   )

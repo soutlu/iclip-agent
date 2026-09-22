@@ -6,8 +6,7 @@ import {
   OverviewPanel,
   type AuditScope,
 } from '@/features/audit'
-import { useUsersDirectory } from '@/shared/auth'
-import type { PickerSource } from '@/shared/ui/search-picker'
+import { userPickerSourceOf, useUsersDirectory } from '@/shared/auth'
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from '@/shared/ui/tabs'
 import { auditSearchSchema, scopeFromSearch, searchFromScope } from '../-audit-search'
 import { requireGovernor } from '../-require-governor'
@@ -37,22 +36,10 @@ function AuditPage() {
   const setScope = (next: AuditScope) =>
     void navigate({ replace: true, search: { ...searchFromScope(next), tab: search.tab } })
 
-  // 报表按上游归属的用户名归人，候选的 id 用用户名；没有用户名的账号不会出现在报表里，也不列。
-  const userSource: PickerSource = {
-    error: directory.error,
-    isPending: directory.isPending,
-    onRetry: () => void directory.refetch(),
-    options: directory.users.flatMap((item) =>
-      item.username === null ? [] : [{ id: item.username, label: item.displayName }],
-    ),
-  }
-  const displayNameByUsername = new Map(
-    directory.users.flatMap((item) =>
-      item.username === null ? [] : [[item.username, item.displayName] as const],
-    ),
-  )
+  // 报表按上游归属的用户名归人，候选的 id 与显示名都按用户名查。
+  const userSource = userPickerSourceOf(directory, 'username')
   const taskTitles = new Map((taskSource?.options ?? []).map((task) => [task.id, task.label]))
-  const nameOf = (userName: string) => displayNameByUsername.get(userName)
+  const nameOf = directory.nameOfUsername
   const taskTitleOf = (taskId: string) => taskTitles.get(taskId)
 
   // 切标签不动筛选范围；总览是默认标签，不写进地址。
