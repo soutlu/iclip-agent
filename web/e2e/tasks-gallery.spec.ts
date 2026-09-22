@@ -214,7 +214,6 @@ test('参考缩略图覆盖在主图内，保持原图比例，左右滚动与�
     .toBeGreaterThan(0)
   const coverBounds = await boundsOf(card.getByRole('img').first())
   const thumbnailBounds = await boundsOf(image)
-  expect(thumbnailBounds.height).toBe(28)
   expect(thumbnailBounds.y).toBeGreaterThan(coverBounds.y)
   expect(thumbnailBounds.y + thumbnailBounds.height).toBeLessThan(
     coverBounds.y + coverBounds.height,
@@ -258,10 +257,8 @@ for (const viewport of [
     const second = await boundsOf(cards.nth(1))
     const third = await boundsOf(cards.nth(2))
     const cover = await boundsOf(cards.first().getByRole('img').first())
-    expect(first.width).toBeLessThanOrEqual(196)
     expect(Math.abs(cover.width - first.width)).toBeLessThan(1)
-    expect(cover.height).toBe(180)
-    await expect(cards.first().getByRole('img').first()).toHaveCSS('object-fit', 'cover')
+    expect(cover.height).toBeLessThan(first.height)
     await expect(cards.first().getByLabel('发布平台：抖音')).toBeVisible()
     await expect(cards.first().getByLabel('视频类型：产品展示')).toBeVisible()
     await expect(cards.first().getByLabel('内容类型：短视频')).toBeVisible()

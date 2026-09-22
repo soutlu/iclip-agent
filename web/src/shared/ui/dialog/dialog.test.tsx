@@ -62,3 +62,43 @@ describe('DialogSurface 对文件拖放', () => {
     expect(dataTransfer.dropEffect).toBe('')
   })
 })
+
+// bare 的契约就是不输出那几个表面类，jsdom 不跑 Tailwind，类名是这里唯一的可观察边界。
+describe('DialogSurface 的无表面变体', () => {
+  const surfaceOf = (bare: boolean) => {
+    render(
+      <DialogRoot open>
+        <DialogSurface aria-describedby={undefined} bare={bare} className="task-detail-dialog">
+          <DialogHeader closeLabel="关闭" title="需求详情" />
+        </DialogSurface>
+      </DialogRoot>,
+    )
+    return screen.getByRole('dialog', { name: '需求详情' })
+  }
+
+  it('默认画圆角、底色与阴影', () => {
+    const dialog = surfaceOf(false)
+    for (const className of [
+      'rounded-2xl',
+      'bg-surface-container-lowest',
+      'shadow-[var(--shadow-3)]',
+      'overflow-hidden',
+    ]) {
+      expect(dialog).toHaveClass(className)
+    }
+  })
+
+  it('bare 只去掉表面，定位与调用方类名照旧，prop 不落到 DOM 上', () => {
+    const dialog = surfaceOf(true)
+    for (const className of [
+      'rounded-2xl',
+      'bg-surface-container-lowest',
+      'shadow-[var(--shadow-3)]',
+      'overflow-hidden',
+    ]) {
+      expect(dialog).not.toHaveClass(className)
+    }
+    expect(dialog).toHaveClass('layer-popup', 'fixed', 'task-detail-dialog')
+    expect(dialog).not.toHaveAttribute('bare')
+  })
+})

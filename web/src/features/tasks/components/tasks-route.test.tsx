@@ -82,12 +82,8 @@ describe('TasksRoute', () => {
     expect(within(mine).queryByText('夏季新品视频')).not.toBeInTheDocument()
   })
 
-  it('创建后回读规格、多款商品、分类参考图与单视频，字段归属保持一致', async () => {
-    vi.stubGlobal('createImageBitmap', async () => ({
-      close: () => {},
-      height: 800,
-      width: 600,
-    }))
+  // 三条按数据类别分：一条里串上几十次交互会在 CI 上撞满 5 秒超时，见 PR「tasks 与 audit 收尾」。
+  it('创建后回读视频规格与创作要求', async () => {
     const user = userEvent.setup()
     await renderLoggedIn()
 
@@ -102,17 +98,6 @@ describe('TasksRoute', () => {
       target: { value: '2026-10-01T18:30' },
     })
     await fillText('商品 1 款号', 'SBPU24001W')
-    await fillText('商品 1 名称', '轻薄防晒衣')
-    await fillText('商品 1 品牌', '品牌甲')
-    await fillText('商品 1 品类', '外套')
-    await fillText('商品 1 颜色', '白色')
-    expect(within(dialog).queryByRole('button', { name: '移除商品 1' })).not.toBeInTheDocument()
-    await user.click(within(dialog).getByRole('button', { name: '添加商品' }))
-    await user.click(within(dialog).getByRole('button', { name: '添加商品' }))
-    await fillText('商品 3 款号', 'SBPU24003W')
-    await user.click(within(dialog).getByRole('button', { name: '移除商品 2' }))
-    expect(within(dialog).getByLabelText('商品 2 款号')).toHaveValue('SBPU24003W')
-    expect(within(dialog).queryByLabelText('商品 3 款号')).not.toBeInTheDocument()
     await fillText('发布平台', 'douyin')
     await fillText('视频类型', 'product_showcase')
     await fillText('内容类型', 'short_video')
@@ -124,6 +109,109 @@ describe('TasksRoute', () => {
     await user.click(screen.getByRole('option', { name: '9:16' }))
     await user.type(within(dialog).getByLabelText('目标时长（秒）'), '15')
     await fillText('创作要求', '展示面料的轻薄透气')
+    await user.click(within(dialog).getByRole('button', { name: '创建需求单' }))
+
+    expect(await screen.findByText('新品测评视频')).toBeVisible()
+    expect(mockTasks[0]?.deadline).toBe(new Date('2026-10-01T18:30').toISOString())
+    expect(mockTasks[0]?.inputs.video_spec).toEqual({
+      platform: 'douyin',
+      video_type: 'product_showcase',
+      content_type: 'short_video',
+      resolution: '1080p',
+      aspect_ratio: '9:16',
+      duration_seconds: 15,
+    })
+    expect(mockTasks[0]?.inputs.creative_requirement).toBe('展示面料的轻薄透气')
+
+    await user.click(screen.getByText('新品测评视频'))
+    const reopened = await screen.findByRole('dialog')
+    expect(within(reopened).getByLabelText('截止时间')).toHaveValue('2026-10-01T18:30')
+    expect(within(reopened).getByLabelText('目标时长（秒）')).toHaveValue(15)
+    expect(within(reopened).getByLabelText('分辨率')).toHaveValue('1080p')
+    expect(within(reopened).getByRole('combobox', { name: '比例' })).toHaveTextContent('9:16')
+    expect(within(reopened).getByLabelText('发布平台')).toHaveValue('抖音')
+    expect(within(reopened).getByLabelText('视频类型')).toHaveValue('产品展示')
+    expect(within(reopened).getByLabelText('内容类型')).toHaveValue('短视频')
+    expect(within(reopened).getByLabelText('创作要求')).toHaveValue('展示面料的轻薄透气')
+  })
+
+  it('创建后回读多款商品，移除后编号顺延、款号冻结', async () => {
+    const user = userEvent.setup()
+    await renderLoggedIn()
+
+    await user.click(await screen.findByRole('button', { name: '新建需求单' }))
+    const dialog = await screen.findByRole('dialog')
+    const fillText = async (label: string, value: string) => {
+      await user.click(within(dialog).getByLabelText(label))
+      await user.paste(value)
+    }
+    await fillText('需求单名称', '多款商品需求')
+    await fillText('商品 1 款号', 'SBPU24001W')
+    await fillText('商品 1 名称', '轻薄防晒衣')
+    await fillText('商品 1 品牌', '品牌甲')
+    await fillText('商品 1 品类', '外套')
+    await fillText('商品 1 颜色', '白色')
+    expect(within(dialog).queryByRole('button', { name: '移除商品 1' })).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: '添加商品' }))
+    await user.click(within(dialog).getByRole('button', { name: '添加商品' }))
+    await fillText('商品 3 款号', 'SBPU24003W')
+    await user.click(within(dialog).getByRole('button', { name: '移除商品 2' }))
+    expect(within(dialog).getByLabelText('商品 2 款号')).toHaveValue('SBPU24003W')
+    expect(within(dialog).queryByLabelText('商品 3 款号')).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: '创建需求单' }))
+
+    expect(await screen.findByText('多款商品需求')).toBeVisible()
+    expect(mockTasks[0]?.inputs.products).toEqual([
+      {
+        style_no: 'SBPU24001W',
+        name: '轻薄防晒衣',
+        brand: '品牌甲',
+        category: '外套',
+        color_name: '白色',
+        image_oss_urls: [],
+      },
+      {
+        style_no: 'SBPU24003W',
+        name: '',
+        brand: '',
+        category: '',
+        color_name: '',
+        image_oss_urls: [],
+      },
+    ])
+    expect(screen.getByText(/SBPU24001W 等 2 款/)).toBeVisible()
+
+    await user.click(screen.getByText('多款商品需求'))
+    const reopened = await screen.findByRole('dialog')
+    expect(within(reopened).getByLabelText('商品 1 名称')).toHaveValue('轻薄防晒衣')
+    expect(within(reopened).getByLabelText('商品 1 品牌')).toHaveValue('品牌甲')
+    expect(within(reopened).getByLabelText('商品 1 品类')).toHaveValue('外套')
+    expect(within(reopened).getByLabelText('商品 1 颜色')).toHaveValue('白色')
+    expect(within(reopened).getByLabelText('商品 2 款号')).toBeDisabled()
+    expect(within(reopened).getByLabelText('商品 2 名称')).toBeEnabled()
+    expect(within(reopened).queryByRole('button', { name: '添加商品' })).not.toBeInTheDocument()
+    expect(within(reopened).queryByRole('button', { name: '移除商品 2' })).not.toBeInTheDocument()
+  })
+
+  it('创建后回读分类参考图与单条参考视频，各归各位', async () => {
+    vi.stubGlobal('createImageBitmap', async () => ({
+      close: () => {},
+      height: 800,
+      width: 600,
+    }))
+    const user = userEvent.setup()
+    await renderLoggedIn()
+
+    await user.click(await screen.findByRole('button', { name: '新建需求单' }))
+    const dialog = await screen.findByRole('dialog')
+    const fillText = async (label: string, value: string) => {
+      await user.click(within(dialog).getByLabelText(label))
+      await user.paste(value)
+    }
+    await fillText('需求单名称', '参考素材需求')
+    await fillText('商品 1 款号', 'SBPU24001W')
+    await user.click(within(dialog).getByRole('button', { name: '添加商品' }))
+    await fillText('商品 2 款号', 'SBPU24002W')
 
     const uploadReferenceImage = async (label: string) => {
       await user.upload(
@@ -152,58 +240,20 @@ describe('TasksRoute', () => {
     )
     await user.click(within(dialog).getByRole('button', { name: '创建需求单' }))
 
-    expect(await screen.findByText('新品测评视频')).toBeVisible()
-    expect(mockTasks[0]?.deadline).toBe(new Date('2026-10-01T18:30').toISOString())
-    expect(mockTasks[0]?.inputs).toEqual({
-      video_spec: {
-        platform: 'douyin',
-        video_type: 'product_showcase',
-        content_type: 'short_video',
-        resolution: '1080p',
-        aspect_ratio: '9:16',
-        duration_seconds: 15,
-      },
-      products: [
-        {
-          style_no: 'SBPU24001W',
-          name: '轻薄防晒衣',
-          brand: '品牌甲',
-          category: '外套',
-          color_name: '白色',
-          image_oss_urls: [],
-        },
-        {
-          style_no: 'SBPU24003W',
-          name: '',
-          brand: '',
-          category: '',
-          color_name: '',
-          image_oss_urls: [productUrl],
-        },
-      ],
-      reference_image_oss_urls: { model: [modelUrl], outfit: [outfitUrl], prop: [propUrl] },
-      reference_video_oss_url: videoUrl,
-      creative_requirement: '展示面料的轻薄透气',
+    expect(await screen.findByText('参考素材需求')).toBeVisible()
+    expect(mockTasks[0]?.inputs.reference_image_oss_urls).toEqual({
+      model: [modelUrl],
+      outfit: [outfitUrl],
+      prop: [propUrl],
     })
-    expect(screen.getByText(/SBPU24001W 等 2 款/)).toBeVisible()
-    await user.click(screen.getByText('新品测评视频'))
+    expect(mockTasks[0]?.inputs.reference_video_oss_url).toBe(videoUrl)
+    expect(mockTasks[0]?.inputs.products.map((product) => product.image_oss_urls)).toEqual([
+      [],
+      [productUrl],
+    ])
+
+    await user.click(screen.getByText('参考素材需求'))
     const reopened = await screen.findByRole('dialog')
-    expect(within(reopened).getByLabelText('截止时间')).toHaveValue('2026-10-01T18:30')
-    expect(within(reopened).getByLabelText('商品 1 名称')).toHaveValue('轻薄防晒衣')
-    expect(within(reopened).getByLabelText('商品 1 品牌')).toHaveValue('品牌甲')
-    expect(within(reopened).getByLabelText('商品 1 品类')).toHaveValue('外套')
-    expect(within(reopened).getByLabelText('商品 1 颜色')).toHaveValue('白色')
-    expect(within(reopened).getByLabelText('商品 2 款号')).toBeDisabled()
-    expect(within(reopened).getByLabelText('商品 2 名称')).toBeEnabled()
-    expect(within(reopened).queryByRole('button', { name: '添加商品' })).not.toBeInTheDocument()
-    expect(within(reopened).queryByRole('button', { name: '移除商品 2' })).not.toBeInTheDocument()
-    expect(within(reopened).getByLabelText('目标时长（秒）')).toHaveValue(15)
-    expect(within(reopened).getByLabelText('分辨率')).toHaveValue('1080p')
-    expect(within(reopened).getByRole('combobox', { name: '比例' })).toHaveTextContent('9:16')
-    expect(within(reopened).getByLabelText('发布平台')).toHaveValue('抖音')
-    expect(within(reopened).getByLabelText('视频类型')).toHaveValue('产品展示')
-    expect(within(reopened).getByLabelText('内容类型')).toHaveValue('短视频')
-    expect(within(reopened).getByLabelText('创作要求')).toHaveValue('展示面料的轻薄透气')
     expect(within(reopened).getByRole('img', { name: '商品 2 图片 1' })).toHaveAttribute(
       'src',
       productUrl,

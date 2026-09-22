@@ -14,6 +14,8 @@ type StatTileProps = {
   delta?: Delta | null
   /** 迷你趋势的各期值；没数据的期给 null，画成断开而不是 0。 */
   trend?: readonly (number | null)[] | undefined
+  /** 大数下面的一条占比；给了就画，null 画成空条。 */
+  meter?: number | null
   /** 角标：数据口径的诚实说明。 */
   note?: string
   pending?: boolean
@@ -31,9 +33,11 @@ export function StatTile({
   sub,
   delta,
   trend,
+  meter,
   note,
   pending = false,
 }: StatTileProps) {
+  const percent = Math.round((meter ?? 0) * 100)
   return (
     <article
       aria-busy={pending}
@@ -63,6 +67,21 @@ export function StatTile({
         </p>
         {trend === undefined ? null : <Sparkline values={trend} />}
       </div>
+      {meter === undefined ? null : (
+        <div
+          aria-label={label}
+          aria-valuemax={100}
+          aria-valuemin={0}
+          aria-valuenow={percent}
+          className="h-1.5 overflow-hidden rounded-full bg-surface-container"
+          role="meter"
+        >
+          <span
+            className="block h-full rounded-full bg-primary ui-motion-m"
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+      )}
       <footer className="flex min-h-5 items-center gap-2 text-body-sm text-on-surface-variant">
         {delta === null || delta === undefined ? null : (
           <span

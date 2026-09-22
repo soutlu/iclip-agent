@@ -1,6 +1,8 @@
 /** 浏览器持久化已查看的 lastRunId，供侧栏判断未读；存储不可用时仅影响未读标记。 */
 
-import { useSyncExternalStore } from 'react'
+import { useParams } from '@tanstack/react-router'
+import { useEffect, useSyncExternalStore } from 'react'
+import type { Conversation, SidebarTopology } from './conversations.api'
 
 const STORAGE_KEY = 'cue.conversations.seen-run'
 
@@ -56,3 +58,19 @@ export const recordSeenRun = (conversationId: string, lastRunId: string | null):
 /** 返回已记录的 lastRunId；undefined 表示本浏览器从未打开该对话。 */
 export const useSeenRun = (conversationId: string): string | null | undefined =>
   useSyncExternalStore(subscribe, () => seen[conversationId])
+
+const findRow = (topology: SidebarTopology, conversationId: string): Conversation | undefined =>
+  [topology.ungrouped, ...topology.collections.map((one) => one.page)]
+    .flatMap((page) => page.items)
+    .find((row) => row.id === conversationId)
+
+/** 在拓扑层记录当前对话，避免折叠行未渲染时漏记；运行中记录 null，结束后记录 lastRunId。 */
+export const useRecordOpenedConversation = (topology: SidebarTopology | undefined): void => {
+  const openedId = useParams({ select: (params) => params.conversationId, strict: false })
+  const opened =
+    openedId === undefined || topology === undefined ? undefined : findRow(topology, openedId)
+  const seenRun = opened === undefined ? undefined : opened.activity.busy ? null : opened.lastRunId
+  useEffect(() => {
+    if (openedId !== undefined && seenRun !== undefined) recordSeenRun(openedId, seenRun)
+  }, [openedId, seenRun])
+}

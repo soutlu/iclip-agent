@@ -1,6 +1,7 @@
 import { useId } from 'react'
 import { formatDateTime } from '@/shared/lib/date-time'
 import {
+  PLATFORM_ALIASES,
   PLATFORM_OPTIONS,
   VIDEO_TYPE_OPTIONS,
   CONTENT_TYPE_OPTIONS,
@@ -36,11 +37,12 @@ export function TaskCard({ onClick, onRename, task }: TaskCardProps) {
   const contentType = videoSpecLabel(spec.content_type, CONTENT_TYPE_OPTIONS) || '未填内容类型'
   const createdAt = formatDateTime(task.createdAt)
   // 仅省略已由平台、款号字段表达的前缀；原始标题用于详情及可访问名称。
+  const platformKey = spec.platform.toLowerCase()
   const prefixes = new Set([
-    spec.platform.toLowerCase(),
+    platformKey,
+    ...(PLATFORM_ALIASES[platformKey] ?? []),
     ...task.inputs.products.map((p) => p.style_no.toLowerCase()),
   ])
-  if (['amazon', 'amz'].includes(spec.platform.toLowerCase())) prefixes.add('amz')
   const displayTitle =
     task.title
       .replace(/^(?:\[[^\]]+\])+\s*/, (prefix) =>

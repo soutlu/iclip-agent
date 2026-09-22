@@ -63,13 +63,52 @@ const seed = () => {
 
 describe('OverviewPanel', () => {
   it('把接口数字翻成人话铺在四张头条卡、排行表与异常概览里', async () => {
-    seed()
+    const overall = {
+      ...EMPTY_METRICS,
+      attemptsPerShot: 1.5,
+      // 一张需求单算一件，加一段无单对话，共两件。
+      deliveredOrphanConversations: 1,
+      deliveredTasks: 1,
+      deliveries: 2,
+      cycleSeconds: { avg: 7200, median: 7200, p90: 10_800 },
+    }
+    server.use(
+      http.get('*/api/audit/summary', () =>
+        HttpResponse.json({
+          attemptDistribution: [],
+          overall,
+          series: null,
+          tasks: [{ metrics: overall, taskId: TASK_ID, title: '夏季亚麻系列' }],
+          users: [
+            { metrics: overall, userName: mockAuthUser.username },
+            { metrics: EMPTY_METRICS, userName: mockGovernor.username },
+          ],
+        }),
+      ),
+      http.get('*/api/audit/anomalies', () =>
+        HttpResponse.json({
+          items: [
+            {
+              at: hoursAgo(1),
+              conversationId: null,
+              generationId: null,
+              kind: 'retry',
+              shot: 2,
+              taskId: TASK_ID,
+              threshold: 2,
+              userName: mockAuthUser.username,
+              value: 3,
+            },
+          ],
+          nextCursor: null,
+        }),
+      ),
+    )
     await renderWithProviders(
       <OverviewPanel nameOf={nameOf} onOpenAnomalies={() => {}} scope={ALL_TIME} />,
     )
 
     const deliveries = await screen.findByRole('article', { name: '成片件数' })
-    // 一张需求单（两段对话）算一件，加一段无单对话，共两件。
     await waitFor(() => expect(within(deliveries).getByText('2')).toBeVisible())
     expect(within(deliveries).getByText('需求单 1 · 无单对话 1')).toBeVisible()
 
