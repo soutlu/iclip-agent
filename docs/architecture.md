@@ -13,7 +13,7 @@
 | `domains/` | 业务用例、领域模型、HTTP 入口及存储适配；不依赖 Agent 引擎 |
 | `harness/` | 通用 Agent 装配、运行驱动、消息持久化、上下文压缩与 transcript 投影；不解释业务身份和业务规则 |
 | `capabilities/` | 面向模型的类型化工具，连接 Agent 引擎与业务能力 |
-| `platform/` | 共用技术协议及适配器：存储、素材台账、HTTP 错误映射、transcript 类型 |
+| `platform/` | 共用技术协议及适配器：存储、素材台账、HTTP 错误映射、翻页、transcript 类型 |
 | `common/` | 领域错误分类 |
 | `config/` | 配置声明、环境变量定义与启动期解析 |
 | `app/` | 组合根及跨模块适配 |

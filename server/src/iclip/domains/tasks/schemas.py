@@ -23,8 +23,6 @@ MAX_STYLE_NO_CHARS: Final = 64
 MAX_PRODUCTS: Final = 20
 MIN_DURATION_SECONDS: Final = 3
 MAX_DURATION_SECONDS: Final = 50
-DEFAULT_LIST_LIMIT: Final = 20
-MAX_LIST_LIMIT: Final = 100
 
 TaskRatio = Literal["1:1", "3:4", "4:3", "9:16", "16:9", "21:9"]
 """需求方期望的画幅。这是需求单上的一句要求，不是某家生成接口的参数——所以它在这里
@@ -212,10 +210,8 @@ def task_out(task: Task) -> TaskOut:
 
 
 __all__ = [
-    "DEFAULT_LIST_LIMIT",
     "MAX_DESCRIPTION_CHARS",
     "MAX_DURATION_SECONDS",
-    "MAX_LIST_LIMIT",
     "MAX_PRODUCTS",
     "MAX_REFERENCE_URLS",
     "MAX_SHORT_TEXT_CHARS",

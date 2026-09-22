@@ -15,6 +15,7 @@ from iclip.domains.collections.schemas import (
 )
 from iclip.domains.collections.service import CollectionService, Scope
 from iclip.domains.identity.public import Principal, require_permission
+from iclip.platform.paging import DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT
 
 
 def create_collections_router(service: CollectionService) -> APIRouter:
@@ -32,7 +33,7 @@ def create_collections_router(service: CollectionService) -> APIRouter:
     async def list_collections(
         principal: Annotated[Principal, Depends(require_permission("collections:read"))],
         scope: Scope = "me",
-        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+        limit: Annotated[int, Query(ge=1, le=MAX_LIST_LIMIT)] = DEFAULT_LIST_LIMIT,
         offset: Annotated[int, Query(ge=0)] = 0,
     ) -> CollectionsPageOut:
         found = await service.list_recent(principal, scope=scope, limit=limit, offset=offset)

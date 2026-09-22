@@ -25,10 +25,10 @@ from iclip.domains.conversations.repository import (
 )
 from iclip.domains.conversations.schemas import DEFAULT_TITLE, MAX_TITLE_CHARS
 from iclip.domains.identity.public import ACT_AS_PERMISSION, Principal
+from iclip.platform.paging import check_limit, decode_cursor, encode_cursor
 
 _logger = structlog.stdlib.get_logger(__name__)
 
-MAX_LIST_LIMIT = 100
 MANAGE_PERMISSION = "users:manage"
 """治理者可读取所有对话及工作区文件；写入仍限属主。"""
 
@@ -234,28 +234,20 @@ class AuditPage:
 def _page(items: tuple[Conversation, ...], *, limit: int) -> ConversationPage:
     """满页时生成下一页游标，避免额外查询；最后一页恰好满额时允许下一页为空。"""
 
+    last = items[-1] if len(items) == limit else None
     return ConversationPage(
-        items=items, next_cursor=_encode_cursor(items[-1]) if len(items) == limit else None
+        items=items,
+        next_cursor=None if last is None else encode_cursor(last.created_at, last.id),
     )
 
 
-def _encode_cursor(conversation: Conversation) -> str:
-
-    return f"{conversation.created_at.isoformat()}|{conversation.id}"
-
-
-def _decode_cursor(cursor: str | None) -> PageCursor | None:
-    """解析游标，格式错误抛 ValidationFailed。"""
+def _after(cursor: str | None) -> PageCursor | None:
+    """把游标还原成仓库的排序键；``None`` 即从头取。"""
 
     if cursor is None:
         return None
-    stamp, _, raw_id = cursor.partition("|")
-    try:
-        return PageCursor(
-            created_at=datetime.fromisoformat(stamp), conversation_id=uuid.UUID(raw_id)
-        )
-    except ValueError as exc:
-        raise ValidationFailed("cursor 不是一个有效的翻页位置") from exc
+    parsed = decode_cursor(cursor)
+    return PageCursor(created_at=parsed.at, conversation_id=parsed.uuid_key())
 
 
 class ConversationService:
@@ -463,8 +455,7 @@ class ConversationService:
     ) -> tuple[Conversation, ...]:
         """在数据库中按标题筛选，再按建立时间倒序截取，确保可搜索全部历史。"""
 
-        if not 1 <= limit <= MAX_LIST_LIMIT:
-            raise ValidationFailed(f"limit 必须在 1 到 {MAX_LIST_LIMIT} 之间")
+        check_limit(limit)
         keyword = (title_query or "").strip()
         return await self._repo.list_for_owner(
             owner=principal.user_id, limit=limit, title_contains=keyword or None
@@ -518,7 +509,7 @@ class ConversationService:
         items = await self._repo.list_ungrouped(
             owner=principal.user_id,
             limit=SIDEBAR_UNGROUPED,
-            after=_decode_cursor(cursor),
+            after=_after(cursor),
             state=await self._state_filter(state, principal.user_id),
         )
         return _page(items, limit=SIDEBAR_UNGROUPED)
@@ -537,7 +528,7 @@ class ConversationService:
             owner=principal.user_id,
             collection_id=collection_id,
             limit=SIDEBAR_PER_COLLECTION,
-            after=_decode_cursor(cursor),
+            after=_after(cursor),
             state=await self._state_filter(state, principal.user_id),
         )
         return _page(items, limit=SIDEBAR_PER_COLLECTION)
@@ -562,8 +553,7 @@ class ConversationService:
 
         if not principal.has(MANAGE_PERMISSION):
             raise PermissionDenied("只有治理者能查全部对话")
-        if not 1 <= limit <= MAX_LIST_LIMIT:
-            raise ValidationFailed(f"limit 必须在 1 到 {MAX_LIST_LIMIT} 之间")
+        check_limit(limit)
         scope = AuditFilter(
             owner=owner_user_id,
             task_id=task_id,
@@ -573,9 +563,7 @@ class ConversationService:
         )
         busy = await self._busy_conversation_ids(owner_user_id)
         chosen = None if state == "all" else StateFilter(state=state, busy=busy)
-        found = await self._repo.list_audit(
-            scope, state=chosen, limit=limit, after=_decode_cursor(cursor)
-        )
+        found = await self._repo.list_audit(scope, state=chosen, limit=limit, after=_after(cursor))
         page = _page(found, limit=limit)
         return AuditPage(
             items=page.items,
@@ -681,7 +669,6 @@ class ConversationService:
 __all__ = [
     "IDLE_ACTIVITY",
     "MANAGE_PERMISSION",
-    "MAX_LIST_LIMIT",
     "SIDEBAR_COLLECTIONS",
     "SIDEBAR_PER_COLLECTION",
     "SIDEBAR_UNGROUPED",

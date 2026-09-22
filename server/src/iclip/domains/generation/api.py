@@ -35,6 +35,7 @@ from iclip.domains.identity.public import (
     require_permission,
     resolve_user_name,
 )
+from iclip.platform.paging import DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT
 
 
 def create_generations_router(service: GenerationService, *, act_as: ActAs) -> APIRouter:
@@ -93,7 +94,7 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
     @router.get("", response_model=GenerationsPageOut)
     async def list_generations(
         principal: Annotated[Principal, Depends(require_permission("generation:read"))],
-        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+        limit: Annotated[int, Query(ge=1, le=MAX_LIST_LIMIT)] = DEFAULT_LIST_LIMIT,
         conversation_id: Annotated[uuid.UUID | None, Query(alias="conversationId")] = None,
         task_id: Annotated[uuid.UUID | None, Query(alias="taskId")] = None,
         kind: Literal["image", "video", "clip"] | None = None,

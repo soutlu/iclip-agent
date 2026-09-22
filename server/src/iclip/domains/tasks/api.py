@@ -10,8 +10,6 @@ from fastapi import APIRouter, Depends, Query, Response
 from iclip.domains.identity.public import ActAs, Principal, require_permission
 from iclip.domains.tasks.models import TaskStatus
 from iclip.domains.tasks.schemas import (
-    DEFAULT_LIST_LIMIT,
-    MAX_LIST_LIMIT,
     TaskCreateIn,
     TaskEnvelope,
     TaskIn,
@@ -19,6 +17,7 @@ from iclip.domains.tasks.schemas import (
     task_out,
 )
 from iclip.domains.tasks.service import TaskService
+from iclip.platform.paging import DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT
 
 
 def create_tasks_router(service: TaskService, *, act_as: ActAs) -> APIRouter:

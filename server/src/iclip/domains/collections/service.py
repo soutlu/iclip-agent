@@ -9,8 +9,8 @@ from typing import Literal
 from iclip.common.errors import PermissionDenied
 from iclip.domains.collections.models import Collection
 from iclip.domains.collections.repository import CollectionRepository
-from iclip.domains.collections.schemas import MAX_LIST_LIMIT
 from iclip.domains.identity.public import Principal
+from iclip.platform.paging import MAX_LIST_LIMIT
 
 MANAGE_PERMISSION = "users:manage"
 

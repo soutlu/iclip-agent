@@ -43,6 +43,7 @@ from iclip.domains.conversations.service import (
     ListState,
 )
 from iclip.domains.identity.public import ActAs, Principal, require_permission
+from iclip.platform.paging import DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT
 
 
 def create_conversations_router(
@@ -175,7 +176,7 @@ def create_conversations_router(
     @router.get("/search", response_model=ConversationsPageOut)
     async def search_conversations(
         principal: Annotated[Principal, Depends(require_permission("agent:read"))],
-        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+        limit: Annotated[int, Query(ge=1, le=MAX_LIST_LIMIT)] = DEFAULT_LIST_LIMIT,
         q: Annotated[str | None, Query(max_length=200)] = None,
     ) -> ConversationsPageOut:
         """按标题搜自己的对话，最近建的排前面。筛选在库里做，搜得到全部历史。"""
@@ -192,7 +193,7 @@ def create_conversations_router(
         until: datetime | None = None,
         state: ListState = "all",
         deleted: DeletedFilter = "live",
-        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+        limit: Annotated[int, Query(ge=1, le=MAX_LIST_LIMIT)] = DEFAULT_LIST_LIMIT,
         cursor: str | None = None,
     ) -> ConversationsAuditOut:
         """治理者查全平台的对话：按人、按单、按时间段、按状态、按删没删筛，最近建的排前面。

@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Final
+from typing import Final, get_args
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from iclip.common.errors import PermissionDenied, ValidationFailed
@@ -28,9 +28,11 @@ from iclip.domains.audit.models import (
 )
 from iclip.domains.audit.repository import AuditReports
 from iclip.domains.identity.public import Principal
+from iclip.platform.paging import check_limit, decode_cursor, encode_cursor
 
 MANAGE_PERMISSION: Final = "users:manage"
-MAX_LIST_LIMIT: Final = 100
+
+_ANOMALY_KINDS: Final[frozenset[str]] = frozenset(get_args(AnomalyKind))
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,44 +86,25 @@ def _check_timezone(name: str) -> str:
     return name
 
 
-def _check_limit(limit: int) -> None:
-    if not 1 <= limit <= MAX_LIST_LIMIT:
-        raise ValidationFailed(f"limit 必须在 1 到 {MAX_LIST_LIMIT} 之间")
+def _conversation_after(cursor: str | None) -> ConversationCursor | None:
+    """把游标还原成对话明细的排序键；``None`` 即从头取。"""
+
+    if cursor is None:
+        return None
+    parsed = decode_cursor(cursor)
+    return ConversationCursor(delivered_at=parsed.at, conversation_id=parsed.uuid_key())
 
 
-def _split_cursor(cursor: str) -> tuple[datetime, str]:
-    stamp, separator, rest = cursor.partition("|")
-    if not separator or not rest:
+def _anomaly_after(cursor: str | None) -> AnomalyCursor | None:
+    """把游标还原成异常的排序键；尾键得是「种类:对象」，种类不认识就不是这个列表发的。"""
+
+    if cursor is None:
+        return None
+    parsed = decode_cursor(cursor)
+    kind, separator, rest = parsed.key.partition(":")
+    if not separator or not rest or kind not in _ANOMALY_KINDS:
         raise ValidationFailed("cursor 不是一个有效的翻页位置")
-    try:
-        return datetime.fromisoformat(stamp), rest
-    except ValueError as exc:
-        raise ValidationFailed("cursor 不是一个有效的翻页位置") from exc
-
-
-def _decode_conversation_cursor(cursor: str | None) -> ConversationCursor | None:
-    if cursor is None:
-        return None
-    delivered_at, raw_id = _split_cursor(cursor)
-    try:
-        return ConversationCursor(delivered_at=delivered_at, conversation_id=uuid.UUID(raw_id))
-    except ValueError as exc:
-        raise ValidationFailed("cursor 不是一个有效的翻页位置") from exc
-
-
-def _encode_conversation_cursor(report: ConversationReport) -> str:
-    return f"{report.delivered_at.isoformat()}|{report.conversation_id}"
-
-
-def _decode_anomaly_cursor(cursor: str | None) -> AnomalyCursor | None:
-    if cursor is None:
-        return None
-    at, ref = _split_cursor(cursor)
-    return AnomalyCursor(at=at, ref=ref)
-
-
-def _encode_anomaly_cursor(anomaly: Anomaly) -> str:
-    return f"{anomaly.at.isoformat()}|{anomaly.ref}"
+    return AnomalyCursor(at=parsed.at, ref=parsed.key)
 
 
 class AuditService:
@@ -175,12 +158,15 @@ class AuditService:
         """有成片的对话，最后成片晚的排前面。满页才给下一页游标。"""
 
         self._require_governor(principal)
-        _check_limit(limit)
+        check_limit(limit)
         scope = _scope(since=since, until=until, user_name=user_name, task_id=task_id)
         items = await self._reports.conversations(
-            scope, limit=limit, after=_decode_conversation_cursor(cursor)
+            scope, limit=limit, after=_conversation_after(cursor)
         )
-        next_cursor = _encode_conversation_cursor(items[-1]) if len(items) == limit else None
+        last = items[-1] if len(items) == limit else None
+        next_cursor = (
+            None if last is None else encode_cursor(last.delivered_at, last.conversation_id)
+        )
         return ConversationsPage(items=items, next_cursor=next_cursor)
 
     async def anomalies(
@@ -199,22 +185,22 @@ class AuditService:
         """异常按发生时刻倒序。``kinds`` 为空即全部种类。"""
 
         self._require_governor(principal)
-        _check_limit(limit)
+        check_limit(limit)
         scope = _scope(since=since, until=until, user_name=user_name, task_id=task_id)
         items = await self._reports.anomalies(
             scope,
             thresholds,
             kinds=kinds or None,
             limit=limit,
-            after=_decode_anomaly_cursor(cursor),
+            after=_anomaly_after(cursor),
         )
-        next_cursor = _encode_anomaly_cursor(items[-1]) if len(items) == limit else None
+        last = items[-1] if len(items) == limit else None
+        next_cursor = None if last is None else encode_cursor(last.at, last.ref)
         return AnomaliesPage(items=items, next_cursor=next_cursor)
 
 
 __all__ = [
     "MANAGE_PERMISSION",
-    "MAX_LIST_LIMIT",
     "AnomaliesPage",
     "AuditService",
     "ConversationsPage",

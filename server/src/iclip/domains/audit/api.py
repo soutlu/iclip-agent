@@ -23,6 +23,7 @@ from iclip.domains.audit.schemas import (
 )
 from iclip.domains.audit.service import AuditService
 from iclip.domains.identity.public import Principal, require_authenticated
+from iclip.platform.paging import DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT
 
 UserNameQuery = Annotated[str | None, Query(alias="userName", max_length=150)]
 TaskIdQuery = Annotated[uuid.UUID | None, Query(alias="taskId")]
@@ -76,7 +77,7 @@ def create_audit_router(service: AuditService) -> APIRouter:
         until: datetime | None = None,
         user_name: UserNameQuery = None,
         task_id: TaskIdQuery = None,
-        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+        limit: Annotated[int, Query(ge=1, le=MAX_LIST_LIMIT)] = DEFAULT_LIST_LIMIT,
         cursor: str | None = None,
     ) -> AuditConversationsOut:
         """有成片的对话，最后成片晚的排前面；时间窗作用在最后成片时刻上。
@@ -109,7 +110,7 @@ def create_audit_router(service: AuditService) -> APIRouter:
         idle_hours: Annotated[int, Query(alias="idleHours", ge=1)] = 24,
         stuck_hours: Annotated[int, Query(alias="stuckHours", ge=1)] = 1,
         task_conversations: Annotated[int, Query(alias="taskConversations", ge=1)] = 3,
-        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+        limit: Annotated[int, Query(ge=1, le=MAX_LIST_LIMIT)] = DEFAULT_LIST_LIMIT,
         cursor: str | None = None,
     ) -> AnomaliesOut:
         """异常按发生时刻倒序。``kind`` 可重复给，不给就全部种类。
