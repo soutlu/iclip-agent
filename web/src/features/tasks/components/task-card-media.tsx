@@ -69,43 +69,46 @@ export function TaskCardReferences({
 
   if (!images.length) return null
   return (
-    <div className="task-card-references absolute right-2 left-2 flex items-center gap-1">
-      {edges.previous && (
-        <IconButton
-          className="shrink-0 rounded-full bg-on-scrim text-scrim shadow-1"
-          label="向左滚动参考图"
-          name="back"
-          size="xs"
-          onClick={() => scroll(-1)}
-        />
-      )}
-      <div
-        aria-label="商品与参考图"
-        className="task-card-reference-strip flex min-w-0 flex-1 gap-1 overflow-x-auto overscroll-x-contain py-1"
-        onScroll={updateEdges}
-        ref={stripRef}
-      >
-        {images.map((image) => (
-          <button
-            key={image.src}
-            aria-label={`打开需求详情：${image.alt}`}
-            className="shrink-0 cursor-pointer overflow-hidden rounded-xs bg-on-scrim p-px shadow-1 ui-focus"
-            onClick={onOpen}
-            type="button"
-          >
-            <ProductImage alt={image.alt} compact src={image.src} onLoad={updateEdges} />
-          </button>
-        ))}
+    // 覆盖层与封面同高同底边，参考条贴着封面下沿；覆盖层不吃指针事件，点空白仍是打开详情。
+    <div className="task-card-media pointer-events-none absolute inset-x-2 top-0 flex items-end pb-1.5">
+      <div className="pointer-events-auto flex w-full min-w-0 items-center gap-1">
+        {edges.previous && (
+          <IconButton
+            className="shrink-0 rounded-full bg-on-scrim text-scrim shadow-1"
+            label="向左滚动参考图"
+            name="back"
+            size="xs"
+            onClick={() => scroll(-1)}
+          />
+        )}
+        <div
+          aria-label="商品与参考图"
+          className="task-card-reference-strip flex min-w-0 flex-1 gap-1 overflow-x-auto overscroll-x-contain py-1"
+          onScroll={updateEdges}
+          ref={stripRef}
+        >
+          {images.map((image) => (
+            <button
+              key={image.src}
+              aria-label={`打开需求详情：${image.alt}`}
+              className="shrink-0 cursor-pointer overflow-hidden rounded-xs bg-on-scrim p-px shadow-1 ui-focus"
+              onClick={onOpen}
+              type="button"
+            >
+              <ProductImage alt={image.alt} compact src={image.src} onLoad={updateEdges} />
+            </button>
+          ))}
+        </div>
+        {edges.next && (
+          <IconButton
+            className="shrink-0 rounded-full bg-on-scrim text-scrim shadow-1"
+            label="向右滚动参考图"
+            name="next"
+            size="xs"
+            onClick={() => scroll(1)}
+          />
+        )}
       </div>
-      {edges.next && (
-        <IconButton
-          className="shrink-0 rounded-full bg-on-scrim text-scrim shadow-1"
-          label="向右滚动参考图"
-          name="next"
-          size="xs"
-          onClick={() => scroll(1)}
-        />
-      )}
     </div>
   )
 }

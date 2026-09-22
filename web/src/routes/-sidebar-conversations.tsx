@@ -1,8 +1,7 @@
-import { DndContext, PointerSensor, useDraggable, useDroppable, useSensor } from '@dnd-kit/core'
+import { DndContext, PointerSensor, useDroppable, useSensor } from '@dnd-kit/core'
 import type { DragEndEvent } from '@dnd-kit/core'
 import { useQueryClient } from '@tanstack/react-query'
-import { Link, useParams } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   CollectionDeleteDialog,
   CollectionFormDialog,
@@ -10,46 +9,29 @@ import {
 } from '@/features/collections'
 import {
   ConversationMembershipDialog,
-  conversationStatus,
   conversationsQueryKeys,
-  needsAttention,
-  useDeleteConversation,
+  SidebarConversationRow,
+  SIDEBAR_ROW_CLASS,
+  SIDEBAR_ROW_TITLE_CLASS,
+  SIDEBAR_ROW_TRAILING_SHOWN,
   useMoreConversations,
-  useRenameConversation,
-  recordSeenRun,
-  useSeenRun,
-  useSetConversationCompletion,
+  useRecordOpenedConversation,
   useSetConversationMembership,
   useSidebarTopology,
   type Conversation,
   type ConversationListState,
   type ConversationPage,
   type SidebarCollection,
-  type SidebarTopology,
 } from '@/features/conversations'
 import { tasksQueryKeys, useTaskOptions } from '@/features/tasks'
 import { ApiError } from '@/shared/api/client'
 import { hasPermission, PERMISSION, useUser } from '@/shared/auth'
 import { Icon, type IconName } from '@/shared/icons'
-import { formatRelativeTime } from '@/shared/lib/relative-time'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { ChipGroup, FilterChip } from '@/shared/ui/chip'
-import { MenuItem, MenuRoot, MenuSeparator, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
-import { StatusBadge } from '@/shared/ui/status-badge'
+import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { toast } from '@/shared/ui/toast'
-
-// 状态层作用于整行及尾部按钮；内部标题按钮只负责焦点环。
-const ROW_CLASS =
-  'group flex ui-state cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-body text-on-surface'
-
-const ROW_TITLE_CLASS = 'flex min-w-0 flex-1 items-center gap-2 rounded-xs ui-focus'
-
-// 时间与操作按钮共用尾部槽位，hover、键盘聚焦或菜单展开时切换。
-const ROW_TRAILING_HIDDEN =
-  'group-hover:hidden group-focus-within:hidden group-has-data-[state=open]:hidden'
-const ROW_TRAILING_SHOWN =
-  'hidden group-hover:flex group-focus-within:flex group-has-data-[state=open]:flex'
 
 // 合集列表在前端分页展示；后端最多返回 100 个合集。
 const COLLECTIONS_PER_STEP = 10
@@ -71,7 +53,7 @@ export function SidebarConversations() {
   const canReadTasks = hasPermission(session.data, PERMISSION.tasksRead)
   const [state, setState] = useState<ConversationListState>('all')
   const topology = useSidebarTopology(canRead, state)
-  useRecordOpened(topology.data)
+  useRecordOpenedConversation(topology.data)
   const [shownCollections, setShownCollections] = useState(COLLECTIONS_PER_STEP)
   const [dragging, setDragging] = useState<string | null>(null)
 
@@ -318,7 +300,7 @@ function UngroupedSection({
       <SidebarSection count={count} title="任务">
         <div className="flex flex-col gap-0.5">
           {items.map((conversation) => (
-            <ConversationRow
+            <SidebarConversationRow
               key={conversation.id}
               conversation={conversation}
               dragging={dragging === conversation.id}
@@ -353,10 +335,13 @@ function SidebarSection({ action, children, count, title }: SidebarSectionProps)
   const [open, setOpen] = useState(true)
   return (
     <section className="flex flex-col gap-0.5">
-      <div className={cn(ROW_CLASS, 'sticky top-0 gap-1 bg-background')}>
+      <div className={cn(SIDEBAR_ROW_CLASS, 'sticky top-0 gap-1 bg-background')}>
         <button
           aria-expanded={open}
-          className={cn(ROW_TITLE_CLASS, 'gap-1 text-body-sm font-semibold text-on-surface-faint')}
+          className={cn(
+            SIDEBAR_ROW_TITLE_CLASS,
+            'gap-1 text-body-sm font-semibold text-on-surface-faint',
+          )}
           onClick={() => setOpen((prev) => !prev)}
           type="button"
         >
@@ -374,7 +359,7 @@ function SidebarSection({ action, children, count, title }: SidebarSectionProps)
           />
         </button>
         {action && (
-          <div className={cn(ROW_TRAILING_SHOWN, 'ml-auto shrink-0 items-center')}>
+          <div className={cn(SIDEBAR_ROW_TRAILING_SHOWN, 'ml-auto shrink-0 items-center')}>
             <IconButton
               label={action.label}
               name={action.icon}
@@ -414,7 +399,7 @@ function SidebarFeedback({
       </p>
       {onRetry && (
         <button
-          className={cn(ROW_CLASS, 'mt-2 ui-focus')}
+          className={cn(SIDEBAR_ROW_CLASS, 'mt-2 ui-focus')}
           disabled={loading}
           onClick={onRetry}
           type="button"
@@ -469,7 +454,7 @@ function ExpandRow({
       <button
         aria-label={error != null ? retryLabel : label}
         className={cn(
-          ROW_CLASS,
+          SIDEBAR_ROW_CLASS,
           'w-full justify-start text-body-sm text-on-surface-faint ui-focus',
         )}
         disabled={loading}
@@ -518,11 +503,11 @@ function CollectionGroup({
 
   return (
     <div className="flex flex-col gap-0.5">
-      <div className={cn(ROW_CLASS, isOver && 'bg-primary-container')} ref={setNodeRef}>
+      <div className={cn(SIDEBAR_ROW_CLASS, isOver && 'bg-primary-container')} ref={setNodeRef}>
         <button
           aria-expanded={open}
           aria-label={`${collection.name} (${collection.conversationCount})`}
-          className={ROW_TITLE_CLASS}
+          className={SIDEBAR_ROW_TITLE_CLASS}
           onClick={() => setOpen((prev) => !prev)}
           type="button"
         >
@@ -542,7 +527,7 @@ function CollectionGroup({
           />
         </button>
         {canManage && (
-          <div className={cn(ROW_TRAILING_SHOWN, 'shrink-0 items-center')}>
+          <div className={cn(SIDEBAR_ROW_TRAILING_SHOWN, 'shrink-0 items-center')}>
             <MenuRoot>
               <MenuTrigger asChild>
                 <IconButton label={`${collection.name} 的操作`} name="more" size="xs" />
@@ -560,7 +545,7 @@ function CollectionGroup({
       {open && (
         <div className="flex flex-col gap-0.5 pl-6">
           {items.map((conversation) => (
-            <ConversationRow
+            <SidebarConversationRow
               key={conversation.id}
               conversation={conversation}
               dragging={dragging === conversation.id}
@@ -582,173 +567,6 @@ function CollectionGroup({
               onExpand={() => void more.fetchNextPage()}
             />
           )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/** 在拓扑层记录当前对话，避免折叠行未渲染时漏记；运行中记录 null，结束后记录 lastRunId。 */
-const useRecordOpened = (topology: SidebarTopology | undefined): void => {
-  const openedId = useParams({ select: (params) => params.conversationId, strict: false })
-  const opened =
-    openedId === undefined || topology === undefined ? undefined : findRow(topology, openedId)
-  const seenRun = opened === undefined ? undefined : opened.activity.busy ? null : opened.lastRunId
-  useEffect(() => {
-    if (openedId !== undefined && seenRun !== undefined) recordSeenRun(openedId, seenRun)
-  }, [openedId, seenRun])
-}
-
-const findRow = (topology: SidebarTopology, conversationId: string): Conversation | undefined =>
-  [topology.ungrouped, ...topology.collections.map((one) => one.page)]
-    .flatMap((page) => page.items)
-    .find((row) => row.id === conversationId)
-
-/** 仅对本浏览器已查看过且 lastRunId 变化的完成对话显示未读；当前打开的对话不显示。 */
-const useUnread = (conversation: Conversation, active: boolean): boolean => {
-  const seenRun = useSeenRun(conversation.id)
-  return !active && seenRun !== undefined && seenRun !== conversation.lastRunId
-}
-
-function ConversationRow({
-  conversation,
-  dragging,
-  onChanged,
-  onOpenMembership,
-}: {
-  conversation: Conversation
-  dragging: boolean
-  onChanged: () => void
-  onOpenMembership: () => void
-}) {
-  const canWrite = useCanWrite()
-  const { listeners, setNodeRef, transform } = useDraggable({
-    disabled: !canWrite,
-    data: { collectionId: conversation.collectionId },
-    id: conversation.id,
-  })
-  const openedId = useParams({ select: (params) => params.conversationId, strict: false })
-  const active = openedId === conversation.id
-  const [editing, setEditing] = useState(false)
-  const rename = useRenameConversation(onChanged)
-  const remove = useDeleteConversation(onChanged)
-  const completion = useSetConversationCompletion(onChanged)
-  const completed = conversation.completedAt !== null
-  const unread = useUnread(conversation, active)
-  const status = conversationStatus(conversation.activity)
-  // 行尾只画还需要人看一眼的状态；跑完没看过的用小点，其余什么都不画。
-  const showUnread = unread && status === 'completed'
-
-  const commitRename = (value: string) => {
-    setEditing(false)
-    const title = value.trim()
-    if (title && title !== conversation.title) {
-      rename.mutate(
-        { conversationId: conversation.id, title },
-        { onError: (error) => toast.error(error.message) },
-      )
-    }
-  }
-
-  return (
-    // 拖拽绑定整行，避免链接原生拖动吞掉指针事件；编辑标题时禁用拖拽以允许文字选择。
-    <div
-      className={cn(ROW_CLASS, dragging && 'opacity-50', active && 'bg-state-active font-medium')}
-      ref={setNodeRef}
-      style={
-        transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined
-      }
-      {...(editing || !canWrite ? {} : listeners)}
-    >
-      {editing ? (
-        <input
-          aria-label={`重命名 ${conversation.title}`}
-          className="min-w-0 flex-1 rounded-xs bg-surface-container-lowest px-1 text-body text-on-surface ui-focus-inline"
-          defaultValue={conversation.title}
-          onBlur={(event) => commitRename(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') event.currentTarget.blur()
-            if (event.key === 'Escape') {
-              event.currentTarget.value = conversation.title
-              event.currentTarget.blur()
-            }
-          }}
-          ref={(element) => element?.focus()}
-        />
-      ) : (
-        <Link
-          aria-current={active ? 'page' : undefined}
-          className={ROW_TITLE_CLASS}
-          draggable={false}
-          params={{ conversationId: conversation.id }}
-          to="/c/$conversationId"
-        >
-          <span className="min-w-0 flex-1 truncate text-left">{conversation.title}</span>
-        </Link>
-      )}
-      {/* 出片在跑与轮次在跑互不蕴含，两个角标可以同时出现；跑完与失败在分镜页看。 */}
-      <StatusBadge
-        detail="完成后分镜页会更新结果"
-        kind="video"
-        status={
-          conversation.activity.videoGeneration === 'none'
-            ? 'idle'
-            : conversation.activity.videoGeneration
-        }
-      />
-      {needsAttention(status) && <StatusBadge kind="conversation" status={status} />}
-      {completed && (
-        <Icon className="shrink-0 text-primary" label="已完成" name="success" size="sm" />
-      )}
-      {showUnread && (
-        <span aria-label="未读" className="size-1.5 shrink-0 rounded-full bg-primary" role="img" />
-      )}
-      {!editing && (
-        <span
-          aria-hidden
-          className={cn('shrink-0 text-caption text-on-surface-faint', ROW_TRAILING_HIDDEN)}
-        >
-          {formatRelativeTime(conversation.createdAt)}
-        </span>
-      )}
-      {!editing && canWrite && (
-        <div className={cn(ROW_TRAILING_SHOWN, 'shrink-0 items-center')}>
-          <MenuRoot>
-            <MenuTrigger asChild>
-              <IconButton label={`${conversation.title} 的更多操作`} name="more" size="xs" />
-            </MenuTrigger>
-            <MenuSurface align="start">
-              <MenuItem icon="edit" onSelect={() => setEditing(true)}>
-                重命名
-              </MenuItem>
-              <MenuItem icon="folder" onSelect={onOpenMembership}>
-                归属
-              </MenuItem>
-              <MenuItem
-                icon="check"
-                onSelect={() =>
-                  completion.mutate(
-                    { completed: !completed, conversationId: conversation.id },
-                    { onError: (error) => toast.error(error.message) },
-                  )
-                }
-              >
-                {completed ? '取消完成' : '标记完成'}
-              </MenuItem>
-              <MenuSeparator />
-              <MenuItem
-                destructive
-                icon="delete"
-                onSelect={() =>
-                  remove.mutate(conversation.id, {
-                    onError: (error) => toast.error(error.message),
-                  })
-                }
-              >
-                删除
-              </MenuItem>
-            </MenuSurface>
-          </MenuRoot>
         </div>
       )}
     </div>

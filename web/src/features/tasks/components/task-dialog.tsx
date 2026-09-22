@@ -121,6 +121,7 @@ export function TaskDialog({
   return (
     <DialogRoot open={open} onOpenChange={changeOpen}>
       <DialogSurface
+        bare={showRelated}
         className={cn(
           creationDraft ? 'task-creation-dialog' : 'task-form-dialog',
           showRelated && 'task-detail-dialog',

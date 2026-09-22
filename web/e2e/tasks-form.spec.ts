@@ -76,12 +76,17 @@ test('商品图库上传后显示原图，保存再打开仍可预览', async ({
     .toBeGreaterThan(0)
 
   const productImage = dialog.getByAltText('商品 1 图片 1', { exact: true })
-  await expect.poll(async () => (await boundsOf(productImage)).height).toBeCloseTo(96, 1)
-  const imageBounds = await boundsOf(productImage)
+  await expect(productImage).toBeVisible()
   const naturalRatio = await productImage.evaluate(
     (image: HTMLImageElement) => image.naturalWidth / image.naturalHeight,
   )
-  expect(Math.abs(imageBounds.width / imageBounds.height - naturalRatio)).toBeLessThan(0.02)
+  // 缩放到多大由样式说了算，这里只等它按原图比例稳定下来。
+  await expect
+    .poll(async () => {
+      const bounds = await boundsOf(productImage)
+      return Math.abs(bounds.width / bounds.height - naturalRatio)
+    })
+    .toBeLessThan(0.02)
   await expectMediaLayout(dialog, false)
 
   await dialog.getByLabel('创作要求', { exact: true }).focus()

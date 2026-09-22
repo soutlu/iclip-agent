@@ -32,6 +32,7 @@ import {
 } from '../attempt-distribution'
 import { ConcentrationChart } from './concentration-chart'
 import { MetricsTable, type MetricsColumn } from './metrics-table'
+import { SpreadTable } from './spread-table'
 import { StatTile } from './stat-tile'
 import { TrendChart } from './trend-chart'
 
@@ -69,7 +70,7 @@ const RANK_COLUMNS: readonly MetricsColumn[] = [
     render: (m) => formatTimes(m.attemptsPerShot),
   },
   {
-    key: 'firstPass',
+    key: 'oneTake',
     label: '一次通过',
     render: (m) => formatRate(m.oneTakeRate),
   },
@@ -268,73 +269,18 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
         />
       </section>
 
-      <section
-        aria-busy={pending}
-        aria-label="耗时分布"
-        className="flex min-w-0 flex-col rounded-lg bg-surface-container-lowest shadow-[var(--shadow-1)]"
-      >
-        <header className="px-5 pt-5 pb-3">
-          <h3 className="text-title font-medium text-on-surface">耗时分布</h3>
-        </header>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-120 border-collapse text-body">
-            <thead>
-              <tr className="text-left text-body-sm text-on-surface-variant">
-                <th className="px-5 py-2 font-normal" scope="col">
-                  口径
-                </th>
-                {['平均', '中位', '最慢一成（P90）'].map((label) => (
-                  <th
-                    className="px-3 py-2 text-right font-normal whitespace-nowrap"
-                    key={label}
-                    scope="col"
-                  >
-                    {label}
-                  </th>
-                ))}
-                <th
-                  className="px-5 py-2 text-right font-normal whitespace-nowrap"
-                  scope="col"
-                  title={SAMPLE_HINT}
-                >
-                  样本
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {SPREAD_ROWS.map((row) => {
-                const spread = overall === undefined ? null : row.spread(overall)
-                const sample = overall === undefined ? null : row.sample(overall)
-                return (
-                  <tr className="border-t-[0.5px] border-border/70" key={row.key}>
-                    <th className="px-5 py-3 text-left font-normal" scope="row">
-                      <span className="flex min-w-0 flex-col">
-                        <span className="font-medium text-on-surface">{row.label}</span>
-                        <span className="text-body-sm text-on-surface-variant">{row.hint}</span>
-                      </span>
-                    </th>
-                    {[
-                      { key: 'avg', seconds: spread?.avg },
-                      { key: 'median', seconds: spread?.median },
-                      { key: 'p90', seconds: spread?.p90 },
-                    ].map((cell) => (
-                      <td
-                        className="px-3 py-3 text-right whitespace-nowrap text-on-surface tabular-nums"
-                        key={cell.key}
-                      >
-                        {formatDuration(cell.seconds ?? null)}
-                      </td>
-                    ))}
-                    <td className="px-5 py-3 text-right whitespace-nowrap text-on-surface-variant tabular-nums">
-                      {sample === null || spread === null ? EMPTY : formatCount(sample)}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <SpreadTable
+        pending={pending}
+        rows={SPREAD_ROWS.map((row) => ({
+          key: row.key,
+          label: row.label,
+          hint: row.hint,
+          spread: overall === undefined ? null : row.spread(overall),
+          sample: overall === undefined ? null : row.sample(overall),
+        }))}
+        sampleHint={SAMPLE_HINT}
+        title="耗时分布"
+      />
 
       <section aria-label="出片次数分析" className="grid gap-4 lg:grid-cols-2">
         <TrendChart
@@ -412,33 +358,17 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
             }
             value={overall === undefined ? EMPTY : formatTokens(overall.usage.totalTokens)}
           />
-          <article
-            aria-label="缓存命中率"
-            className="flex min-w-0 flex-col gap-3 rounded-lg bg-surface-container-lowest p-5 shadow-[var(--shadow-1)]"
-          >
-            <h3 className="text-body text-on-surface-variant">缓存命中率</h3>
-            <p className="text-headline-lg font-semibold tracking-tight text-on-surface tabular-nums">
-              {formatRate(overall?.usage.cacheHitRate ?? null)}
-            </p>
-            <div
-              aria-label="缓存命中率"
-              aria-valuemax={100}
-              aria-valuemin={0}
-              aria-valuenow={Math.round((overall?.usage.cacheHitRate ?? 0) * 100)}
-              className="h-1.5 overflow-hidden rounded-full bg-surface-container"
-              role="meter"
-            >
-              <span
-                className="block h-full rounded-full bg-primary ui-motion-m"
-                style={{ width: `${Math.round((overall?.usage.cacheHitRate ?? 0) * 100)}%` }}
-              />
-            </div>
-            <p className="text-body-sm text-on-surface-variant">
-              {overall === undefined
+          <StatTile
+            label="缓存命中率"
+            meter={overall?.usage.cacheHitRate ?? null}
+            pending={pending}
+            sub={
+              overall === undefined
                 ? '缓存读取占全部输入的比例'
-                : `缓存读取 ${formatTokens(overall.usage.cacheReadTokens)} · 新输入 ${formatTokens(overall.usage.inputTokens)}`}
-            </p>
-          </article>
+                : `缓存读取 ${formatTokens(overall.usage.cacheReadTokens)} · 新输入 ${formatTokens(overall.usage.inputTokens)}`
+            }
+            value={formatRate(overall?.usage.cacheHitRate ?? null)}
+          />
           <StatTile
             delta={compareWithPrevious(
               overall?.tokensPerDelivery ?? null,

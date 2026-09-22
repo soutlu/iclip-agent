@@ -57,9 +57,14 @@ const DEMO_TASKS: readonly DemoTask[] = [
 /** 对话已有历史及工作区；需求单记载共同要求，认领人与对话属主保持一致。 */
 export function seedDemoTasks(conversations: readonly MockConversation[]) {
   for (const [index, demo] of DEMO_TASKS.entries()) {
-    const attempts = conversations.filter((conversation) =>
-      demo.conversations.includes(conversation.title),
-    )
+    // 按标题关联，改了对话标题这里当场报错，不静默少挂一段。
+    const attempts = demo.conversations.map((title) => {
+      const conversation = conversations.find((one) => one.title === title)
+      if (!conversation) {
+        throw new Error(`演示需求单「${demo.title}」找不到要关联的对话「${title}」`)
+      }
+      return conversation
+    })
     const task = addMockTask(demo.title)
     task.creatorUserId = mockGovernor.id
     task.status = 'confirmed'

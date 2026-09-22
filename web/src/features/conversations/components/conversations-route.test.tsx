@@ -124,7 +124,7 @@ afterEach(() => {
 })
 
 describe('ConversationsRoute', () => {
-  it('按最近活动倒序列出全平台对话，保留用户、已关联需求单与运行总数', async () => {
+  it('按建立时间倒序列出全平台对话', async () => {
     const { task } = seedThree()
     await render([{ id: task.id, label: task.title }])
 
@@ -134,13 +134,32 @@ describe('ConversationsRoute', () => {
       expect.stringContaining('我的片'),
       expect.stringContaining('跑完的片'),
     ])
+  })
+
+  it('每行标出属主与运行状态', async () => {
+    const { task } = seedThree()
+    await render([{ id: task.id, label: task.title }])
+
     const theirs = await rowOf('小王的秋季片')
     expect(theirs).toHaveTextContent('进行中')
     expect(await within(theirs).findByText('小王')).toBeVisible()
-    expect(theirs).toHaveTextContent('秋季新品')
     expect(await rowOf('我的片')).toHaveTextContent('测试用户')
     expect(await rowOf('跑完的片')).toHaveTextContent('已完成')
     expect(await rowOf('跑完的片')).toHaveTextContent('属主已收尾')
+  })
+
+  it('已关联的需求单标题挂在行上', async () => {
+    const { task } = seedThree()
+    await render([{ id: task.id, label: task.title }])
+
+    expect(await rowOf('小王的秋季片')).toHaveTextContent('秋季新品')
+  })
+
+  it('顶部给出进行中与总数', async () => {
+    const { task } = seedThree()
+    await render([{ id: task.id, label: task.title }])
+
+    await rowOf('小王的秋季片')
     expectTotals(1, 3)
   })
 

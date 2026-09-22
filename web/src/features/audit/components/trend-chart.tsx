@@ -1,6 +1,6 @@
 /** 趋势图：柱或线，一条 y 轴、浅网格、按时段的 x 刻度，悬停出一格说明；给了上一期就叠一条淡的对照序列。
 
-Recharts 画，颜色全走 token 变量，深浅主题跟着换；要换图表库时只动这一个组件。 */
+Recharts 画，颜色全走 token 变量，深浅主题跟着换。 */
 
 import { useId } from 'react'
 import {

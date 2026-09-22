@@ -1,6 +1,8 @@
 /** 审计报表的 mock：从内存对话推出一套自洽的明细，再按合同 §12 的口径汇总成 summary 与异常。
 
-单测与 dev:mock 共用；数字按对话下标确定地生成，同一组对话每次都算出同样的结果。 */
+单测与 dev:mock 共用；数字按对话下标确定地生成，同一组对话每次都算出同样的结果。
+
+这里的聚合只是让演示数据自洽，不是后端口径的参考实现：测试要断言数字就用 `server.use` 喂自己的 fixture，不拿它算出来的值当预期值。 */
 
 import { http, HttpResponse } from 'msw'
 import type { z } from 'zod'
