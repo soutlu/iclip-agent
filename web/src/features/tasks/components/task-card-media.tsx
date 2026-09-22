@@ -3,20 +3,17 @@ import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { MediaFallback } from '@/shared/ui/media-fallback'
+import { taskCoverOf } from '../task-preview'
 import type { Task } from '../tasks.api'
 
 type TaskProduct = Task['inputs']['products'][number]
 const imageLabel = (product: TaskProduct) => `${product.name.trim() || product.style_no} 商品图`
 
-/** 封面始终取第一款有商品图的首图，不用参考图替代商品。 */
 export function TaskCardMedia({ products }: { products: TaskProduct[] }) {
-  const cover = products.find((product) => product.image_oss_urls.length > 0)
+  const cover = taskCoverOf(products)
   return (
     <span className="task-card-media relative block w-full overflow-hidden rounded-md bg-surface-container-low">
-      <ProductImage
-        alt={cover ? imageLabel(cover) : '需求单商品图'}
-        src={cover?.image_oss_urls[0]}
-      />
+      <ProductImage alt={cover ? imageLabel(cover.product) : '需求单商品图'} src={cover?.url} />
     </span>
   )
 }
@@ -31,8 +28,7 @@ export function TaskCardReferences({
 }) {
   const stripRef = useRef<HTMLDivElement>(null)
   const [edges, setEdges] = useState({ previous: false, next: false })
-  const cover = inputs.products.find((product) => product.image_oss_urls.length > 0)
-    ?.image_oss_urls[0]
+  const cover = taskCoverOf(inputs.products)?.url
   const images = [
     ...inputs.products.flatMap((product) =>
       product.image_oss_urls.map((src) => ({ src, alt: imageLabel(product) })),

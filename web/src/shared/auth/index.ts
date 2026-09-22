@@ -1,4 +1,5 @@
 export { sanitizeCueAuthNextPath } from './cue-auth-navigation'
+export { canAuditAll, hasPermission, PERMISSION } from './permissions'
 export {
   consumeSsoNextPath,
   ensureSessionUser,

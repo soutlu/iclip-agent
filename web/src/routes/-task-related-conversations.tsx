@@ -6,7 +6,7 @@ import {
   type Conversation,
 } from '@/features/conversations'
 import { ConversationVideos } from '@/features/storyboard'
-import { useUser } from '@/shared/auth'
+import { canAuditAll, hasPermission, PERMISSION, useUser } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
 import { InlineAlert } from '@/shared/ui/inline-alert'
 import { StatusBadge } from '@/shared/ui/status-badge'
@@ -15,7 +15,7 @@ import { StatusBadge } from '@/shared/ui/status-badge'
 export function TaskRelatedConversations({ taskId }: { taskId: string }) {
   const { data: user } = useUser()
   if (!user) return null
-  if (!user.permissions.includes('agent:read')) {
+  if (!hasPermission(user, PERMISSION.agentRead)) {
     return (
       <p className="py-6 text-body-sm text-on-surface-variant">当前账号没有查看关联对话的权限</p>
     )
@@ -24,8 +24,8 @@ export function TaskRelatedConversations({ taskId }: { taskId: string }) {
     <RelatedConversations
       key={`${user.id}:${taskId}`}
       taskId={taskId}
-      canAudit={user.permissions.includes('users:manage')}
-      canReadVideos={user.permissions.includes('generation:read')}
+      canAudit={canAuditAll(user)}
+      canReadVideos={hasPermission(user, PERMISSION.generationRead)}
     />
   )
 }

@@ -32,16 +32,16 @@ export type AuditPage = z.output<typeof zConversationsAuditOut>
 
 const PAGE_LIMIT = 50
 
-/** 组查询串；now 可注入方便测试。 */
+/** 组查询串；一次要多少段由调用方定，now 可注入方便测试。 */
 export const auditSearchParams = (
   filters: AuditFilters,
   cursor: string | null,
-  now: Date = new Date(),
+  { limit = PAGE_LIMIT, now = new Date() }: { limit?: number; now?: Date } = {},
 ): URLSearchParams => {
   const params = new URLSearchParams()
   params.set('state', filters.state)
   params.set('deleted', filters.deleted)
-  params.set('limit', String(PAGE_LIMIT))
+  params.set('limit', String(limit))
   if (filters.ownerUserId !== null) params.set('ownerUserId', filters.ownerUserId)
   if (filters.taskId !== null) params.set('taskId', filters.taskId)
   const { since, until } = dateRangeBounds(filters, now)

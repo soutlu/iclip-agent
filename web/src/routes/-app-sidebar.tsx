@@ -2,7 +2,7 @@ import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
 import { CueUserMenu } from '@/features/auth'
 import { ConversationSearchDialog, useLiveConversations } from '@/features/conversations'
-import { useUser } from '@/shared/auth'
+import { canAuditAll, hasPermission, PERMISSION, useUser } from '@/shared/auth'
 import { Icon, type IconName } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
@@ -26,11 +26,10 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
   const session = useUser()
   const { data: user } = session
   const requireLogin = useLoginPrompt()
-  const canRead = Boolean(user?.permissions.includes('agent:read'))
-  const canStart = Boolean(user?.permissions.includes('agent:run'))
-  const canReadTasks = Boolean(user?.permissions.includes('tasks:read'))
-  // 全部对话接口同时要 users:manage 与 agent:read（合同 §6）。
-  const canGovern = canRead && Boolean(user?.permissions.includes('users:manage'))
+  const canRead = hasPermission(user, PERMISSION.agentRead)
+  const canStart = hasPermission(user, PERMISSION.agentRun)
+  const canReadTasks = hasPermission(user, PERMISSION.tasksRead)
+  const canGovern = canAuditAll(user)
   // 全局帧订阅挂在侧栏顶层：折叠时对话区不渲染，全部对话页与会话页仍要靠它刷新列表缓存。
   useLiveConversations(canRead)
 

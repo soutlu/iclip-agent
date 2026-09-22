@@ -5,6 +5,7 @@ import { Link } from '@tanstack/react-router'
 import { useUsersDirectory } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
 import { formatRelativeTime } from '@/shared/lib/relative-time'
+import type { TaskPreview, TaskPreviewState } from '@/shared/lib/task-preview'
 import { Button } from '@/shared/ui/button'
 import { MediaFallback } from '@/shared/ui/media-fallback'
 import { StatusBadge } from '@/shared/ui/status-badge'
@@ -14,9 +15,6 @@ import { conversationStatus } from '../conversation-status'
 import type { Conversation } from '../conversations.api'
 import { AuditFiltersBar } from './audit-filters'
 import type { PickerSource } from '@/shared/ui/search-picker'
-
-type TaskPreview = { title: string; requirement: string; imageUrl: string | null }
-type TaskPreviewState = 'loading' | 'error' | 'ready' | 'forbidden'
 
 type ConversationsRouteProps = {
   /** 当前筛选条件与写回，由路由层落在查询参数上。 */

@@ -29,7 +29,7 @@ import {
 } from '@/features/conversations'
 import { tasksQueryKeys, useTaskOptions } from '@/features/tasks'
 import { ApiError } from '@/shared/api/client'
-import { useUser } from '@/shared/auth'
+import { hasPermission, PERMISSION, useUser } from '@/shared/auth'
 import { Icon, type IconName } from '@/shared/icons'
 import { formatRelativeTime } from '@/shared/lib/relative-time'
 import { cn } from '@/shared/lib/utils'
@@ -58,18 +58,17 @@ const COLLECTIONS_PER_STEP = 10
 const UNGROUPED = 'ungrouped'
 
 /** 改对话（重命名、删除、拖动归属）要有 agent:run；用到的组件自己读，不逐层传。 */
-const useCanWrite = () => (useUser().data?.permissions ?? []).includes('agent:run')
+const useCanWrite = () => hasPermission(useUser().data, PERMISSION.agentRun)
 
 /** 任务区和合集内容使用服务端分页，合集列表在前端切片；拖动成功后刷新拓扑。 */
 export function SidebarConversations() {
   const queryClient = useQueryClient()
   const session = useUser()
-  const permissions = session.data?.permissions ?? []
-  const canRead = permissions.includes('agent:read')
+  const canRead = hasPermission(session.data, PERMISSION.agentRead)
   const canWrite = useCanWrite()
-  const canManageCollections = permissions.includes('collections:write')
-  const canReadCollections = permissions.includes('collections:read')
-  const canReadTasks = permissions.includes('tasks:read')
+  const canManageCollections = hasPermission(session.data, PERMISSION.collectionsWrite)
+  const canReadCollections = hasPermission(session.data, PERMISSION.collectionsRead)
+  const canReadTasks = hasPermission(session.data, PERMISSION.tasksRead)
   const [state, setState] = useState<ConversationListState>('all')
   const topology = useSidebarTopology(canRead, state)
   useRecordOpened(topology.data)

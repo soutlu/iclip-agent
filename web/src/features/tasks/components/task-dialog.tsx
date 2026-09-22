@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState, type ReactNode } from 'react'
-import { useUser } from '@/shared/auth'
+import { hasPermission, PERMISSION, useUser } from '@/shared/auth'
 import { ApiError } from '@/shared/api/client'
 import { Button, IconButton } from '@/shared/ui/button'
 import { cn } from '@/shared/lib/utils'
@@ -75,7 +75,8 @@ export function TaskDialog({
     onOpenChange(next)
   }
   const creationBlockReason = (latestTask: Task | undefined): string | null => {
-    if (!currentUser?.permissions.includes('agent:run')) return '当前账号没有启动创作权限'
+    if (!currentUser || !hasPermission(currentUser, PERMISSION.agentRun))
+      return '当前账号没有启动创作权限'
     if (!latestTask) return '无法读取需求单，请返回后重试'
     if (latestTask.status === 'withdrawn') return '需求单已撤回，无法开始创作'
     if (latestTask.status !== 'confirmed') return '需求单尚未认领，无法开始创作'
@@ -270,13 +271,16 @@ function TaskDialogForm({ onOpenChange, onPreview, task }: TaskDialogFormProps) 
     },
   })
 
-  const canWrite = Boolean(user?.permissions.includes('tasks:write'))
+  const canWrite = hasPermission(user, PERMISSION.tasksWrite)
   const canEditDraft = Boolean(
-    user && (user.id === task?.creatorUserId || user.permissions.includes('users:manage')),
+    user && (user.id === task?.creatorUserId || hasPermission(user, PERMISSION.usersManage)),
   )
   const claimed = Boolean(task && user && task.assigneeUserIds.includes(user.id))
   const canStartCreation = Boolean(
-    onPreview && task?.status === 'confirmed' && claimed && user?.permissions.includes('agent:run'),
+    onPreview &&
+    task?.status === 'confirmed' &&
+    claimed &&
+    hasPermission(user, PERMISSION.agentRun),
   )
   const draft = task ? buildTaskCreationDraft(task) : null
 

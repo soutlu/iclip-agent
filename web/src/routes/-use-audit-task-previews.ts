@@ -1,29 +1,7 @@
 import { useQueries, useQuery } from '@tanstack/react-query'
-import { getTask, listAllTasks, tasksQueryKeys, type Task } from '@/features/tasks'
-import { useUser } from '@/shared/auth'
-
-type TaskPreview = {
-  title: string
-  requirement: string
-  imageUrl: string | null
-}
-
-type TaskPreviewState = 'loading' | 'error' | 'ready' | 'forbidden'
-
-function taskPreview(task: Task): TaskPreview {
-  const references = task.inputs.reference_image_oss_urls
-  const images = [
-    ...task.inputs.products.flatMap((product) => product.image_oss_urls),
-    ...references.model,
-    ...references.outfit,
-    ...references.prop,
-  ]
-  return {
-    title: task.title,
-    requirement: task.inputs.creative_requirement,
-    imageUrl: images.find((url) => url.trim().length > 0) ?? null,
-  }
-}
+import { getTask, listAllTasks, taskPreviewOf, tasksQueryKeys } from '@/features/tasks'
+import { hasPermission, PERMISSION, useUser } from '@/shared/auth'
+import type { TaskPreview, TaskPreviewState } from '@/shared/lib/task-preview'
 
 /** 复用需求单列表缓存；历史需求单按本页关联 ID 去重补取，不将读取失败视作未关联。 */
 export function useAuditTaskPreviews(taskIds: readonly string[]): {
@@ -32,7 +10,7 @@ export function useAuditTaskPreviews(taskIds: readonly string[]): {
   taskPreviewRetry: () => void
 } {
   const { data: user } = useUser()
-  const canReadTasks = Boolean(user?.permissions.includes('tasks:read'))
+  const canReadTasks = hasPermission(user, PERMISSION.tasksRead)
   const list = useQuery({
     enabled: canReadTasks,
     queryFn: ({ signal }) => listAllTasks(signal),
@@ -59,7 +37,7 @@ export function useAuditTaskPreviews(taskIds: readonly string[]): {
 
   return {
     taskPreviews: canReadTasks
-      ? new Map([...tasks].map(([id, task]) => [id, taskPreview(task)]))
+      ? new Map([...tasks].map(([id, task]) => [id, taskPreviewOf(task)]))
       : new Map(),
     taskPreviewState,
     taskPreviewRetry: () => {

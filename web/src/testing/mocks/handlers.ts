@@ -7,6 +7,7 @@ import {
   zTaskInputsOutput,
   type zTaskOut,
 } from '@/shared/api/generated/zod.gen'
+import { PERMISSION } from '@/shared/auth/permissions'
 import { auditHandlers } from './audit'
 import { mockAuthUser, mockGovernor } from './auth-user'
 import {
@@ -137,7 +138,7 @@ export const addMockUser = (displayName: string, id = crypto.randomUUID()) => {
     displayName,
     email: `${id.slice(0, 8)}@example.com`,
     id,
-    permissions: ['agent:read', 'agent:run'],
+    permissions: [PERMISSION.agentRead, PERMISSION.agentRun],
     roles: ['editor'],
     username: id.slice(0, 8),
   }

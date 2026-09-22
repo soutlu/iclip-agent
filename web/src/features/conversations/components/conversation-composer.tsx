@@ -1,7 +1,7 @@
 /** 工作台引用按 prefix 逐行拼到正文前（ADR-0009 决策 6）；附件入口由 uploads:write 权限控制。 */
 
 import { useEffect, useRef, useState } from 'react'
-import { useUser } from '@/shared/auth'
+import { hasPermission, PERMISSION, useUser } from '@/shared/auth'
 import type { ComposerHandle, ComposerPart, ComposerSubmission } from '@/shared/ui/composer'
 import { Composer } from '@/shared/ui/composer'
 import { toast } from '@/shared/ui/toast'
@@ -101,7 +101,7 @@ export function ConversationComposer({
         </div>
       )}
       <Composer
-        attachmentsEnabled={user?.permissions.includes('uploads:write') ?? false}
+        attachmentsEnabled={hasPermission(user, PERMISSION.uploadsWrite)}
         busy={busy}
         dense
         onStop={onStop}

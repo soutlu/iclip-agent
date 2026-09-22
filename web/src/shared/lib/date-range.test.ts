@@ -1,5 +1,15 @@
+import { z } from 'zod'
 import { describe, expect, it } from 'vitest'
-import { dateRangeBounds, formatLocalDate, parseLocalDate } from './date-range'
+import {
+  dateRangeBounds,
+  dateRangeFromSearch,
+  dateRangeSearchFields,
+  dateRangeToSearch,
+  formatLocalDate,
+  parseLocalDate,
+  UNBOUNDED_RANGE,
+  type DateRange,
+} from './date-range'
 
 describe('时间范围换算', () => {
   const now = new Date(2026, 8, 12, 20, 0, 0)
@@ -54,5 +64,50 @@ describe('本地审计日期', () => {
     '2026-09-12T00:00:00Z',
   ])('拒绝格式错误或超出日历范围的 %s', (input) => {
     expect(parseLocalDate(input)).toBeNull()
+  })
+})
+
+describe('时间范围与查询串互转', () => {
+  const schema = z.object(dateRangeSearchFields)
+  const parse = (search: Record<string, unknown>) => schema.parse(search)
+  const DEFAULT_30D: DateRange = { range: '30d', since: null, until: null }
+
+  it.each(['7d', '30d', 'all', 'custom'] as const)('%s 原样往返', (range) => {
+    const value: DateRange =
+      range === 'custom'
+        ? { range, since: '2026-09-01', until: '2026-09-10' }
+        : { range, since: null, until: null }
+
+    const search = dateRangeToSearch(value, UNBOUNDED_RANGE)
+
+    expect(dateRangeFromSearch(parse(search), UNBOUNDED_RANGE)).toEqual(value)
+  })
+
+  it('等于 fallback 的范围不落地址栏，空查询串就是 fallback', () => {
+    expect(dateRangeToSearch(DEFAULT_30D, DEFAULT_30D)).toEqual({})
+    expect(dateRangeFromSearch(parse({}), DEFAULT_30D)).toEqual(DEFAULT_30D)
+    expect(dateRangeFromSearch(parse({}), UNBOUNDED_RANGE)).toEqual(UNBOUNDED_RANGE)
+  })
+
+  it('非自定义范围不留日期', () => {
+    const search = dateRangeToSearch(
+      { range: '7d', since: '2026-09-01', until: '2026-09-10' },
+      UNBOUNDED_RANGE,
+    )
+
+    expect(search).toEqual({ range: '7d' })
+  })
+
+  it('自定义范围缺一端退回 fallback', () => {
+    expect(
+      dateRangeFromSearch(parse({ range: 'custom', since: '2026-09-01' }), DEFAULT_30D),
+    ).toEqual(DEFAULT_30D)
+  })
+
+  it('取值不认识就当没写', () => {
+    const search = parse({ range: '3d', since: '2026/09/01', until: '昨天' })
+
+    expect(search).toEqual({})
+    expect(dateRangeFromSearch(search, DEFAULT_30D)).toEqual(DEFAULT_30D)
   })
 })

@@ -5,22 +5,31 @@ const NOW = new Date('2026-09-12T08:00:00Z')
 
 describe('auditSearchParams', () => {
   it('默认筛选只带 state、deleted 与 limit，全部时间不带 since / until', () => {
-    const params = auditSearchParams(DEFAULT_AUDIT_FILTERS, null, NOW)
+    const params = auditSearchParams(DEFAULT_AUDIT_FILTERS, null, { now: NOW })
     expect([...params.keys()].sort()).toEqual(['deleted', 'limit', 'state'])
     expect(params.get('state')).toBe('all')
     expect(params.get('deleted')).toBe('live')
   })
 
   it('删没删的三值原样带上', () => {
-    const params = auditSearchParams({ ...DEFAULT_AUDIT_FILTERS, deleted: 'deleted' }, null, NOW)
+    const params = auditSearchParams({ ...DEFAULT_AUDIT_FILTERS, deleted: 'deleted' }, null, {
+      now: NOW,
+    })
     expect(params.get('deleted')).toBe('deleted')
+  })
+
+  it('一页要多少段由调用方定，不给就用列表页的一页', () => {
+    expect(auditSearchParams(DEFAULT_AUDIT_FILTERS, null, { now: NOW }).get('limit')).toBe('50')
+    expect(
+      auditSearchParams(DEFAULT_AUDIT_FILTERS, null, { limit: 100, now: NOW }).get('limit'),
+    ).toBe('100')
   })
 
   it.each([
     ['7d', '2026-09-05T08:00:00.000Z'],
     ['30d', '2026-08-13T08:00:00.000Z'],
   ] as const)('近 %s 从此刻往前推，只有 since', (range, since) => {
-    const params = auditSearchParams({ ...DEFAULT_AUDIT_FILTERS, range }, null, NOW)
+    const params = auditSearchParams({ ...DEFAULT_AUDIT_FILTERS, range }, null, { now: NOW })
     expect(params.get('since')).toBe(since)
     expect(params.has('until')).toBe(false)
   })
@@ -29,7 +38,7 @@ describe('auditSearchParams', () => {
     const params = auditSearchParams(
       { ...DEFAULT_AUDIT_FILTERS, range: 'custom', since: '2026-09-01', until: '2026-09-03' },
       null,
-      NOW,
+      { now: NOW },
     )
     expect(params.get('since')).toBe(new Date(2026, 8, 1).toISOString())
     expect(params.get('until')).toBe(new Date(2026, 8, 3, 23, 59, 59, 999).toISOString())
@@ -39,13 +48,13 @@ describe('auditSearchParams', () => {
     const open = auditSearchParams(
       { ...DEFAULT_AUDIT_FILTERS, range: 'custom', since: '2026-09-01', until: null },
       null,
-      NOW,
+      { now: NOW },
     )
     expect(open.has('until')).toBe(false)
     const broken = auditSearchParams(
       { ...DEFAULT_AUDIT_FILTERS, range: 'custom', since: '昨天', until: '2026-13-40' },
       null,
-      NOW,
+      { now: NOW },
     )
     expect(broken.has('since')).toBe(false)
     expect(broken.has('until')).toBe(false)
@@ -60,7 +69,7 @@ describe('auditSearchParams', () => {
         taskId: 't-1',
       },
       'cursor-2',
-      NOW,
+      { now: NOW },
     )
     expect(params.get('ownerUserId')).toBe('u-1')
     expect(params.get('taskId')).toBe('t-1')

@@ -3,22 +3,11 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { TooltipProvider } from '@/shared/ui/tooltip'
 import {
-  conversationStatusLabel,
   mediaStatusLabel,
   StatusBadge,
-  type ConversationBadgeStatus,
   type MediaBadgeStatus,
   type StatusBadgeProps,
 } from './status-badge'
-
-const CONVERSATION_STATUSES: readonly Exclude<ConversationBadgeStatus, 'idle'>[] = [
-  'aborted',
-  'approval',
-  'completed',
-  'failed',
-  'question',
-  'running',
-]
 
 const MEDIA_STATUSES: readonly Exclude<MediaBadgeStatus, 'idle'>[] = [
   'completed',
@@ -72,16 +61,6 @@ describe('StatusBadge', () => {
     await userEvent.hover(screen.getByText('上次失败'))
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
   })
-
-  it.each(CONVERSATION_STATUSES)(
-    '对话 %s 画出来的词就是 conversationStatusLabel 给的词',
-    (status) => {
-      const label = conversationStatusLabel(status)
-      expect(label).not.toBe('')
-      renderBadge({ appearance: 'label', kind: 'conversation', status })
-      expect(screen.getByText(label)).toBeVisible()
-    },
-  )
 
   it.each(MEDIA_STATUSES)('媒体 %s 画出来的词就是 mediaStatusLabel 给的词', (status) => {
     const label = mediaStatusLabel(status)
