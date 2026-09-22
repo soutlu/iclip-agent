@@ -134,7 +134,8 @@
   box-shadow: var(--shadow-3);
 }
 
-.task-detail-layout-expanded .task-detail-main {
+.task-detail-layout-expanded .task-detail-main,
+.task-related-panel {
   align-self: start;
   max-height: 100%;
 }
@@ -163,6 +164,8 @@
   .task-detail-layout-expanded .task-detail-main,
   .task-related-panel {
     flex: none;
+    align-self: stretch;
+    max-height: none;
     overflow: visible;
     border-radius: 0;
     box-shadow: none;

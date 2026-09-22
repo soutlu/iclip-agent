@@ -46,7 +46,6 @@ import {
   videoEditChainKey,
   videoEditConversationKey,
 } from './video-editor.api'
-import './video-editor.css'
 
 const DEFAULT_RANGE_SECONDS = 4
 const posterOf = (url: string) => videoSnapshotUrl(url, 320)
