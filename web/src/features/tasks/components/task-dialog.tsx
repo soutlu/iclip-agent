@@ -74,6 +74,15 @@ export function TaskDialog({
     }
     onOpenChange(next)
   }
+  const {
+    data: task,
+    error,
+    refetch,
+  } = useQuery({
+    enabled: open && !isCreate,
+    queryFn: () => getTask(taskId ?? ''),
+    queryKey: tasksQueryKeys.detail(taskId ?? ''),
+  })
   const creationBlockReason = (latestTask: Task | undefined): string | null => {
     if (!currentUser || !hasPermission(currentUser, PERMISSION.agentRun))
       return '当前账号没有启动创作权限'
@@ -106,15 +115,6 @@ export function TaskDialog({
       setSending(false)
     }
   }
-  const {
-    data: task,
-    error,
-    refetch,
-  } = useQuery({
-    enabled: open && !isCreate,
-    queryFn: () => getTask(taskId ?? ''),
-    queryKey: tasksQueryKeys.detail(taskId ?? ''),
-  })
   const hasRelated = Boolean(task && relatedContent && !creationDraft)
   const showRelated = hasRelated && closedRelatedTask !== taskId
 
