@@ -31,7 +31,7 @@
 
 ### 4. 端点按前端一次渲染的单元切，不按指标切
 
-三个端点：`summary`（全体 + 每人 + 每单 + 可选时段序列，一屏看完、同一组筛选）、`conversations`（要翻页的明细，每行内嵌镜与按模型用量）、`anomalies`（要按种类筛、阈值可调、要翻页的列表）。都要 `users:manage`，与 `GET /conversations/audit` 同一权限、同一游标翻页方式。
+三个端点：`summary`（全体 + 每人 + 每单 + 可选时段序列，一屏看完、同一组筛选）、`conversations`（要翻页的明细，每行内嵌镜与按模型用量）、`anomalies`（要按种类筛、阈值可调、要翻页的列表）。都要 `users:manage`，与 `GET /conversations/audit` 同一权限、同一游标翻页方式——游标的编解码与列表上限由 [platform/paging.py](../../server/src/iclip/platform/paging.py) 一处提供，两边共用。
 
 ### 5. 时间窗按各指标自己的锚点
 

@@ -213,6 +213,16 @@ async def test_malformed_cursors_are_422(cursor: str) -> None:
         await service.anomalies(GOVERNOR, cursor=cursor)
 
 
+@pytest.mark.parametrize("ref", ["fabricated:x", "retry", "retry:"])
+async def test_anomaly_cursor_rejects_a_ref_this_list_never_issued(ref: str) -> None:
+    """异常游标的尾键得是「种类:对象」，种类还得是认识的那几种。"""
+
+    service = AuditService(RecordingReports())
+
+    with pytest.raises(ValidationFailed, match="cursor"):
+        await service.anomalies(GOVERNOR, cursor=f"{NOW.isoformat()}|{ref}")
+
+
 async def test_limit_out_of_range_is_422() -> None:
     service = AuditService(RecordingReports())
 

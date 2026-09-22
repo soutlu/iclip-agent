@@ -22,10 +22,9 @@ from iclip.domains.generation.schemas import (
     VideoGenerationIn,
 )
 from iclip.domains.identity.public import ACT_AS_PERMISSION, Principal
+from iclip.platform.paging import check_limit
 
 _logger = structlog.stdlib.get_logger(__name__)
-
-MAX_LIST_LIMIT = 100
 
 ClearCompletion = Callable[[uuid.UUID, uuid.UUID], Awaitable[None]]
 """按 (对话 id, 属主) 取消那段对话的收尾标记；实现由组合根注入，本域不认识对话表。"""
@@ -258,8 +257,7 @@ class GenerationService:
     ) -> tuple[GenerationJob, ...]:
         """按时间倒序返回可见记录；归属筛选只收窄，不扩大属主可见范围。"""
 
-        if not 1 <= limit <= MAX_LIST_LIMIT:
-            raise ValidationFailed(f"limit 必须在 1 到 {MAX_LIST_LIMIT} 之间")
+        check_limit(limit)
         return await self._repo.list_for_owner(
             owner=_owner_scope(principal),
             limit=limit,
@@ -289,4 +287,4 @@ def _owner_scope(principal: Principal) -> uuid.UUID | None:
     return principal.user_id
 
 
-__all__ = ["MAX_LIST_LIMIT", "GenerationService"]
+__all__ = ["GenerationService"]

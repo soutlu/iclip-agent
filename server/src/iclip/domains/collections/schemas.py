@@ -12,7 +12,6 @@ from pydantic.alias_generators import to_camel
 from iclip.domains.collections.models import Collection
 
 MAX_NAME_CHARS: Final = 200
-MAX_LIST_LIMIT: Final = 100
 
 
 class CamelModel(BaseModel):
@@ -60,7 +59,6 @@ def collection_out(collection: Collection) -> CollectionOut:
 
 
 __all__ = [
-    "MAX_LIST_LIMIT",
     "MAX_NAME_CHARS",
     "CollectionEnvelope",
     "CollectionIn",

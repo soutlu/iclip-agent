@@ -20,11 +20,11 @@ from iclip.domains.tasks.models import (
 )
 from iclip.domains.tasks.repository import TaskRepository
 from iclip.domains.tasks.schemas import (
-    MAX_LIST_LIMIT,
     TaskCreateIn,
     TaskIn,
     TaskInputs,
 )
+from iclip.platform.paging import check_limit
 
 MANAGE_PERMISSION = "users:manage"
 
@@ -66,8 +66,7 @@ class TaskService:
         assignee_user_id: uuid.UUID | None = None,
         limit: int = 20,
     ) -> tuple[Task, ...]:
-        if not 1 <= limit <= MAX_LIST_LIMIT:
-            raise ValidationFailed(f"limit 必须在 1 到 {MAX_LIST_LIMIT} 之间")
+        check_limit(limit)
         return await self._repo.list_recent(
             status=status, assignee_user_id=assignee_user_id, limit=limit
         )
