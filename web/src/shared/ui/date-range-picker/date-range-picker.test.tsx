@@ -22,6 +22,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 describe('DateRangePicker', () => {
@@ -90,7 +91,8 @@ describe('DateRangePicker', () => {
     await user.click(screen.getByRole('radio', { name: '自定义' }))
 
     expect(applied).toEqual([])
-    expect(screen.queryByRole('grid')).not.toBeInTheDocument()
+    // 日历常驻，草稿被丢掉的证据是网格上不再有选中的一天。
+    expect(screen.queryAllByRole('gridcell', { selected: true })).toHaveLength(0)
     expect(screen.getByRole('radio', { name: '近 7 天' })).toBeChecked()
   })
 
@@ -152,8 +154,45 @@ describe('DateRangePicker', () => {
     expect(screen.getByRole('button', { name: '下个月' })).toHaveFocus()
     await user.tab()
 
-    expect(screen.getByRole('button', { name: '2024年2月29日' })).toHaveFocus()
+    expect(screen.getByRole('button', { name: '2024年2月1日' })).toHaveFocus()
     await user.keyboard('{PageUp}{ArrowUp}')
-    expect(screen.getByRole('button', { name: '2024年1月22日' })).toHaveFocus()
+    expect(screen.getByRole('button', { name: '2023年12月25日' })).toHaveFocus()
+  })
+
+  it('宽屏并排显示两个月', async () => {
+    vi.stubGlobal('matchMedia', (media: string) => ({
+      matches: true,
+      media,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }))
+
+    await renderPicker()
+
+    expect(screen.getByRole('grid', { name: '2026 年 9 月' })).toBeInTheDocument()
+    expect(screen.getByRole('grid', { name: '2026 年 10 月' })).toBeInTheDocument()
+  })
+
+  it('快捷范围生效时高亮今天往前的这几天，不占用选中语义', async () => {
+    await renderPicker({ range: '7d', since: null, until: null })
+
+    expect(screen.getByRole('button', { name: '2026年9月12日' })).toHaveAttribute('data-preset')
+    expect(screen.getByRole('button', { name: '2026年9月6日' })).toHaveAttribute('data-preset')
+    expect(screen.getByRole('button', { name: '2026年9月5日' })).not.toHaveAttribute('data-preset')
+    expect(screen.queryAllByRole('gridcell', { selected: true })).toHaveLength(0)
+  })
+
+  it('快捷范围生效时点一天即开始自定义草稿', async () => {
+    const { applied, user } = await renderPicker({ range: '7d', since: null, until: null })
+
+    await user.click(screen.getByRole('button', { name: '2026年9月8日' }))
+
+    expect(applied).toEqual([])
+    expect(screen.getAllByRole('gridcell', { selected: true })).toHaveLength(1)
+    expect(screen.getByRole('radio', { name: '自定义' })).toBeChecked()
   })
 })

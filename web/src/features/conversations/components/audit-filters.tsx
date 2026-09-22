@@ -118,7 +118,7 @@ function ConversationFilters({ filters, onChange, users, tasks, totals }: AuditF
           label={createdRangeLabel(filters)}
           popupLabel="选择建立时间范围"
           selected={filters.range !== 'all'}
-          width="w-84 max-w-[calc(100vw-24px)] rounded-lg"
+          width="w-max max-w-[calc(100vw-24px)] rounded-lg"
         >
           <DateRangePicker onChange={apply} value={filters} />
         </FilterPopup>

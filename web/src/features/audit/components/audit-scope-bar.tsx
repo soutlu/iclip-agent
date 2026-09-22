@@ -52,7 +52,7 @@ function ScopeFilters({ scope, onChange, users, tasks, trailing }: AuditScopeBar
         popupLabel="选择时间范围"
         selected={scope.range !== 'all'}
         triggerLabel={`时间：${dateRangeLabel(scope)}`}
-        width="w-84 max-w-[calc(100vw-24px)] rounded-lg"
+        width="w-max max-w-[calc(100vw-24px)] rounded-lg"
       >
         <DateRangePicker onChange={apply} value={scope} />
       </FilterPopup>
