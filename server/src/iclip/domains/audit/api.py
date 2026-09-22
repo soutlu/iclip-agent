@@ -44,11 +44,7 @@ def create_audit_router(service: AuditService) -> APIRouter:
     ) -> SummaryOut:
         """全体一格、每人一行、每单一行；给 ``bucket`` 再多一条按 ``timezone`` 切的时段序列。
 
-        ``attemptDistribution`` 是全体的出片次数分布，次数按镜上的出片记录数分档、不封顶，
-        锚点与每镜次数一样看该镜首次出片时刻；按人、按需求单的行上没有这份数据。
-
-        ``since`` / ``until`` 作用在各指标自己的锚点上：成片与视频耗时看完成时刻，每镜次数看
-        该镜首次出片时刻，交付周期看最后成片时刻，模型用量整段对话按最后记账时刻归期。
+        各指标的定义、时间窗落在哪个时刻上、``attemptDistribution`` 只给全体一档，见合同 §12。
         """
 
         found = await service.summary(
@@ -80,9 +76,9 @@ def create_audit_router(service: AuditService) -> APIRouter:
         limit: Annotated[int, Query(ge=1, le=MAX_LIST_LIMIT)] = DEFAULT_LIST_LIMIT,
         cursor: str | None = None,
     ) -> AuditConversationsOut:
-        """有成片的对话，最后成片晚的排前面；时间窗作用在最后成片时刻上。
+        """有成片的对话，最后成片晚的排前面；每行的指标、镜明细与按模型用量都是这段对话的全量。
 
-        每行的指标、镜明细与按模型用量都是这段对话的全量。属主删掉的对话照列，``deletedAt`` 非空。
+        时间窗与翻页规则见合同 §12。
         """
 
         page = await service.conversations(
@@ -115,8 +111,7 @@ def create_audit_router(service: AuditService) -> APIRouter:
     ) -> AnomaliesOut:
         """异常按发生时刻倒序。``kind`` 可重复给，不给就全部种类。
 
-        阈值参数只管数得出来的那几种；``slow`` 与 ``spend`` 的门槛按当前筛选范围现算 P90 / P95，
-        范围小时门槛会抖。
+        九种异常的判定、阈值参数管哪几种、``slow`` 与 ``spend`` 的门槛按筛选范围现算，见合同 §12。
         """
 
         page = await service.anomalies(

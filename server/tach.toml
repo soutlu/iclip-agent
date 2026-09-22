@@ -45,7 +45,6 @@ path = "iclip.domains.agents"
 depends_on = ["iclip.common", "iclip.domains.identity", "iclip.platform.transcript"]
 
 [[modules]]
-# 派生数据清理由组合根注入 PurgeDerived。
 path = "iclip.domains.conversations"
 depends_on = [
     "iclip.common",

@@ -29,6 +29,7 @@ from iclip.app.agent_layer import (
     watch_and_reload,
 )
 from iclip.app.capability_table import build_capability_table, build_display_registry
+from iclip.app.conversation_fork import ForkTranscriptAdapter, GenerationsCopier, WorkspaceCopier
 from iclip.app.conversation_workspace import (
     ConversationWorkspace,
     validate_video_shots,
@@ -38,8 +39,7 @@ from iclip.app.generation_live import AnnouncingGenerationRepository
 from iclip.app.logging import configure_logging
 from iclip.capabilities.shot_document import SHOTS_PATH
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
-from iclip.capabilities.workspace.scope import namespace_for
-from iclip.common.errors import Conflict, NotFound
+from iclip.common.errors import NotFound
 from iclip.config import (
     ObjectStoreEnv,
     ResolvedAgent,
@@ -458,65 +458,6 @@ def build_app(
 
         return frozenset(uuid.UUID(one) for one in await job_queue.busy_conversation_ids(owner))
 
-    class _ForkTranscript:
-        """把对话域的分叉用例接到 agent 引擎的历史读写上；``transcript_history`` 在下面才装好。"""
-
-        async def idle(self, conversation_id: uuid.UUID) -> bool:
-            view = await job_queue.view(str(conversation_id))
-            return view.active is None and not view.queued
-
-        async def turn_count(self, conversation_id: uuid.UUID) -> int:
-            return await transcript_history.turn_count(str(conversation_id))
-
-        async def seed(self, *, source_id: uuid.UUID, target_id: uuid.UUID, turn: int) -> None:
-            plan = await transcript_history.plan_fork(
-                str(source_id), ordinal=turn, target_conversation_id=str(target_id)
-            )
-            if plan is None:
-                # 先数过轮数才动手拷的，走到这儿说明源对话在这期间又跑了一轮。
-                raise Conflict("这段对话刚刚又跑了一轮，重新挑一个分叉点")
-            await plan.commit()
-
-    async def copy_conversation_workspace(
-        *,
-        source_owner: uuid.UUID,
-        source_id: uuid.UUID,
-        target_owner: uuid.UUID,
-        target_id: uuid.UUID,
-    ) -> None:
-        """工作区文件与素材台账整份搬进副本的命名空间。
-
-        走 FileStore 的写入口而不是裸 SQL：容量上限与路径校验对副本照旧生效。不走会发帧的
-        那一层——副本的对话行还没落库，这一刻没人订阅得了它。"""
-
-        source = namespace_for(source_owner, str(source_id))
-        target = namespace_for(target_owner, str(target_id))
-        for entry in await workspace_store.entries(source):
-            found = await workspace_store.read(source, entry.path)
-            if found is None:
-                # 列得出来却读不出来，只可能是绕过存储写进去的非规范路径：不静默少拷一个文件。
-                raise RuntimeError(f"工作区列出了 {entry.path} 却读不出来，这段对话的文件存坏了")
-            await workspace_store.write(target, entry.path, found.content)
-        await material_ledger.record(target, await material_ledger.list_all(source))
-
-    async def copy_conversation_generations(
-        *,
-        source_id: uuid.UUID,
-        target_id: uuid.UUID,
-        owner: uuid.UUID,
-        task_id: uuid.UUID | None,
-    ) -> int:
-        """副本的结果条来自这一步；没开媒体生成就没有出片记录可拷。"""
-
-        if generation is None:
-            return 0
-        return await generation.service.copy_to_fork(
-            source_conversation_id=source_id,
-            target_conversation_id=target_id,
-            owner=owner,
-            task_id=task_id,
-        )
-
     def on_activity(conversation_id: str, owner: uuid.UUID, state: ActivityState) -> None:
         """同步向属主连接广播活动变化，避免 await 使连续状态通知乱序。"""
 
@@ -555,6 +496,10 @@ def build_app(
         source=reload_source,
     )
 
+    job_queue = JobQueue(active_engine, on_activity=on_activity)
+    # 显示、续跑与分叉共用历史投影。
+    transcript_history = TranscriptHistory(step_store, job_queue, tool_displays, DELEGATE_TOOL)
+
     tasks = build_tasks_module(SqlTaskRepository(active_engine), act_as=identity.act_as)
     # 审计报表跨模块只读聚合，直接查表（决策见 ADR-0027）。
     audit = build_audit_module(PgAuditReports(active_engine))
@@ -574,12 +519,11 @@ def build_app(
         announce_title=live_connections.announce_title,
         activities_of=activities_of,
         busy_conversation_ids=busy_conversation_ids,
-        fork_transcript=_ForkTranscript(),
-        copy_workspace=copy_conversation_workspace,
-        copy_generations=copy_conversation_generations,
+        fork_transcript=ForkTranscriptAdapter(queue=job_queue, history=transcript_history),
+        copy_workspace=WorkspaceCopier(store=workspace_store, ledger=material_ledger),
+        copy_generations=GenerationsCopier(generation),
     )
     uploads = build_uploads_module(public_objects) if public_objects is not None else None
-    job_queue = JobQueue(active_engine, on_activity=on_activity)
     context_limits = live_context_limits(agent_layer)
 
     # 删除不中止在跑的 run（ADR-0024），删掉那一刻在跑或排队的几轮收尾时对话已是墓碑：
@@ -611,7 +555,9 @@ def build_app(
             )
 
     async def deps_for_prompt(row: JobRow) -> AgentRunDeps:
-        """按队列记录的属主重建运行主体，以开跑时的账号状态和权限执行。"""
+        """按队列记录的属主重建运行主体，以开跑时的账号状态和权限执行。
+
+        替人办事的消息，属主就是 ``user_name`` 指名的人；不带发消息那把 key 的身份与权限（ADR-0025 §4）。"""
 
         account = await identity.service.get_account(row.owner_user_id)
         return AgentRunDeps(
@@ -620,8 +566,6 @@ def build_app(
             user_name=row.user_name,
         )
 
-    # 显示与续跑共用历史投影，用于初始化续跑的实时状态。
-    transcript_history = TranscriptHistory(step_store, job_queue, tool_displays, DELEGATE_TOOL)
     transcripts = TranscriptService(
         store=transcript_store,
         history=transcript_history,

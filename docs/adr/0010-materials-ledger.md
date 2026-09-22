@@ -14,7 +14,7 @@ kimi 的做法是两条：用户附件按 `file_id` 引用、收件时拷进会�
 
 ### 1. 一张表记「这段对话能用哪些素材」
 
-`agent_runtime.materials`，四列：`namespace`、`url`、`kind`、`created_at`，主键 `(namespace, url)`。命名空间与工作区同一条规则（`namespace_for(owner, conversation_id)`）。协议 `MaterialLedger` 只有 `record` / `lookup` / `purge_namespace` 三口，放 `platform/material_ledger/`，PG 后端同目录；存储层不认识对话与用户。
+`agent_runtime.materials`，四列：`namespace`、`url`、`kind`、`created_at`，主键 `(namespace, url)`。命名空间与工作区同一条规则（`namespace_for(owner, conversation_id)`）。协议 `MaterialLedger` 只有 `record` / `lookup` / `purge_namespace` 三口，放 `platform/material_ledger/`，PG 后端同目录；存储层不认识对话与用户。（`purge_namespace` 随对话软删除一起删掉，后继决策见 [ADR-0024](0024-audit-deleted-conversations.md)。）
 
 ### 2. 素材身份是 url 字符串
 

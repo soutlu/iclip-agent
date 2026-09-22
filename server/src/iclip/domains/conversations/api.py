@@ -200,7 +200,7 @@ def create_conversations_router(
 
         没有 ``users:manage`` 就 403。``since`` / ``until`` 作用在建立时刻上，与排序同一列——
         同页报表按各指标自己的事件时刻分期，两边不是同一批对话（ADR-0030）；
-        ``state`` 的三值与侧栏同一口径；``deleted`` 缺省只看活着的，``deleted`` 只看属主删掉的，
+        ``state`` 的四值与侧栏同一口径；``deleted`` 缺省只看活着的，``deleted`` 只看属主删掉的，
         ``all`` 都看。``total`` 与 ``runningTotal`` 是真总数，不随翻页变。
         """
 

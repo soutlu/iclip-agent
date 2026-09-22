@@ -126,8 +126,9 @@ class ForkTranscript(Protocol):
         """源对话一共几轮；越界的分叉点在拷贝任何东西之前就被挡掉。"""
         ...
 
-    async def seed(self, *, source_id: uuid.UUID, target_id: uuid.UUID, turn: int) -> None:
-        """把源对话截到第 ``turn`` 轮的消息写成副本的第一张快照。
+    async def seed(self, *, source_id: uuid.UUID, target_id: uuid.UUID, turn: int) -> bool:
+        """把源对话截到第 ``turn`` 轮的消息写成副本的第一张快照；源在数过轮数之后又跑了一轮就
+        什么都不写、回 ``False``，冲不冲突由用例判。
 
         消息里的 run_id 照抄源对话：副本靠它们回源查每轮的终态与子代理，不另存一份。"""
         ...
@@ -423,7 +424,10 @@ class ConversationService:
         await self._copy_generations(
             source_id=source_id, target_id=target_id, owner=principal.user_id, task_id=None
         )
-        await self._fork_transcript.seed(source_id=source_id, target_id=target_id, turn=turn)
+        if not await self._fork_transcript.seed(
+            source_id=source_id, target_id=target_id, turn=turn
+        ):
+            raise Conflict("这段对话刚刚又跑了一轮，重新挑一个分叉点")
         conversation, _ = await self._repo.create_if_absent(
             Conversation(
                 id=target_id,
