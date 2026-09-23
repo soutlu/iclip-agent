@@ -278,6 +278,10 @@ async def test_video_poll_rejects_unknown_status() -> None:
         ({}, "result.output_url / result.watermark_output_url"),
         ({"output_url": "https://cdn.test/v.mp4"}, "result.watermark_output_url"),
         ({"watermark_output_url": "https://cdn.test/v-wm.mp4"}, "result.output_url"),
+        (
+            {"output_url": "http://", "watermark_output_url": "https://cdn.test/v-wm.mp4"},
+            "result.output_url",
+        ),
     ],
 )
 async def test_video_poll_rejects_success_without_both_outputs(
@@ -367,6 +371,23 @@ async def test_image_never_retries_and_never_switches_channel() -> None:
     assert error.value.code == "PROVIDER_RESULT_UNKNOWN"
     assert error.value.retryable is False
     assert len(attempts) == 1, "只调一次，不换渠道再来"
+
+
+async def test_image_response_without_a_downloadable_url_is_output_missing() -> None:
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "output_sign_str": "https:///tmp.png",
+                "output_str": "file:///etc/passwd",
+            },
+        )
+
+    with pytest.raises(ProviderError) as error:
+        await nano_provider(handler).submit(make_job(image_request(channel="dev")))
+    assert error.value.code == "PROVIDER_OUTPUT_MISSING"
 
 
 @pytest.mark.parametrize("model", [NANO_BANANA_PRO, SEEDREAM_V5_PRO], ids=lambda m: m.name)

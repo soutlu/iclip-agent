@@ -5,12 +5,12 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Final, Literal
-from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from pydantic.alias_generators import to_camel
 
 from iclip.common.errors import ValidationFailed
+from iclip.common.urls import is_http_url
 
 if TYPE_CHECKING:  # 只为类型：真导入会和 models.py 成环
     from iclip.domains.tasks.models import Task
@@ -49,8 +49,7 @@ def _http_only(urls: list[str]) -> list[str]:
     """素材地址只允许具有主机名的 HTTP(S) URL。"""
 
     for index, url in enumerate(urls):
-        parsed = urlsplit(url)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        if not is_http_url(url):
             raise ValueError(f"[{index}] 必须是 http:// 或 https:// 地址")
     return urls
 

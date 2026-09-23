@@ -11,6 +11,7 @@ from urllib.parse import quote
 
 import httpx
 
+from iclip.common.urls import is_http_url
 from iclip.domains.generation.models import GenerationJob
 from iclip.domains.generation.provider import (
     ProviderError,
@@ -192,7 +193,7 @@ def _progress_from_body(body: dict[str, Any]) -> ProviderProgress:
         missing = [
             key
             for key, value in urls.items()
-            if not isinstance(value, str) or not value.startswith(("http://", "https://"))
+            if not isinstance(value, str) or not is_http_url(value)
         ]
         if missing:
             # 上游两份产物都发布完才进 succeeded，缺一份就是协议错。

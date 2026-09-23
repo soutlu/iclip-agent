@@ -14,7 +14,7 @@
 | `harness/` | 通用 Agent 装配、运行驱动、消息持久化、上下文压缩与 transcript 投影；不解释业务身份和业务规则 |
 | `capabilities/` | 面向模型的类型化工具，连接 Agent 引擎与业务能力 |
 | `platform/` | 共用技术协议及适配器：数据库与行归属、对象存储、工作区文件存储、素材台账、ffmpeg 媒体处理、HTTP 错误映射、翻页、transcript 类型 |
-| `common/` | 领域错误分类与工具入参的 JSON 文本归一化 |
+| `common/` | 领域错误分类、工具入参的 JSON 文本归一化与地址形状判定 |
 | `config/` | 配置声明、环境变量定义与启动期解析 |
 | `app/` | 组合根及跨模块适配 |
 | `main.py` / `asgi.py` | CLI / ASGI 入口 |

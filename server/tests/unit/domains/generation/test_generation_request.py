@@ -349,14 +349,15 @@ def test_image_request_caps_reference_count() -> None:
         image_request(reference_image_urls=urls)
 
 
-def test_non_http_reference_url_is_rejected() -> None:
-    """参考 URL 由供应商下载，只接受 HTTP(S)，避免 file:// 等协议访问本地文件。"""
+@pytest.mark.parametrize("url", ["file:///etc/passwd", "http://"])
+def test_non_http_reference_url_is_rejected(url: str) -> None:
+    """参考 URL 由供应商下载，只接受带主机名的 HTTP(S)，避免 file:// 等协议访问本地文件。"""
 
     with pytest.raises(ValueError):
         VideoGenerationIn(
             model="moyu-seedance-2-5",
             prompt="猫",
-            reference_video_urls=["file:///etc/passwd"],
+            reference_video_urls=[url],
         )
 
 

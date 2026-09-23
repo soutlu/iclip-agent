@@ -232,8 +232,11 @@ async def test_a_text_only_prompt_records_nothing(app: FastAPI, pg_url: str) -> 
     assert await _materials(pg_url, f"{user_id}/{conversation_id}") == []
 
 
-async def test_an_attachment_that_is_not_http_is_refused(app: FastAPI, pg_url: str) -> None:
-    """台账地址会用于工具外呼，仅接受 HTTP(S)。"""
+@pytest.mark.parametrize("url", ["file:///etc/passwd", "https:///a.png"])
+async def test_an_attachment_that_is_not_http_is_refused(
+    app: FastAPI, pg_url: str, url: str
+) -> None:
+    """台账地址会用于工具外呼，仅接受带主机名的 HTTP(S)。"""
 
     async with make_client(app) as client:
         user_id = await _sign_in(client, pg_url)
@@ -242,9 +245,7 @@ async def test_an_attachment_that_is_not_http_is_refused(app: FastAPI, pg_url: s
             f"/conversations/{conversation_id}/prompts",
             json={
                 "prompt_id": "prm_bad",
-                "content": [
-                    {"type": "image", "source": {"kind": "url", "url": "file:///etc/passwd"}}
-                ],
+                "content": [{"type": "image", "source": {"kind": "url", "url": url}}],
             },
         )
 

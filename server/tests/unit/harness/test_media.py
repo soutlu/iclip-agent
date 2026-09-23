@@ -1,12 +1,23 @@
-"""验证 OSS 缩放与裁切参数的 URL 构造；不发送网络请求。"""
+"""验证媒体 tag 的地址门槛与 OSS 缩放、裁切参数的 URL 构造；不发送网络请求。"""
 
 from __future__ import annotations
 
 import pytest
 
-from iclip.harness.media import cropped_image_url, image_info_url, resized_image_url
+from iclip.harness.media import (
+    cropped_image_url,
+    image_info_url,
+    media_tag_open,
+    resized_image_url,
+)
 
 OSS = "https://bucket.oss-cn-hangzhou.aliyuncs.com/style.jpg"
+
+
+@pytest.mark.parametrize("url", ["http://", "https://cdn.test/a b.png", "file:///a.png"])
+def test_a_media_tag_refuses_an_address_it_cannot_round_trip(url: str) -> None:
+    with pytest.raises(ValueError, match="不含空白的 HTTP/HTTPS URL"):
+        media_tag_open("image", url)
 
 
 def test_crop_uses_original_pixel_coordinates() -> None:

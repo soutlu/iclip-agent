@@ -1013,6 +1013,7 @@ async def test_submit_without_a_conversation_does_not_call_back() -> None:
             [{"url": "https://example.com/a.mp4", "start": 4, "end": 4}], id="结束不晚于开始"
         ),
         pytest.param([{"url": "file:///etc/passwd", "start": 0, "end": 1}], id="不是 http 地址"),
+        pytest.param([{"url": "https:///a.mp4", "start": 0, "end": 1}], id="地址没有主机名"),
         pytest.param(
             [{"url": "https://example.com/" + "a" * 2000, "start": 0, "end": 1}], id="地址过长"
         ),
@@ -1029,15 +1030,20 @@ async def test_clip_submit_rejects_unusable_segments_before_persisting(
     segments: list[dict[str, object]],
 ) -> None:
     repo = InMemoryGenerationRepository()
+    owner = uuid.uuid4()
+    root = seed_root(repo, owner=owner)
     # 错误路径若仍尝试入队，坏队列会让这条用例失败。
-    app = build_test_app(repo, granted=principal("generation:submit"), broken_queue=True)
+    app = build_test_app(
+        repo, granted=principal("generation:submit", user_id=owner), broken_queue=True
+    )
     async with client(app) as http:
         response = await http.post(
-            "/generations/clips", json={"purpose": "reference", "segments": segments}
+            "/generations/clips",
+            json={"purpose": "reference", "segments": segments, "rootJobId": str(root.id)},
         )
 
     assert response.status_code == 422, response.text
-    assert repo.jobs == {}
+    assert list(repo.jobs) == [root.id], "只有原作，没有新记录"
 
 
 async def test_clip_submit_requires_the_submit_permission() -> None:
