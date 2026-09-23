@@ -16,7 +16,7 @@ import {
   type ArtifactRendererProps,
   type WorkbenchRef,
 } from '@/shared/workbench'
-import { parseShotsDocument, validateShot } from '../shot-document'
+import { validateShot } from '../shot-document'
 import { frameBadges, latestFrameJobs } from '../frame-status'
 import { isShotVideo, readStoryboardMetadata } from '../generation-metadata'
 import { useFrameImageJobs } from '../image-edit/image-edit.api'
@@ -73,36 +73,10 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
   // 打开时先选中哪一条、从哪个控件点开都由入口决定。
   const [imageEdit, setImageEdit] = useState<FrameEditSession | null>(null)
   const draft = useShotsDraft({ conversationId, path, file: file.data?.file })
-  const [uploadedSources, setUploadedSources] = useState<
-    { group: number; frame: number; url: string }[]
-  >([])
-  const savedContent = file.data?.file.content
-  const savedDocument = useMemo(
-    () => (savedContent === undefined ? null : parseShotsDocument(savedContent)),
-    [savedContent],
-  )
   const latestFrameJob = useMemo(
     () => latestFrameJobs(frameJobs.data?.items ?? []),
     [frameJobs.data],
   )
-  // 根据已落盘地址判断上传是否仍未保存，避免一次较早请求成功就清除后来上传的提示。
-  const appliedUpload =
-    draft.hasUnsavedChanges &&
-    uploadedSources.some(
-      (source) =>
-        draft.document?.shots.find((shot) => shot.index === source.group)?.image_urls[
-          source.frame - 1
-        ] === source.url &&
-        savedDocument?.shots.find((shot) => shot.index === source.group)?.image_urls[
-          source.frame - 1
-        ] !== source.url,
-    )
-  const recordUpload = (group: number, frame: number, url: string) => {
-    setUploadedSources((current) => [
-      ...current.filter((source) => source.group !== group || source.frame !== frame),
-      { group, frame, url },
-    ])
-  }
   const navigate = useNavigate()
   const search: ReaderSearch = useSearch({ strict: false })
   const pagesRef = useRef<HTMLDivElement | null>(null)
@@ -275,7 +249,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
             <SaveStatus
               state={draft.state}
               hasUnsavedChanges={draft.hasUnsavedChanges}
-              appliedUpload={appliedUpload}
+              appliedUpload={draft.hasUnsavedUpload}
               onRetry={() => void draft.saveNow()}
             />
           </div>
@@ -334,9 +308,9 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
                 onUpdateShot={(updater) => draft.updateShot(item.index, updater)}
                 onReplaceFrame={(frame, previousUrl, url) => {
                   draft.replaceFrame(item.index, frame, previousUrl, url)
-                  recordUpload(item.index, frame, url)
+                  draft.recordUpload(item.index, frame, url)
                 }}
-                onUploaded={(frame, url) => recordUpload(item.index, frame, url)}
+                onUploaded={(frame, url) => draft.recordUpload(item.index, frame, url)}
                 onUploadingChange={gate.onUploadingChange}
                 onEditFrame={(frame, open) => {
                   setImageEdit({
@@ -489,13 +463,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
           session={imageEdit}
         />
       )}
-      <ConflictDialog
-        state={draft.state}
-        resolve={(choice) => {
-          draft.resolveConflict(choice)
-          if (choice === 'theirs') setUploadedSources([])
-        }}
-      />
+      <ConflictDialog state={draft.state} resolve={draft.resolveConflict} />
     </>
   )
 }

@@ -67,10 +67,13 @@ const usageOf = (
   }
 }
 
-/** 一段对话的明细：镜数、每镜次数、周期都由下标定，第三段起每三段有一镜反复重试。 */
+/** 一段对话的明细：镜数、每镜次数、周期都由下标定，第三段起每三段有一镜反复重试。
+ *
+ * 交付时刻锚在建立时刻上：`updatedAt` 会随改名、换归属、标收尾和删除刷新，拿它当锚点，报表位置和
+ * 时间窗归属就会跟着这些操作挪。 */
 const reportOf = (conversation: MockConversation, index: number): Report => {
   const shotCount = 2 + (index % 3)
-  const deliveredAt = new Date(conversation.updatedAt)
+  const deliveredAt = new Date(conversation.createdAt)
   const cycleSeconds = (1.5 + (index % 5) * 0.8) * 3600
   const shots = Array.from({ length: shotCount }, (_, shotIndex) => {
     const attempts = shotIndex === 1 && index % 3 === 2 ? 3 : 1 + ((index + shotIndex) % 2)
