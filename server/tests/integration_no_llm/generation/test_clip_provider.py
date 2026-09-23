@@ -34,13 +34,20 @@ BASE_URL = "https://example.test/base.mp4"
 EDITED_URL = "https://example.test/edited.mp4"
 
 
-def _synthesize(path: Path, *, size: str, seconds: int, audio: bool) -> bytes:
-    """合成一段图样视频。关键帧每秒一个，裁剪落到的边界才可预期。"""
+def _synthesize(
+    path: Path, *, size: str, seconds: int, audio: bool, faststart: bool = False
+) -> bytes:
+    """合成一段图样视频。关键帧每秒一个，裁剪落到的边界才可预期。
+
+    默认照 ffmpeg 的缺省把 moov 写在尾部，和不少上传素材一样；``faststart`` 把它挪到头部。"""
 
     args = ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc=size={size}:rate=10"]
     if audio:
         args += ["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-c:a", "aac"]
-    args += ["-t", str(seconds), "-g", "10", "-pix_fmt", "yuv420p", str(path)]
+    args += ["-t", str(seconds), "-g", "10", "-pix_fmt", "yuv420p"]
+    if faststart:
+        args += ["-movflags", "+faststart"]
+    args.append(str(path))
     subprocess.run(args, check=True, capture_output=True)
     return path.read_bytes()
 
@@ -175,14 +182,19 @@ async def test_reference_cut_reads_the_index_and_the_selection_only() -> None:
     assert 1.0 <= await _duration_seconds(content) <= 2.1
 
 
-async def test_reference_cut_still_works_when_the_source_ignores_range(
-    sources: dict[str, bytes],
-) -> None:
-    """源不支持 Range 时退化为顺序读：慢，但 moov 在头部仍出正确产物。"""
+async def test_reference_cut_still_works_when_the_source_ignores_range() -> None:
+    """源不支持 Range 时退化为顺序读：慢，但 moov 在头部仍出正确产物。
 
+    moov 在尾部时 ffmpeg 读到它之后要倒回 mdat，只有那段字节恰好还在读缓冲里才倒得回去，
+    成败随 TCP 分包而变，不是这条用例要验证的行为。"""
+
+    with TemporaryDirectory(prefix="clip-fixture-") as tmp:
+        body = _synthesize(
+            Path(tmp) / "base.mp4", size="320x240", seconds=4, audio=True, faststart=True
+        )
     store = MemoryObjectStore()
     provider = _provider(store)
-    async with serving({"base.mp4": sources[BASE_URL]}, ranges=False) as server:
+    async with serving({"base.mp4": body}, ranges=False) as server:
         _, content = await _submit(
             provider, store, segments=[{"url": server.url("base.mp4"), "start": 1, "end": 2}]
         )

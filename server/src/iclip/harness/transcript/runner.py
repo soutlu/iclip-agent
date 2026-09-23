@@ -305,10 +305,12 @@ class ConversationRunner:
             loop.cancel()
         await asyncio.gather(*self._loops, return_exceptions=True)
         self._loops = ()
-        while self._tasks:
+        # 按任务状态而不是按名单判断：刚跑完的任务要等下一轮事件循环才被回调摘出名单，
+        # 而 gather 全是已完成任务时同步返回、不让出事件循环，按名单等会原地空转。
+        while pending := [task for task in self._tasks if not task.done()]:
             for active in tuple(self._active.values()):
                 active.token.cancel()
-            await asyncio.gather(*tuple(self._tasks), return_exceptions=True)
+            await asyncio.gather(*pending, return_exceptions=True)
 
     # --- 人机往返 -----------------------------------------------------------
 
