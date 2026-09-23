@@ -1,10 +1,13 @@
-"""参考视频拆解文档在工作区里的位置。"""
+"""参考视频拆解文档在工作区里的位置与镜头时间码的形状。"""
 
 from __future__ import annotations
 
 import hashlib
 import re
 from typing import Final
+
+SHOT_TIMECODE_SHAPE: Final = "**[MM:SS.mmm-MM:SS.mmm]**"
+"""拆解文档里镜头时间码的写法：拆解提示词照它要求，取帧解析器报错时照它提示。"""
 
 _UNSAFE_STEM = re.compile(r"[^A-Za-z0-9_-]+")
 _STEM_CHARS: Final = 40
@@ -19,4 +22,4 @@ def video_doc_path(video_url: str) -> str:
     return f"{_DOC_DIR}/{(stem[:_STEM_CHARS] or 'video')}-{digest}.md"
 
 
-__all__ = ["video_doc_path"]
+__all__ = ["SHOT_TIMECODE_SHAPE", "video_doc_path"]

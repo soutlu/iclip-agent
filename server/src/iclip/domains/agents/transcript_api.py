@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Path, Query, WebSocket, WebSocketDisconn
 from pydantic import TypeAdapter, ValidationError
 
 from iclip.common.errors import DomainError
+from iclip.common.generation_vocab import GenerationKind, GenerationStatus
 from iclip.domains.identity.public import (
     MANAGE_PERMISSION,
     ActAs,
@@ -284,11 +285,11 @@ class LiveConnections:
         conversation_id: uuid.UUID | None,
         *,
         job_id: uuid.UUID,
-        kind: str,
-        status: str,
+        kind: GenerationKind,
+        status: GenerationStatus,
         metadata: Mapping[str, Any] | None,
     ) -> None:
-        """向属主与治理者的连接广播生成任务状态跳转；只收基础字段，不依赖生成域类型。"""
+        """向属主与治理者的连接广播生成任务状态跳转；只收基础字段与 common 的词表，不依赖生成域类型。"""
 
         self._announce(
             owner,

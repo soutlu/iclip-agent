@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:  # 只为类型：schemas 要用这里的函数做校验，真导入会成环
@@ -15,22 +14,8 @@ if TYPE_CHECKING:  # 只为类型：schemas 要用这里的函数做校验，真
 OUTPUT_CONSTRAINT: Final = "不要生成字幕，不要生成背景音乐。"
 """每段正文的最后一行。"""
 
-IMAGE_REFERENCE: Final = re.compile(r"@Image(\d+)")
-"""正文里指向参考图的记号，编号从 1 起、对应 ``reference_image_urls`` 的位置。"""
-
 _TIME_PLACES: Final = 3
 """起止秒数保留到毫秒，整秒不带小数点：JSON 里的 4.0 与浏览器里的 4 才会拼出同一行。"""
-
-
-def image_indexes_of(text: str) -> list[int]:
-    """正文里引用了哪几张图，按首次出现的顺序去重。"""
-
-    seen: list[int] = []
-    for match in IMAGE_REFERENCE.finditer(text):
-        number = int(match.group(1))
-        if number not in seen:
-            seen.append(number)
-    return seen
 
 
 def format_seconds(value: float) -> str:
@@ -51,10 +36,4 @@ def format_shot_prompt(shot: VideoShotIn) -> str:
     return f"{shot.global_settings}\n\n" + "\n".join(lines) + f"\n{OUTPUT_CONSTRAINT}"
 
 
-__all__ = [
-    "IMAGE_REFERENCE",
-    "OUTPUT_CONSTRAINT",
-    "format_seconds",
-    "format_shot_prompt",
-    "image_indexes_of",
-]
+__all__ = ["OUTPUT_CONSTRAINT", "format_seconds", "format_shot_prompt"]

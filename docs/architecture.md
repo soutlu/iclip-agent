@@ -14,7 +14,7 @@
 | `harness/` | 通用 Agent 装配、运行驱动、消息持久化、上下文压缩与 transcript 投影；不解释业务身份和业务规则 |
 | `capabilities/` | 面向模型的类型化工具，连接 Agent 引擎与业务能力 |
 | `platform/` | 共用技术协议及适配器：数据库与行归属、对象存储、工作区文件存储、素材台账、ffmpeg 媒体处理、HTTP 错误映射、翻页、transcript 类型 |
-| `common/` | 领域错误分类、工具入参的 JSON 文本归一化与地址形状判定 |
+| `common/` | 跨层共用的纯规则：领域错误分类、工具入参的 JSON 文本归一化、地址形状判定、镜头组规则（时间线连续、`@ImageN` 引用、参考图上限）与生成记录的种类、状态词表 |
 | `config/` | 配置声明、环境变量定义与启动期解析 |
 | `app/` | 组合根及跨模块适配 |
 | `main.py` / `asgi.py` | CLI / ASGI 入口 |
@@ -46,7 +46,7 @@ skill 与 capability 都按 Agent 显式挂载，子代理不继承主代理的�
 
 `video` 提供参考视频拆解（`video_parser`）与镜头组 prompt 表交付（`write_video_shots`），依赖 `workspace`；由 `video` 配置段与 `VIDEO_UNDERSTANDING_*` 环境变量启用，不需要媒体生成、对象存储和 ffmpeg。`shot_video` 提供取帧与出图，依赖 `workspace` 与 `video`；由 `shot_video` 配置段启用，另需媒体生成、对象存储和 ffmpeg，三者是否齐由 `ResolvedSettings.shot_tools_enabled` 一处判定，能力表只在它成立时收到 `shot_video`。启动期的 ffmpeg 检查另按 `ResolvedSettings.ffmpeg_required` 执行：取帧与出图要用它，媒体生成带的视频裁剪拼接也要用它，两者任一启用就必须有。`video_shot.json` 的形状与前端约定见 [contract/conventions.md](../contract/conventions.md#6-对话-conversations)。
 
-[shot_document.py](../server/src/iclip/capabilities/shot_document.py) 持有镜头组表的结构与校验规则，供 `video` 的交付工具与对话域的文件写回共用；[video_understanding.py](../server/src/iclip/capabilities/video_understanding.py) 持有视频拆解协议与方舟适配器；[video_document.py](../server/src/iclip/capabilities/video_document.py) 只回答拆解文档在工作区的路径，`shot_video` 靠它定位 `video` 写下的文档。划分标准：模型看得见的东西（工具名、docstring、参数 schema、验证器措辞、display 表、指令）留在各自包内，换 agent 就可以不同；模型看不见、换 agent 也不允许有差异的机制下沉到 `harness/` 或这类共用模块，不在包之间复制：素材台账校验在 [harness/materials.py](../server/src/iclip/harness/materials.py)，工作区写入与配额、版本错误的翻译在 [harness/files.py](../server/src/iclip/harness/files.py)。
+[shot_document.py](../server/src/iclip/capabilities/shot_document.py) 持有镜头组表的结构与校验措辞，供 `video` 的交付工具与对话域的文件写回共用；[video_understanding.py](../server/src/iclip/capabilities/video_understanding.py) 持有视频拆解协议与方舟适配器；[video_document.py](../server/src/iclip/capabilities/video_document.py) 回答拆解文档在工作区的路径与镜头时间码的写法，`shot_video` 靠它定位 `video` 写下的文档，拆解提示词与取帧解析器的报错引同一个写法。划分标准：模型看得见的东西（工具名、docstring、参数 schema、验证器措辞、display 表、指令）留在各自包内，换 agent 就可以不同；模型看不见、换 agent 也不允许有差异的机制下沉到 `harness/`、`common/` 或这类共用模块，不在包之间复制：素材台账校验在 [harness/materials.py](../server/src/iclip/harness/materials.py)，工作区写入与配额、版本错误的翻译在 [harness/files.py](../server/src/iclip/harness/files.py)，镜头组的时间线连续、`@ImageN` 引用与参考图上限在 [common/shot_rules.py](../server/src/iclip/common/shot_rules.py)，与生成域的出片请求共用。
 
 模型适配集中在 [harness/models.py](../server/src/iclip/harness/models.py)，同名模型复用实例。provider 选择交给官方 `infer_model`；`api: responses` 使用本仓的 Responses 子类。模型参数转换不进入业务模块或工具。
 
