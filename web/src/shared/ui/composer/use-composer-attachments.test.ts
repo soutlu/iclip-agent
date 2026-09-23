@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { server } from '@/testing/mocks/server'
 import { useComposerAttachments } from './use-composer-attachments'
 
@@ -15,13 +15,27 @@ const mint = (result: { current: ReturnType<typeof useComposerAttachments> }, fi
 }
 
 describe('useComposerAttachments', () => {
+  const requests: string[] = []
+
+  beforeEach(() => {
+    requests.length = 0
+    server.events.on('request:start', ({ request }) => {
+      requests.push(
+        `${request.method} ${new URL(request.url).pathname.replace(/[\w-]{36}/, ':id')}`,
+      )
+    })
+    // jsdom 不解码图片；上传前的尺寸校验读这个桩。
+    vi.stubGlobal('createImageBitmap', async () => ({ close: () => {}, height: 800, width: 600 }))
+  })
+
   afterEach(() => {
+    vi.unstubAllGlobals()
     // 撤销测试添加到全局 URL 的方法，避免污染其他用例。
     delete (URL as unknown as Record<string, unknown>)['createObjectURL']
     delete (URL as unknown as Record<string, unknown>)['revokeObjectURL']
   })
 
-  it('走完上传管线：uploading → ready，地址来自确认回包', async () => {
+  it('走完签名、直传、确认三步：uploading → ready，地址来自确认回包', async () => {
     const { result } = renderHook(() => useComposerAttachments())
 
     const attId = mint(result, imageFile())
@@ -32,20 +46,50 @@ describe('useComposerAttachments', () => {
     expect(entry?.url).toContain('/mock-oss/')
     expect(entry?.progress).toBeUndefined()
     expect(entry?.previewUrl).toBe(entry?.url)
+    expect(requests).toEqual([
+      'POST /api/uploads/sign',
+      'PUT /mock-oss/:id',
+      'POST /api/uploads/:id/confirm',
+    ])
   })
 
   it('签名被拒：error 态，文案带服务端原文', async () => {
     server.use(
       http.post('*/api/uploads/sign', () =>
-        HttpResponse.json({ detail: '不收 image/gif 这个类型，只收：image/jpeg' }, { status: 422 }),
+        HttpResponse.json({ detail: '上传权限已被收回' }, { status: 422 }),
       ),
     )
     const { result } = renderHook(() => useComposerAttachments())
 
-    const attId = mint(result, imageFile('动图.gif', 'image/gif'))
+    const attId = mint(result, imageFile())
 
     await waitFor(() => expect(result.current.entries.get(attId)?.status).toBe('error'))
-    expect(result.current.entries.get(attId)?.error).toContain('不收 image/gif 这个类型')
+    expect(result.current.entries.get(attId)?.error).toContain('上传权限已被收回')
+  })
+
+  it('直传被对象存储拒绝：error 态，文案给出状态码且不再确认', async () => {
+    server.use(http.put('*/mock-oss/:uploadId', () => new HttpResponse(null, { status: 403 })))
+    const { result } = renderHook(() => useComposerAttachments())
+
+    const attId = mint(result, imageFile())
+
+    await waitFor(() => expect(result.current.entries.get(attId)?.status).toBe('error'))
+    expect(result.current.entries.get(attId)?.error).toContain('403')
+    expect(requests).toEqual(['POST /api/uploads/sign', 'PUT /mock-oss/:id'])
+  })
+
+  it.each([
+    ['不收的图片类型', imageFile('动图.gif', 'image/gif')],
+    ['非图片视频文件', new File(['%PDF'], '说明.pdf', { type: 'application/pdf' })],
+  ])('%s在本地拒收：error 态，不发任何请求', async (_case, file) => {
+    const { result } = renderHook(() => useComposerAttachments())
+
+    const attId = mint(result, file)
+
+    await waitFor(() => expect(result.current.entries.get(attId)?.status).toBe('error'))
+    // 给出具体原因，而不是兜底的「上传失败」。
+    expect(result.current.entries.get(attId)?.error).toMatch(/^(?!上传失败$)./)
+    expect(requests).toEqual([])
   })
 
   it('syncReferences 回收文档不再引用的 entry；回来晚的上传结果直接丢弃', async () => {

@@ -1,11 +1,10 @@
-/** 文档是附件生命周期的事实源；新增即上传，引用消失时由 syncReferences 回收条目与本地预览。 */
+/** 文档是附件生命周期的事实源；新增即上传，引用消失时由 syncReferences 回收条目与本地预览。上传协议与校验在 shared/api/media-upload。 */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { z } from 'zod'
-import { apiFetch, errorMessageOf } from '@/shared/api/client'
-import { zUploadConfirmedOut, zUploadTicketOut } from '@/shared/api/generated/zod.gen'
+import { errorMessageOf } from '@/shared/api/client'
+import { uploadMediaFile } from '@/shared/api/media-upload'
 
-/** image / video 可提交给 prompt；file 不被上传签名接受，停留在 error。 */
+/** image / video 可提交给 prompt；file 不上传，直接停在 error。 */
 export type ComposerAttachmentKind = 'file' | 'image' | 'video'
 
 export type ComposerAttachment = {
@@ -26,6 +25,8 @@ export type ComposerAttachment = {
 
 /** 百分比变化且距上次至少 120ms 才更新；100% 不节流。 */
 const PROGRESS_WRITE_MS = 120
+
+const UNSUPPORTED_FILE = '只能添加图片或视频附件'
 
 /** 参考 Kimi Pu()，使用八位 base36 随机附件 ID。 */
 const mintAttachmentId = (): string => Math.random().toString(36).slice(2, 10)
@@ -71,32 +72,6 @@ const revokePreview = (entry: ComposerAttachment) => {
   if (entry.previewUrl?.startsWith('blob:') === true) URL.revokeObjectURL(entry.previewUrl)
 }
 
-type UploadInstruction = z.infer<typeof zUploadTicketOut>['upload']
-
-/** 使用 XHR 获取直传进度；签名中的 headers 必须原样发送，尤其 Content-Type。 */
-const putWithProgress = (
-  upload: UploadInstruction,
-  file: File,
-  onProgress: (ratio: number) => void,
-): Promise<void> =>
-  new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest()
-    request.open('PUT', upload.url)
-    for (const [name, value] of Object.entries(upload.headers)) {
-      request.setRequestHeader(name, value)
-    }
-    request.upload.addEventListener('progress', (event) => {
-      if (event.lengthComputable && event.total > 0) onProgress(event.loaded / event.total)
-    })
-    request.addEventListener('load', () => {
-      if (request.status >= 200 && request.status < 300) resolve()
-      else reject(new Error(`上传失败（${request.status}）`))
-    })
-    request.addEventListener('error', () => reject(new Error('网络错误，上传失败')))
-    request.addEventListener('abort', () => reject(new Error('上传已取消')))
-    request.send(file)
-  })
-
 export const useComposerAttachments = () => {
   const [entries, setEntries] = useState<ReadonlyMap<string, ComposerAttachment>>(() => new Map())
   const entriesRef = useRef(entries)
@@ -121,45 +96,26 @@ export const useComposerAttachments = () => {
     })
   }
 
-  /** 任一步上传失败均进入 error 状态并保留接口错误文案。 */
+  /** 任一步上传失败均进入 error 状态并保留可展示的错误文案。 */
   const upload = async (entry: ComposerAttachment, file: File) => {
+    const { kind } = entry
+    if (kind === 'file') {
+      patch(entry.attId, { error: UNSUPPORTED_FILE, status: 'error' })
+      return
+    }
+    let lastPercent = -1
+    let lastWrittenAt = 0
+    const onProgress = (ratio: number) => {
+      const percent = Math.floor(ratio * 100)
+      const now = Date.now()
+      if (percent === lastPercent) return
+      if (percent < 100 && now - lastWrittenAt < PROGRESS_WRITE_MS) return
+      lastPercent = percent
+      lastWrittenAt = now
+      patch(entry.attId, { progress: ratio })
+    }
     try {
-      // 图片签名要求尺寸；读取失败时不提供，由服务端返回校验错误。
-      let width: number | null = null
-      let height: number | null = null
-      if (entry.kind === 'image' && typeof createImageBitmap === 'function') {
-        try {
-          const bitmap = await createImageBitmap(file)
-          width = bitmap.width
-          height = bitmap.height
-          bitmap.close()
-        } catch {
-          width = null
-          height = null
-        }
-      }
-      const ticket = await apiFetch('/uploads/sign', zUploadTicketOut, {
-        body: { contentType: entry.mediaType, height, width },
-        fallbackErrorMessage: '上传失败',
-        method: 'POST',
-      })
-
-      let lastPercent = -1
-      let lastWrittenAt = 0
-      await putWithProgress(ticket.upload, file, (ratio) => {
-        const percent = Math.floor(ratio * 100)
-        const now = Date.now()
-        if (percent === lastPercent) return
-        if (percent < 100 && now - lastWrittenAt < PROGRESS_WRITE_MS) return
-        lastPercent = percent
-        lastWrittenAt = now
-        patch(entry.attId, { progress: ratio })
-      })
-
-      const confirmed = await apiFetch(`/uploads/${ticket.uploadId}/confirm`, zUploadConfirmedOut, {
-        fallbackErrorMessage: '上传失败',
-        method: 'POST',
-      })
+      const url = await uploadMediaFile(file, kind, { onProgress })
       setEntries((prev) => {
         const current = prev.get(entry.attId)
         if (current === undefined) return prev
@@ -168,10 +124,10 @@ export const useComposerAttachments = () => {
         // 上传后将预览替换为公网地址，保证本地 URL 回收后仍可查看。
         next.set(entry.attId, {
           ...current,
-          previewUrl: confirmed.url,
+          previewUrl: url,
           progress: undefined,
           status: 'ready',
-          url: confirmed.url,
+          url,
         })
         return next
       })

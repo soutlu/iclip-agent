@@ -4,8 +4,16 @@ import type { z } from 'zod'
 
 const API_BASE_PATH = '/api'
 
-/** apiFetch 除取消外的唯一失败形态：message 是可直接展示的中文；status 为 HTTP 状态码，断网或响应无法解析、校验不过时为 0，原始错误放在 cause。 */
-export class ApiError extends Error {
+/** message 是可直接展示给用户的中文，描述业务上可预期的失败（校验不过、直传失败、分镜已变化等）；程序不变量被破坏仍抛普通 Error。 */
+export class UserFacingError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'UserFacingError'
+  }
+}
+
+/** apiFetch 除取消外的唯一失败形态：status 为 HTTP 状态码，断网或响应无法解析、校验不过时为 0，原始错误放在 cause。 */
+export class ApiError extends UserFacingError {
   readonly status: number
 
   constructor(status: number, message: string, options?: ErrorOptions) {
@@ -15,9 +23,9 @@ export class ApiError extends Error {
   }
 }
 
-/** 取可展示的错误文案：ApiError 用它的 message，其余一律用 fallback，不外露原始英文或技术信息。 */
+/** 取可展示的错误文案：UserFacingError（含 ApiError）用它的 message，其余一律用 fallback，不外露原始英文或技术信息。 */
 export const errorMessageOf = (error: unknown, fallback: string): string =>
-  error instanceof ApiError ? error.message : fallback
+  error instanceof UserFacingError ? error.message : fallback
 
 // 鉴权回调由 app 注入，避免 shared/api 反向依赖路由。
 let onUnauthorized: (() => void) | null = null
@@ -59,7 +67,8 @@ const readApiErrorMessage = async (response: Response, fallbackMessage: string) 
   return message ? `${fallbackMessage}：${message}` : `${fallbackMessage}（${response.status}）`
 }
 
-const NETWORK_FAILURE = '网络连接失败，请检查网络后重试'
+/** 断网时拼在调用方前缀后的文案；OSS 直传沿用同一句。 */
+export const NETWORK_FAILURE = '网络连接失败，请检查网络后重试'
 const MALFORMED_RESPONSE = '服务返回的数据格式不正确'
 
 // 按 name 判断：中止可能来自另一个 realm 的 DOMException，instanceof 不可靠。

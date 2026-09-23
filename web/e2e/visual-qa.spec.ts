@@ -106,8 +106,15 @@ test('首页 composer 附件视觉验收：内联 pill 与悬停卡', async ({ p
   await login(page)
   await expect(page.getByRole('heading', { name: 'Cue' })).toBeAttached()
 
+  // 上传前会校验图片尺寸（短边至少 300），画一张够大的。
   const png = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    await page.evaluate(() => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 600
+      canvas.height = 800
+      canvas.getContext('2d')?.fillRect(0, 0, canvas.width, canvas.height)
+      return canvas.toDataURL('image/png').split(',')[1] ?? ''
+    }),
     'base64',
   )
   await page
@@ -121,8 +128,8 @@ test('首页 composer 附件视觉验收：内联 pill 与悬停卡', async ({ p
   await page.screenshot({ path: `${SHOT_DIR}/home-composer-attachment.png`, fullPage: true })
 
   await pill.hover()
-  // 传完后卡上第二行报大小；mock 的公网地址加载不出图，所以没有像素尺寸。
-  await expect(page.getByText('70 B')).toBeVisible()
+  // 传完后卡上第二行报像素尺寸与大小。
+  await expect(page.getByRole('tooltip').getByText(/600 × 800 · \d+ KB/)).toBeVisible()
   await page.waitForTimeout(200)
   await page.screenshot({ path: `${SHOT_DIR}/home-composer-attachment-tip.png`, fullPage: true })
 })

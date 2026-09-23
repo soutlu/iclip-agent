@@ -2,7 +2,7 @@ import { createEvent, fireEvent, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import { delay, http, HttpResponse } from 'msw'
 import { EditorView } from 'prosemirror-view'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   dropFilesIntoWindow,
   pasteFilesIntoComposer,
@@ -25,6 +25,12 @@ const pillHost = (name: string): HTMLElement => {
 }
 
 describe('Composer', () => {
+  // jsdom 不解码图片；附件上传前的尺寸校验读这个桩。
+  beforeEach(() => {
+    vi.stubGlobal('createImageBitmap', async () => ({ close: () => {}, height: 800, width: 600 }))
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
   it('空输入时发送禁用，粘入文字后放开，Enter 触发提交', async () => {
     const onSubmit = vi.fn()
     await renderWithProviders(<Composer onSubmit={onSubmit} />)

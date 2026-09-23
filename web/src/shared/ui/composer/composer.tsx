@@ -4,9 +4,9 @@ import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'r
 import type { ReactNode, Ref } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '@/shared/icons'
-import { hasDraggedFiles } from '@/shared/lib/drag-files'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
+import { useWindowFileDrop } from '@/shared/ui/file-drop'
 import { Tag } from '@/shared/ui/tag'
 import { ComposerAttachmentPill } from './composer-attachment-pill'
 import { readComposerSegments, readComposerText } from './editor-schema'
@@ -60,7 +60,6 @@ export function Composer({
 }: ComposerProps) {
   const attachments = useComposerAttachments()
   const [pillHosts, setPillHosts] = useState<readonly ComposerPillHost[]>([])
-  const [dragOver, setDragOver] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -127,58 +126,12 @@ export function Composer({
     [],
   )
 
-  // 用 window 级计数吸收子元素间的 dragenter / dragleave，避免遮罩闪烁。
-  useEffect(() => {
-    if (!attachmentsEnabled) return
-    let depth = 0
-    // 别处的拖放区（帧图片、弹窗）用 preventDefault 接管文件，聊天入口让出遮罩与上传；
-    // 但正文里的 ProseMirror 自己也会 preventDefault，那是自家地盘，遮罩要照常亮着。
-    const claimedElsewhere = (event: DragEvent) =>
-      event.defaultPrevented &&
-      !(event.target instanceof Node && rootRef.current?.contains(event.target) === true)
-    const onDragEnter = (event: DragEvent) => {
-      if (!hasDraggedFiles(event)) return
-      depth += 1
-      setDragOver(!claimedElsewhere(event))
-      if (!event.defaultPrevented) event.preventDefault()
-    }
-    const onDragOver = (event: DragEvent) => {
-      if (!hasDraggedFiles(event)) return
-      setDragOver(!claimedElsewhere(event))
-      if (!event.defaultPrevented) event.preventDefault() // dragover 不 preventDefault 收不到 drop。
-    }
-    const onDragLeave = (event: DragEvent) => {
-      if (!hasDraggedFiles(event)) return
-      depth = Math.max(0, depth - 1)
-      if (depth === 0) setDragOver(false)
-    }
-    const onDrop = (event: DragEvent) => {
-      depth = 0
-      setDragOver(false)
-      // 正文里的 drop 由编辑器自己按落点插入，这里只收落在别处的。
-      if (event.defaultPrevented || !hasDraggedFiles(event)) return
-      event.preventDefault()
-      const { dataTransfer } = event
-      if (dataTransfer === null) return
-      const items = [...dataTransfer.items]
-      // 过滤无 MIME 的目录，上传签名不支持目录。
-      const files = [...dataTransfer.files].filter(
-        (_file, index) => items[index]?.webkitGetAsEntry()?.isDirectory !== true,
-      )
-      if (files.length === 0) return
-      editorRef.current.insertFiles(files)
-    }
-    window.addEventListener('dragenter', onDragEnter)
-    window.addEventListener('dragover', onDragOver)
-    window.addEventListener('dragleave', onDragLeave)
-    window.addEventListener('drop', onDrop)
-    return () => {
-      window.removeEventListener('dragenter', onDragEnter)
-      window.removeEventListener('dragover', onDragOver)
-      window.removeEventListener('dragleave', onDragLeave)
-      window.removeEventListener('drop', onDrop)
-    }
-  }, [attachmentsEnabled])
+  // 聊天入口是页面的兜底接收者：别处拖放区接管的文件让出，正文里的 drop 由编辑器按落点插入。
+  const dragOver = useWindowFileDrop({
+    enabled: attachmentsEnabled,
+    onFiles: (files) => editorRef.current.insertFiles(files),
+    ownRef: rootRef,
+  })
 
   const canSend = canSendNow()
 

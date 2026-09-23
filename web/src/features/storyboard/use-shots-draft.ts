@@ -2,7 +2,7 @@
 
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ApiError, errorMessageOf } from '@/shared/api/client'
+import { ApiError, errorMessageOf, UserFacingError } from '@/shared/api/client'
 import { readWorkspaceFile, workspaceQueryKeys, writeWorkspaceFile } from '@/shared/workbench'
 import {
   parseShotsDocument,
@@ -292,7 +292,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     (index: number, frame: number, previousUrl: string, url: string) => {
       const result = updateShot(index, (shot) => {
         if (!Number.isInteger(frame) || frame < 1 || shot.image_urls[frame - 1] !== previousUrl) {
-          throw new Error('这张图片已发生变化，请重新选择要替换的图片')
+          throw new UserFacingError('这张图片已发生变化，请重新选择要替换的图片')
         }
         return {
           ...shot,
@@ -301,7 +301,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
           ),
         }
       })
-      if (result === undefined) throw new Error('目标镜头组已不存在，上传结果未写入分镜')
+      if (result === undefined) throw new UserFacingError('目标镜头组已不存在，上传结果未写入分镜')
     },
     [updateShot],
   )

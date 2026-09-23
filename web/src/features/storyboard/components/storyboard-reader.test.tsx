@@ -1062,7 +1062,7 @@ describe('StoryboardReader', () => {
     await act(async () => {
       release()
     })
-    expect(await screen.findByText('上传失败：503')).toBeVisible()
+    expect(await screen.findByText('上传失败（503）')).toBeVisible()
     await act(() => new Promise<void>((resolve) => setTimeout(resolve, 900)))
     expect(files.writes).toEqual([])
     expect(files.snapshot()).toEqual(document)
@@ -1174,7 +1174,7 @@ describe('StoryboardReader', () => {
       await userEvent.click(within(page).getByRole('button', { name: '添加图片' }))
       await userEvent.upload(screen.getByLabelText('选择要上传的图片'), imageFile())
     } else await userEvent.upload(within(page).getByLabelText('选择替换图片'), imageFile())
-    expect(await screen.findByText('上传失败：503')).toBeVisible()
+    expect(await screen.findByText('上传失败（503）')).toBeVisible()
     expect(files.writes).toEqual([])
     expect(files.snapshot()).toEqual(document)
     expect(within(page).getByRole('img', { name: '镜头组 1 第 2 帧' })).toHaveAttribute(

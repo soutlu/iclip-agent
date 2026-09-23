@@ -24,7 +24,7 @@
 
 - `src/routes/` 负责路由装配、守卫、search params 与跨 feature 组合；业务逻辑留在 feature。共用侧栏、登录弹窗、布局和右面板由 `_shell.tsx` 及同目录 `-` 前缀助手承载。
 - feature 之间的稳定共用能力提取到 `shared/`，跨 feature 流程在 `app/` 或 `routes/` 组合。构建期助手放 `vite/`。
-- 后端 REST 请求使用 `@/shared/api/client` 的 `apiFetch`；需要响应头或状态码时使用 `apiFetchWithResponse`。两者共用同源请求、鉴权回调和 zod 校验。裸 `fetch` 仅用于 OSS 预签名直传与外链素材下载。
+- 后端 REST 请求使用 `@/shared/api/client` 的 `apiFetch`；需要响应头或状态码时使用 `apiFetchWithResponse`。两者共用同源请求、鉴权回调和 zod 校验。裸 `fetch` / `XMLHttpRequest` 仅用于 OSS 预签名直传与外链素材下载。
 - 接口 schema 使用 `src/shared/api/generated/` 的生成物；额外业务校验叠在生成 schema 上。后端字段缺失时保留其空值语义，不编造业务默认值。
 - 登录与守卫规则见 [实现规范](docs/frontend-implementation.md#登录与守卫)；权限门控使用后端 `user.permissions`，不使用用户名白名单。
 - 不手改生成文件，不抬高 design-guard 基线；修复存量后可以收紧基线。

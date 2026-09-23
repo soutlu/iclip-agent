@@ -2,7 +2,7 @@ import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { server } from '@/testing/mocks/server'
-import { ApiError, apiFetch, errorMessageOf } from './client'
+import { ApiError, apiFetch, errorMessageOf, UserFacingError } from './client'
 
 const FALLBACK = '读取示例失败'
 const probeSchema = z.object({ title: z.string() })
@@ -92,10 +92,11 @@ describe('apiFetch 失败形态', () => {
 })
 
 describe('errorMessageOf', () => {
-  it('ApiError 取它自己的文案', () => {
-    expect(errorMessageOf(new ApiError(503, '读取示例失败：服务维护中'), FALLBACK)).toBe(
-      '读取示例失败：服务维护中',
-    )
+  it.each([
+    new ApiError(503, '读取示例失败：服务维护中'),
+    new UserFacingError('读取示例失败：服务维护中'),
+  ])('%s 取它自己的文案', (error) => {
+    expect(errorMessageOf(error, FALLBACK)).toBe('读取示例失败：服务维护中')
   })
 
   it.each([
