@@ -7,6 +7,7 @@ import { cn } from '@/shared/lib/utils'
 import { useFileDropTarget } from '@/shared/ui/file-drop'
 import { MediaFallback } from '@/shared/ui/media-fallback'
 import { MediaLightbox, type LightboxMedia } from '@/shared/ui/media-lightbox'
+import { MAX_REFERENCE_URLS } from '../task-limits'
 
 type TaskMediaFieldProps = {
   label: string
@@ -29,7 +30,7 @@ export function TaskMediaField({
   value,
   onChange,
   disabled = false,
-  maxFiles = kind === 'video' ? 1 : 16,
+  maxFiles = kind === 'video' ? 1 : MAX_REFERENCE_URLS,
   compact = false,
   onUploadingChange,
 }: TaskMediaFieldProps) {
@@ -40,7 +41,7 @@ export function TaskMediaField({
   const [progress, setProgress] = useState('')
   const [error, setError] = useState('')
   const [preview, setPreview] = useState<LightboxMedia | null>(null)
-  const limit = Math.min(maxFiles, kind === 'video' ? 1 : 16)
+  const limit = Math.min(maxFiles, kind === 'video' ? 1 : MAX_REFERENCE_URLS)
   const blocked = disabled || uploading
 
   useEffect(() => {

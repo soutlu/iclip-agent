@@ -30,10 +30,14 @@ export const formatDuration = (seconds: number | null): string => {
 
 export type DeltaTone = 'better' | 'worse' | 'flat'
 
+export type DeltaDirection = 'up' | 'down' | 'flat'
+
 export interface Delta {
   /** 相对上一期的变化，如 +12%；上一期为零或缺数据时没有。 */
   text: string
   tone: DeltaTone
+  /** 数值涨跌，与 text 同样按取整后的百分比判断，取整成 0% 即 flat。 */
+  direction: DeltaDirection
 }
 
 /** 与上一期比。lowerIsBetter 的指标（每镜次数、周期）降了才算好。 */
@@ -48,9 +52,9 @@ export const compareWithPrevious = (
   const ratio = (current - previous) / previous
   const percent = Math.round(ratio * 100)
   const text = `${percent > 0 ? '+' : ''}${percent}%`
-  if (percent === 0) return { text, tone: 'flat' }
+  if (percent === 0) return { text, tone: 'flat', direction: 'flat' }
   const improved = lowerIsBetter ? ratio < 0 : ratio > 0
-  return { text, tone: improved ? 'better' : 'worse' }
+  return { text, tone: improved ? 'better' : 'worse', direction: percent > 0 ? 'up' : 'down' }
 }
 
 /** 时段刻度：按天 9/12，按周 9/8 起，按月 2026/9。 */

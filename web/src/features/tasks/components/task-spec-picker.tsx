@@ -9,6 +9,7 @@ import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/field'
 import { PopupAnchor, PopupRoot, PopupSurface } from '@/shared/ui/popup'
+import { MAX_SHORT_TEXT_CHARS } from '../task-limits'
 
 type TaskSpecPickerProps = {
   label: string
@@ -122,7 +123,7 @@ export function TaskSpecPicker({
                 aria-autocomplete="list"
                 autoComplete="off"
                 className="field-nested-input h-full min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 disabled:text-on-surface-variant"
-                maxLength={200}
+                maxLength={MAX_SHORT_TEXT_CHARS}
                 onChange={(event) => {
                   const next = event.target.value
                   setQuery(next)
