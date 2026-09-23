@@ -27,11 +27,10 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import RunContext
 from pydantic_ai.usage import RunUsage
 
-from iclip.capabilities.shot_video import ffmpeg
 from iclip.capabilities.shot_video.capability import GenerationPolicy, shot_video_capability
 from iclip.capabilities.shot_video.delivery import FrameRequest
 from iclip.capabilities.shot_video.extraction import EXTRACTION_PATH
-from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
+from iclip.capabilities.shot_video.ffmpeg import crop_cells, decode_gray
 from iclip.capabilities.shot_video.generation import IMAGE_MODEL
 from iclip.capabilities.shot_video.grid import grid_cell_boxes, scale_box
 from iclip.capabilities.shot_video.ports import ObjectWriteFailed
@@ -47,6 +46,7 @@ from iclip.harness.transcript.from_messages import turns_from_messages
 from iclip.harness.transcript.projector import TranscriptEventStream
 from iclip.harness.transcript.store import TranscriptStore
 from iclip.platform.file_store.store import FileSpace
+from iclip.platform.media.ffmpeg import MAX_IMAGE_BYTES, fetched, ffmpeg_available
 from iclip.platform.object_store.layout import MEDIA_PATHS
 from iclip.platform.transcript.ops import MAIN_AGENT_ID, TextContent, ToolFrame
 from tests.helpers.file_store import FakeFileStore
@@ -249,16 +249,14 @@ async def cut(media: dict[str, bytes], url: str) -> list[tuple[int, int]]:
 
     client = make_client(media)
     try:
-        async with ffmpeg.fetched(
-            client, url, max_bytes=ffmpeg.MAX_IMAGE_BYTES, suffix=".img"
-        ) as source:
-            gray, full_width = await ffmpeg.decode_gray(source)
+        async with fetched(client, url, max_bytes=MAX_IMAGE_BYTES, suffix=".img") as source:
+            gray, full_width = await decode_gray(source)
             layout = grid_cell_boxes(gray, rows=2, cols=2)
             assert layout.detected, "这张图有清晰的网格线，不该退回等分"
             boxes = [
                 scale_box(box, from_width=gray.width, to_width=full_width) for box in layout.boxes
             ]
-            cells = await ffmpeg.crop_cells(source, boxes)
+            cells = await crop_cells(source, boxes)
     finally:
         await client.aclose()
     return sorted(probe_size(cell) for cell in cells)
@@ -327,9 +325,11 @@ async def test_plan_reuses_the_ledger_instead_of_extracting_again(
     await files.write(NAMESPACE, video_doc_path(VIDEO_URL), DOCUMENT)
     client = make_client(media)
     try:
-        tools = make_tools(client, objects, files, ledger=materials)
-        first = await tools.plan_shot_frames(make_context(), VIDEO_URL)
-        again = await tools.plan_shot_frames(make_context(), VIDEO_URL)
+        first = await make_tools(client, objects, files).plan_shot_frames(make_context(), VIDEO_URL)
+        objects.written.clear()
+        again = await make_tools(client, objects, files, ledger=materials).plan_shot_frames(
+            make_context(), VIDEO_URL
+        )
     finally:
         await client.aclose()
 
@@ -337,9 +337,45 @@ async def test_plan_reuses_the_ledger_instead_of_extracting_again(
     assert isinstance(again, ToolReturn)
     # 复用路径不重抽帧也不重传，但结果要与首次逐字相同：板上有哪几个镜头是按 rows 现算的。
     assert model_facing(again) == model_facing(first)
-    assert len(objects.written) == 1
+    assert objects.written == {}
     # 复用时也需登记预览板地址，保证后续工具可引用。
     assert materials.urls(NAMESPACE) == {model_facing(again)["boards"][0]["url"]}
+
+
+async def test_plan_rebuilds_instead_of_vouching_for_a_board_address_the_ledger_was_edited_to(
+    media: dict[str, bytes],
+) -> None:
+    """key 保留、板地址改成外部地址：账本按不存在处理，重新切格并写回真地址，外部地址不进素材台账。"""
+
+    forged = "https://evil.test/board.jpg"
+    objects = FakeObjects()
+    files = FakeFileStore()
+    materials = FakeMaterialLedger()
+    await files.write(NAMESPACE, video_doc_path(VIDEO_URL), DOCUMENT)
+    client = make_client(media)
+    try:
+        first = await make_tools(client, objects, files).plan_shot_frames(make_context(), VIDEO_URL)
+        stored = await files.read(NAMESPACE, EXTRACTION_PATH)
+        assert stored is not None
+        tampered = json.loads(stored.content)
+        tampered["boards"][0]["url"] = forged
+        await files.write(NAMESPACE, EXTRACTION_PATH, json.dumps(tampered))
+        objects.written.clear()
+        again = await make_tools(client, objects, files, ledger=materials).plan_shot_frames(
+            make_context(), VIDEO_URL
+        )
+    finally:
+        await client.aclose()
+
+    assert isinstance(first, ToolReturn)
+    assert isinstance(again, ToolReturn)
+    genuine = model_facing(first)["boards"][0]["url"]
+    assert model_facing(again) == model_facing(first)
+    assert len(objects.written) == 1, "被改过的账本不复用，重新切格上传"
+    assert materials.urls(NAMESPACE) == {genuine}
+    rewritten = await files.read(NAMESPACE, EXTRACTION_PATH)
+    assert rewritten is not None
+    assert json.loads(rewritten.content)["boards"] == [{"board": 1, "url": genuine}]
 
 
 async def test_plan_refuses_a_reused_ledger_whose_board_is_out_of_range(
@@ -358,7 +394,11 @@ async def test_plan_refuses_a_reused_ledger_whose_board_is_out_of_range(
         stored = await files.read(NAMESPACE, EXTRACTION_PATH)
         assert stored is not None
         tampered = json.loads(stored.content)
-        tampered["boards"] = [{"board": 9, "url": "https://cdn.test/elsewhere.jpg"}]
+        # 地址照本系统的布局拼：只有板号越界这一处不对，拦它的只剩层级数检查。
+        stray = objects.public_url(
+            MEDIA_PATHS.shot_board(extraction_key=tampered["extractionKey"], index=9)
+        )
+        tampered["boards"] = [{"board": 9, "url": stray}]
         await files.write(NAMESPACE, EXTRACTION_PATH, json.dumps(tampered))
         with pytest.raises(ModelRetry, match="delete_file") as raised:
             await tools.plan_shot_frames(make_context(), VIDEO_URL)
@@ -367,7 +407,7 @@ async def test_plan_refuses_a_reused_ledger_whose_board_is_out_of_range(
 
     assert "板 9" in str(raised.value)
     assert len(objects.written) == 1
-    assert "https://cdn.test/elsewhere.jpg" not in materials.urls(NAMESPACE)
+    assert stray not in materials.urls(NAMESPACE)
 
 
 async def test_plan_refuses_timecodes_beyond_the_clip(media: dict[str, bytes]) -> None:

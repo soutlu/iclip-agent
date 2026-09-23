@@ -38,7 +38,6 @@ from iclip.app.errors import install_error_handlers
 from iclip.app.generation_live import AnnouncingGenerationRepository
 from iclip.app.logging import configure_logging
 from iclip.capabilities.shot_document import SHOTS_PATH
-from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
 from iclip.capabilities.workspace.scope import parse_namespace
 from iclip.common.errors import NotFound
 from iclip.config import (
@@ -101,6 +100,7 @@ from iclip.platform.file_store.store import (
     StoredFile,
 )
 from iclip.platform.material_ledger.pg import PgMaterialLedger
+from iclip.platform.media.ffmpeg import ffmpeg_available
 from iclip.platform.object_store.oss import (
     OssObjectStore,
     OssSettings,

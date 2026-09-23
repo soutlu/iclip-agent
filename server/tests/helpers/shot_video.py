@@ -87,6 +87,9 @@ class FakeObjects:
         if self.error is not None:
             raise self.error
         self.written[object_key] = content
+        return self.public_url(object_key)
+
+    def public_url(self, object_key: str) -> str:
         return f"https://cdn.test/{object_key}"
 
 

@@ -99,14 +99,20 @@ def make_context(deps: object) -> RunContext[object]:
     return RunContext[object](deps=deps, model=TestModel(), usage=RunUsage(), messages=[])
 
 
-def ledger(*_cell_ids: str) -> str:
+def board_url(*, key: str = "k", index: int = 1) -> str:
+    """替身对象存储为这次取帧的这块板发布的地址。"""
+
+    return FakeObjects().public_url(MEDIA_PATHS.shot_board(extraction_key=key, index=index))
+
+
+def ledger(*_cell_ids: str, url: str | None = None) -> str:
     """取帧账本。逐格请求不校验帧号是否在账本里，出图工具只看它存不存在。"""
 
     return json.dumps(
         {
             "extractionVersion": 1,
             "extractionKey": "k",
-            "boards": [{"board": 1, "url": "https://cdn.test/board.jpg"}],
+            "boards": [{"board": 1, "url": url or board_url()}],
         }
     )
 
@@ -454,10 +460,37 @@ async def test_a_well_formed_ledger_loads_as_a_model(
     loaded = await capability.extractor.load(files, NAMESPACE, expected_key="k")
 
     assert loaded is not None
-    assert [(board.board, board.url) for board in loaded.boards] == [
-        (1, "https://cdn.test/board.jpg")
-    ]
+    assert [(board.board, board.url) for board in loaded.boards] == [(1, board_url())]
     assert await capability.extractor.load(files, NAMESPACE, expected_key="other") is None
+
+
+FORGED_BOARD_URLS = {
+    "external": "https://evil.test/board.jpg",
+    "our-key-on-a-foreign-host": f"https://evil.test/{MEDIA_PATHS.shot_board(extraction_key='k', index=1)}",
+    "another-extraction": board_url(key="other"),
+    "another-board": board_url(index=2),
+    "extra-query": f"{board_url()}?v=1",
+}
+"""key 保留、板地址被改：外部地址，本系统的对象路径挂到别的域名，别的视频或拆解文档（也就是
+别的对话才会产出）的板，同一次取帧的另一块板，真地址后面缀参数。"""
+
+
+@pytest.mark.parametrize("url", list(FORGED_BOARD_URLS.values()), ids=list(FORGED_BOARD_URLS))
+async def test_a_reused_ledger_only_vouches_for_the_boards_this_extraction_published(
+    capability: ShotVideo[object], files: FakeFileStore, url: str
+) -> None:
+    """台账在模型可写的工作区里；板地址按 key 与板号重算后整串比对，对不上按不存在处理，
+    复用分支拿不到它，也就登记不了它。"""
+
+    await files.write(NAMESPACE, EXTRACTION_PATH, ledger(url=url))
+
+    with capture_logs() as logs:
+        assert await capability.extractor.load(files, NAMESPACE, expected_key="k") is None
+
+    assert [(log["event"], log["boards"]) for log in logs] == [
+        ("取帧台账板地址与产物不符，按不存在处理", [1])
+    ]
+    assert url not in repr(logs)
 
 
 async def test_generate_treats_a_broken_ledger_as_missing(

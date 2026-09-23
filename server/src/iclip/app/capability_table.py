@@ -34,7 +34,7 @@ from iclip.platform.file_store.store import FileSpace, FileStore
 from iclip.platform.http import validation_error_detail
 from iclip.platform.material_ledger.store import MaterialLedger
 from iclip.platform.object_store.layout import MEDIA_PATHS
-from iclip.platform.object_store.store import ObjectStoreUnavailable, PublicObjectStore
+from iclip.platform.object_store.store import ObjectStoreUnavailable, PublicBucket
 from iclip.platform.transcript.display import ToolDisplayRegistry, ToolDisplaySource
 
 CapabilityTable = Mapping[str, AgentCapabilities]
@@ -124,7 +124,7 @@ class OssMediaProbe:
 class ObjectWriterAdapter:
     """将对象存储异常转换为能力协议错误，使工具可报告失败而非终止整个运行。"""
 
-    def __init__(self, store: PublicObjectStore) -> None:
+    def __init__(self, store: PublicBucket) -> None:
         self._store = store
 
     async def put_public_object(self, *, object_key: str, content: bytes, content_type: str) -> str:
@@ -134,6 +134,9 @@ class ObjectWriterAdapter:
             )
         except ObjectStoreUnavailable as exc:
             raise ObjectWriteFailed(str(exc)) from exc
+
+    def public_url(self, object_key: str) -> str:
+        return self._store.public_url(object_key)
 
 
 def _job_view(job: GenerationJob) -> ImageJob:
@@ -162,7 +165,7 @@ def build_capability_table(
     material_ledger: MaterialLedger,
     http_client: httpx.AsyncClient,
     generation_service: GenerationService | None = None,
-    object_store: PublicObjectStore | None = None,
+    object_store: PublicBucket | None = None,
     video: ResolvedVideo | None = None,
     shot_video: ResolvedShotVideo | None = None,
     image_models: frozenset[str] = frozenset(),

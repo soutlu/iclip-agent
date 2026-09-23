@@ -15,13 +15,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic.alias_generators import to_camel
 from pydantic_ai import ModelRetry
 
-from iclip.capabilities.shot_video import ffmpeg
 from iclip.capabilities.shot_video.board import (
     BoardError,
     board_geometry,
     compose_board,
     image_aspect,
 )
+from iclip.capabilities.shot_video.ffmpeg import extract_frames
 from iclip.capabilities.shot_video.ports import (
     ObjectWriteFailed,
     PublicObjectWriter,
@@ -37,6 +37,7 @@ from iclip.capabilities.shot_video.shots import (
     sample_rows,
 )
 from iclip.platform.file_store.store import FileStore
+from iclip.platform.media.ffmpeg import MAX_VIDEO_BYTES, MediaError, fetched, probe_duration_ms
 
 EXTRACTION_PATH: Final = "frames/extraction.json"
 EXTRACTION_VERSION: Final = 1
@@ -111,10 +112,10 @@ class FrameExtractor:
         """读取或重建取帧台账，并返回是否复用；持久化由调用方负责。"""
 
         try:
-            async with ffmpeg.fetched(
-                self._client, video_url, max_bytes=ffmpeg.MAX_VIDEO_BYTES, suffix=".mp4"
+            async with fetched(
+                self._client, video_url, max_bytes=MAX_VIDEO_BYTES, suffix=".mp4"
             ) as source:
-                duration = await ffmpeg.probe_duration_ms(source)
+                duration = await probe_duration_ms(source)
                 _check_in_range(rows, duration_ms=duration)
                 video_hash = await asyncio.to_thread(_sha256_file, source)
                 key = extraction_key(
@@ -124,7 +125,7 @@ class FrameExtractor:
                 if document is not None:
                     return document, True
                 built = await self._build(source=source, key=key, rows=rows)
-        except (ffmpeg.MediaError, BoardError) as exc:
+        except (MediaError, BoardError) as exc:
             raise ModelRetry(str(exc)) from exc
         except ObjectWriteFailed as exc:
             raise ModelRetry(
@@ -135,8 +136,10 @@ class FrameExtractor:
     async def load(
         self, files: FileStore, namespace: str, *, expected_key: str | None
     ) -> ExtractionLedger | None:
-        """读取取帧台账；形状不合、版本不符或（给定时）key 不匹配一律视为不存在。
+        """读取取帧台账；形状不合、版本不符，或（给定 ``expected_key`` 时）key 不匹配、某块板的
+        地址不是本系统按该 key 与板号发布的地址，一律视为不存在。
 
+        板地址按 key 与板号重算后整串比对，复用时登记的只会是本系统发布的地址。
         ``expected_key`` 为 None 时只确认工作区里有一份合规的当前版本台账。"""
 
         stored = await files.read(namespace, EXTRACTION_PATH)
@@ -151,7 +154,22 @@ class FrameExtractor:
             return None
         if document.extraction_version != EXTRACTION_VERSION:
             return None
-        if expected_key is not None and document.extraction_key != expected_key:
+        if expected_key is None:
+            return document
+        if document.extraction_key != expected_key:
+            return None
+        forged = [
+            board.board
+            for board in document.boards
+            if board.url
+            != self._objects.public_url(
+                self._paths.shot_board(extraction_key=expected_key, index=board.board)
+            )
+        ]
+        if forged:
+            _logger.warning(
+                "取帧台账板地址与产物不符，按不存在处理", namespace=namespace, boards=forged
+            )
             return None
         return document
 
@@ -164,14 +182,12 @@ class FrameExtractor:
     ) -> ExtractionLedger:
         """按固定间隔抽帧，按结构分组生成公开预览板与取帧台账。
 
-        台账只存算不出来的东西：复用判定用的版本与 key，以及生成时才产生的板子地址。
+        台账只存复用判定用的版本与 key，以及实际建成的板号与地址（复用时按 key 重算核对）。
         板上有哪几个镜头由调用方按 ``rows`` 现算——rows 是 key 的组成部分，命中复用时
         它与建账时逐字相同。"""
 
         with TemporaryDirectory(prefix="shot-video-frames-") as tmp:
-            frames = await ffmpeg.extract_frames(
-                source, fps=1000 / FRAME_INTERVAL_MS, out_dir=Path(tmp)
-            )
+            frames = await extract_frames(source, fps=1000 / FRAME_INTERVAL_MS, out_dir=Path(tmp))
             cell_aspect = await asyncio.to_thread(image_aspect, frames[0])
             sampled = sample_rows(rows, interval_ms=FRAME_INTERVAL_MS)
             boards: list[LedgerBoard] = []
