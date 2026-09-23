@@ -74,6 +74,10 @@ const fsChangedSchema = z.object({
 
 export type FsChange = z.infer<typeof fsChangedSchema>['changes'][number]
 
+/** 校验问题的摘要：路径加说明，zod 的说明里不带收到的值。 */
+const issuesOf = (error: z.ZodError): string[] =>
+  error.issues.map((issue) => `${issue.path.map(String).join('.')}: ${issue.message}`)
+
 /** 全局事件不补发；reconnected 是本地通知，调用方据此刷新断线期间可能变化的列表。 */
 export type SessionUpdate =
   | { kind: 'title'; conversationId: string; title: string }
@@ -296,6 +300,8 @@ export class TranscriptConnection {
     try {
       frame = JSON.parse(String(raw)) as typeof frame
     } catch {
+      // 解析错误的 message 会带上一段原文，不打出来。
+      this.discard(undefined, ['JSON 解析失败'])
       return
     }
     if (typeof frame.type !== 'string') return
@@ -318,7 +324,7 @@ export class TranscriptConnection {
       }
       case 'session.meta.updated': {
         const parsed = titleSchema.safeParse(frame.payload)
-        if (!parsed.success) return
+        if (!parsed.success) return this.discard(frame.type, issuesOf(parsed.error))
         this.announce({
           conversationId: parsed.data.session_id,
           kind: 'title',
@@ -329,7 +335,7 @@ export class TranscriptConnection {
       case 'event.session.work_changed': {
         if (typeof frame.session_id !== 'string') return
         const parsed = workChangedSchema.safeParse(frame.payload)
-        if (!parsed.success) return
+        if (!parsed.success) return this.discard(frame.type, issuesOf(parsed.error))
         this.announce({
           busy: parsed.data.busy,
           conversationId: frame.session_id,
@@ -341,7 +347,7 @@ export class TranscriptConnection {
       }
       case 'event.generation.changed': {
         const parsed = generationChangedSchema.safeParse(frame.payload)
-        if (!parsed.success) return
+        if (!parsed.success) return this.discard(frame.type, issuesOf(parsed.error))
         this.announce({
           conversationId: typeof frame.session_id === 'string' ? frame.session_id : null,
           jobId: parsed.data.id,
@@ -355,7 +361,7 @@ export class TranscriptConnection {
       case 'event.fs.changed': {
         if (typeof frame.session_id !== 'string') return
         const parsed = fsChangedSchema.safeParse(frame.payload)
-        if (!parsed.success) return
+        if (!parsed.success) return this.discard(frame.type, issuesOf(parsed.error))
         const watches = this.fsWatches.get(frame.session_id)
         if (watches === undefined) return
         for (const watch of watches) {
@@ -381,10 +387,15 @@ export class TranscriptConnection {
     for (const watcher of this.sessionWatchers) watcher(update)
   }
 
+  /** 解析不了或形状不合协议的帧：告警后丢弃，连接照常；只记帧类型与问题摘要，不打帧正文。 */
+  private discard(type: string | undefined, issues: readonly string[]): void {
+    console.warn('丢弃不合协议的 WebSocket 帧', { issues, type })
+  }
+
   private apply(type: string, subscription: Subscription, wrapped: object): void {
     if (type === 'transcript.reset') {
       const parsed = transcriptResetEventSchema.safeParse(wrapped)
-      if (!parsed.success) return
+      if (!parsed.success) return this.discard(type, issuesOf(parsed.error))
       const { agent_id, snapshot, has_more_older, seq } = parsed.data
       const agent = subscription.agents.get(agent_id)
       if (agent === undefined) return
@@ -394,7 +405,7 @@ export class TranscriptConnection {
       return
     }
     const parsed = transcriptOpsEventSchema.safeParse(wrapped)
-    if (!parsed.success) return
+    if (!parsed.success) return this.discard(type, issuesOf(parsed.error))
     const { agent_id, ops, seq } = parsed.data
     const agent = subscription.agents.get(agent_id)
     if (agent === undefined) return

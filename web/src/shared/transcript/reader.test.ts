@@ -72,6 +72,27 @@ const startReader = () => {
   return { connection, reader, socket }
 }
 
+/** 首次基线直接给；之后的每次重拉都等 release()，回的那份水位是 laterSeq。 */
+const gateLaterBaselines = (laterSeq: number) => {
+  let pages = 0
+  let release = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  server.use(
+    http.get('*/api/conversations/c1/transcript', async () => {
+      pages += 1
+      if (pages === 1) return HttpResponse.json(mockTranscriptPage())
+      await gate
+      return HttpResponse.json({ ...mockTranscriptPage(), seq: laterSeq })
+    }),
+  )
+  return { release }
+}
+
+/** 真实 WebSocket 每帧是一个宏任务，帧与帧之间微任务已清空；连着投帧前让一拍。 */
+const nextTask = () => new Promise((resolve) => setTimeout(resolve, 0))
+
 const textOf = (reader: TranscriptReader): string =>
   reader
     .view()
@@ -248,6 +269,66 @@ describe('TranscriptReader', () => {
       expect(pages).toBe(2)
     })
     expect(textOf(reader)).toContain(TAIL_TEXT)
+  })
+
+  it('reset 后重拉在途：批次号从头编、比旧水位还低的批次也攒着，基线落地后按序叠上', async () => {
+    const { release } = gateLaterBaselines(3)
+    const { connection, reader, socket } = startReader()
+    await vi.waitFor(() => {
+      expect(reader.view().status).toBe('ready')
+    })
+
+    // 服务端重启：reset 把水位覆写成 3，之后的批次号都低于旧水位 10。
+    socket.deliver(resetFrame(3))
+    await nextTask()
+    socket.deliver(opsFrame(4, append(TAIL_TEXT.length, '甲')))
+    socket.deliver(opsFrame(5, append(TAIL_TEXT.length + 1, '乙')))
+    release()
+
+    await vi.waitFor(() => {
+      expect(textOf(reader)).toContain(`${TAIL_TEXT}甲乙`)
+    })
+    expect(connection.watermarkOf('c1', 'main')).toBe(5)
+  })
+
+  it('重拉回来的基线水位没变：在途时到的批次落地后才出现，不先显示再被基线抹掉', async () => {
+    const { release } = gateLaterBaselines(10)
+    const { connection, reader, socket } = startReader()
+    await vi.waitFor(() => {
+      expect(reader.view().status).toBe('ready')
+    })
+    const shown: string[] = []
+    reader.listen(() => shown.push(textOf(reader)))
+
+    reader.refresh()
+    await nextTask()
+    socket.deliver(opsFrame(11, append(TAIL_TEXT.length, '甲')))
+    socket.deliver(opsFrame(12, append(TAIL_TEXT.length + 1, '乙')))
+    expect(textOf(reader)).not.toContain('甲')
+    release()
+
+    await vi.waitFor(() => {
+      expect(textOf(reader)).toContain(`${TAIL_TEXT}甲乙`)
+    })
+    const first = shown.findIndex((text) => text.includes('甲'))
+    expect(first).toBeGreaterThan(-1)
+    expect(shown.slice(first).every((text) => text.includes('甲'))).toBe(true)
+    expect(connection.watermarkOf('c1', 'main')).toBe(12)
+  })
+
+  it('重复的批次不把连接水位写小', async () => {
+    const { connection, reader, socket } = startReader()
+    await vi.waitFor(() => {
+      expect(reader.view().status).toBe('ready')
+    })
+
+    socket.deliver(opsFrame(11, append(TAIL_TEXT.length, '甲')))
+    expect(connection.watermarkOf('c1', 'main')).toBe(11)
+
+    socket.deliver(opsFrame(9, append(TAIL_TEXT.length, '甲')))
+    expect(connection.watermarkOf('c1', 'main')).toBe(11)
+    expect(textOf(reader)).toContain(`${TAIL_TEXT}甲`)
+    expect(textOf(reader)).not.toContain(`${TAIL_TEXT}甲甲`)
   })
 
   it('挂载、卸载、再挂载只拉一次基线（严格模式的效果次序）', async () => {
