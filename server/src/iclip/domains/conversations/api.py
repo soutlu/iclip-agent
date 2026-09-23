@@ -5,13 +5,13 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
 
-from iclip.domains.conversations.models import Conversation
+from iclip.domains.conversations.models import Conversation, ConversationActivity
 from iclip.domains.conversations.schemas import (
     ConversationAgentOut,
     ConversationAgentsOut,
@@ -60,8 +60,16 @@ def create_conversations_router(
         activities = await service.activities([item.id for item in items])
         return [conversation_out(item, activities[item.id]) for item in items]
 
+    def _page_out_with(
+        page: ConversationPage, activities: Mapping[uuid.UUID, ConversationActivity]
+    ) -> ConversationPageOut:
+        return ConversationPageOut(
+            items=[conversation_out(item, activities[item.id]) for item in page.items],
+            next_cursor=page.next_cursor,
+        )
+
     async def _page_out(page: ConversationPage) -> ConversationPageOut:
-        return ConversationPageOut(items=await _outs(page.items), next_cursor=page.next_cursor)
+        return _page_out_with(page, await service.activities([item.id for item in page.items]))
 
     @router.get("/agents", response_model=ConversationAgentsOut)
     async def list_agents(
@@ -131,20 +139,20 @@ def create_conversations_router(
         ``all`` 不筛；两个数字按同一个筛选算。
         """
 
-        groups = await service.sidebar(principal, state=state)
+        view = await service.sidebar(principal, state=state)
         return SidebarOut(
             collections=[
                 SidebarCollectionOut(
-                    id=info.id,
-                    name=info.name,
-                    updated_at=info.updated_at,
-                    conversation_count=total,
-                    page=await _page_out(page),
+                    id=group.collection.id,
+                    name=group.collection.name,
+                    updated_at=group.collection.updated_at,
+                    conversation_count=group.total,
+                    page=_page_out_with(group.page, view.activities),
                 )
-                for info, total, page in groups
+                for group in view.groups
             ],
-            ungrouped_count=await service.ungrouped_count(principal, state=state),
-            ungrouped=await _page_out(await service.ungrouped(principal, state=state)),
+            ungrouped_count=view.ungrouped_total,
+            ungrouped=_page_out_with(view.ungrouped, view.activities),
         )
 
     @router.get("/ungrouped", response_model=ConversationPageOut)

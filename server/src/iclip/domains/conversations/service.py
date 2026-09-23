@@ -33,6 +33,7 @@ MANAGE_PERMISSION = "users:manage"
 """治理者可读取所有对话及工作区文件；写入仍限属主。"""
 
 SIDEBAR_COLLECTIONS = 100
+"""侧栏最多带几个合集：只取最近建立的这些，更早的连同其中的对话不在侧栏里。"""
 SIDEBAR_UNGROUPED = 20
 SIDEBAR_PER_COLLECTION = 10
 
@@ -103,8 +104,11 @@ class CollectionInfo:
     updated_at: datetime
 
 
-ListCollections = Callable[[uuid.UUID], Awaitable[Sequence[CollectionInfo]]]
-"""按建立时间倒序读取属主的合集元信息；实现由组合根注入。"""
+class ListCollections(Protocol):
+    """按建立时间倒序读取属主最近建立的至多 ``limit`` 个合集元信息；实现由组合根注入。"""
+
+    async def __call__(self, owner: uuid.UUID, *, limit: int) -> Sequence[CollectionInfo]: ...
+
 
 ClaimTask = Callable[[uuid.UUID, uuid.UUID], Awaitable[None]]
 """对话挂上需求单就是有人在做了：以 (需求单 id, 对话属主) 认领它。实现由组合根注入。"""
@@ -228,6 +232,25 @@ class AuditPage:
     next_cursor: str | None
     total: int
     running_total: int
+
+
+@dataclass(frozen=True, slots=True)
+class SidebarGroup:
+    """侧栏里的一个合集：元信息、筛选下的对话总数与第一页。"""
+
+    collection: CollectionInfo
+    total: int
+    page: ConversationPage
+
+
+@dataclass(frozen=True, slots=True)
+class Sidebar:
+    """侧栏一屏：合集分组（空合集也在）、未分组的总数与第一页，以及这些页里每段对话的活动状态。"""
+
+    groups: tuple[SidebarGroup, ...]
+    ungrouped_total: int
+    ungrouped: ConversationPage
+    activities: Mapping[uuid.UUID, ConversationActivity]
 
 
 def _page(items: tuple[Conversation, ...], *, limit: int) -> ConversationPage:
@@ -471,36 +494,46 @@ class ConversationService:
         busy = await self._busy_conversation_ids(owner) if state == "running" else frozenset()
         return StateFilter(state=state, busy=busy)
 
-    async def sidebar(
-        self, principal: Principal, *, state: ListState = "all"
-    ) -> tuple[tuple[CollectionInfo, int, ConversationPage], ...]:
-        """返回侧栏合集元信息、对话总数及第一页，保留空合集。条数与分页使用相同状态筛选。"""
+    async def sidebar(self, principal: Principal, *, state: ListState = "all") -> Sidebar:
+        """一次读出侧栏一屏：最近建立的至多 ``SIDEBAR_COLLECTIONS`` 个合集各带总数与第一页，
+        加上未分组的总数与第一页。
 
-        collections = await self._list_collections(principal.user_id)
+        三块共用同一个状态筛选，busy 集只取一次，计数与列表才对得上；所有页里的对话合起来
+        只读一次活动状态。"""
+
+        owner = principal.user_id
+        chosen = await self._state_filter(state, owner)
+        collections = await self._list_collections(owner, limit=SIDEBAR_COLLECTIONS)
         found = await self._repo.list_by_collections(
-            owner=principal.user_id,
+            owner=owner,
             collection_ids=tuple(item.id for item in collections),
             per_collection=SIDEBAR_PER_COLLECTION,
-            state=await self._state_filter(state, principal.user_id),
+            state=chosen,
         )
         by_id = {group.collection_id: group for group in found}
-        return tuple(
-            (
-                item,
-                by_id[item.id].total if item.id in by_id else 0,
-                _page(
+        groups = tuple(
+            SidebarGroup(
+                collection=item,
+                total=by_id[item.id].total if item.id in by_id else 0,
+                page=_page(
                     by_id[item.id].conversations if item.id in by_id else (),
                     limit=SIDEBAR_PER_COLLECTION,
                 ),
             )
             for item in collections
         )
-
-    async def ungrouped_count(self, principal: Principal, *, state: ListState = "all") -> int:
-        """返回符合状态筛选的未分类对话总数。"""
-
-        return await self._repo.count_ungrouped(
-            owner=principal.user_id, state=await self._state_filter(state, principal.user_id)
+        ungrouped_total = await self._repo.count_ungrouped(owner=owner, state=chosen)
+        ungrouped = _page(
+            await self._repo.list_ungrouped(owner=owner, limit=SIDEBAR_UNGROUPED, state=chosen),
+            limit=SIDEBAR_UNGROUPED,
+        )
+        pages = (*(group.page for group in groups), ungrouped)
+        shown = [item.id for page in pages for item in page.items]
+        return Sidebar(
+            groups=groups,
+            ungrouped_total=ungrouped_total,
+            ungrouped=ungrouped,
+            activities=await self.activities(shown),
         )
 
     async def ungrouped(
@@ -663,7 +696,8 @@ class ConversationService:
         return (await self._readable(principal, parsed)).agent_id
 
     async def header_of(self, principal: Principal, conversation_id: str) -> Conversation:
-        """读取可见对话的整行，给会话页首屏贴标题、属主与删除时刻；后续改名经 session.meta.updated 推送。"""
+        """读取可见对话的整行，可见范围同 ``agent_of(writing=False)``。会话页首屏用它贴标题、属主与
+        删除时刻并取 Agent，一行只读一次；后续改名经 session.meta.updated 推送。"""
 
         return await self._readable(principal, _as_conversation_id(conversation_id))
 
@@ -690,6 +724,8 @@ __all__ = [
     "ListDerivedFiles",
     "ListState",
     "ReadDerivedFile",
+    "Sidebar",
+    "SidebarGroup",
     "WorkspaceDocumentValidator",
     "WriteDerivedFile",
 ]

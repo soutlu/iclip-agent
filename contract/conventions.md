@@ -170,6 +170,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - 对话 id 是 UUID，请求体、路径和 §5 的 WebSocket 帧带不带横线都收（`e1e53ab6ec97...` 与 `e1e53ab6-ec97-...` 指向同一段）；服务端一律以带横线的规范写法答复与存储，WS 帧上的 `session_id` 同样只发规范写法。不是 UUID 的写法在 REST 上是 `422`，在 WS 上与看不见的对话同一个待遇（订阅进 `ack` 的 `not_found`，原样带回问的那个串；文件订阅是 `40401`）。
 - `POST /conversations` 的 `id` 可由调用方给，缺省由服务端生成。带 `id` 重发同一个值**不新建第二段对话**，答复已有那一段并把状态码降为 `200`（新建仍 `201`）；这个 id 属于别人的对话时是 `404`，与按 id 读别人的对话一致。对话删除后 ID 仍保留，任何人重用都返回 `404`；新对话必须换一个 ID。
 - `GET /conversations` 返回自己的侧栏拓扑：合集及各自第一页对话、未分组合的第一页对话。合集与对话都按 §3 的排序规则，空合集也保留。
+- 侧栏只带最近建立的 100 个合集；更早建的合集连同其中的对话不在这份响应里，也没有截断标记，合集全量走 §7 的 `GET /collections`。
 - **两个数字是真总数**：`ungroupedCount` 与每个合集的 `conversationCount`，与这一页给了几条无关。
 - `GET /conversations`、`GET /conversations/ungrouped`、`GET /conversations/by-collection/{id}` 都收 `state`，四值 `all`（默认）/ `open` / `done` / `running`。`done` 是属主标了收尾（`completedAt` 非空）、`open` 是没标，两者互补合起来就是 `all`；`running` 是此刻有轮次在跑（含等审批），与前两者不同层、可以和它们交叉。`ungroupedCount` 与每个合集的 `conversationCount` 按同一个筛选算；审计接口的 `state` 同一口径。
 - 往下滑加载更多：`GET /conversations/ungrouped?cursor=` 与 `GET /conversations/by-collection/{collectionId}?cursor=`，都返回 `{ items, nextCursor }`。`cursor` 原样回传上一页的 `nextCursor`（把它当不透明字符串），为 `null` 表示没有更多了；形状不对是 `422`。
