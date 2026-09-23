@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { http, HttpResponse } from 'msw'
+import { delay, http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { server } from '@/testing/mocks/server'
 import { zTaskInputsOutput } from '@/shared/api/generated/zod.gen'
@@ -80,6 +80,118 @@ describe('TasksRoute', () => {
     const mine = screen.getByRole('region', { name: '我的需求单' })
     expect(within(mine).getByText('我认领的需求单')).toBeVisible()
     expect(within(mine).queryByText('夏季新品视频')).not.toBeInTheDocument()
+  })
+
+  it('读取中两个分区各显示读取文案', async () => {
+    let requested = 0
+    server.use(
+      http.get('*/api/tasks', async () => {
+        requested += 1
+        await delay('infinite')
+      }),
+    )
+    await renderLoggedIn()
+    await waitFor(() => expect(requested).toBe(2))
+
+    const mine = within(screen.getByRole('region', { name: '我的需求单' }))
+    const all = within(screen.getByRole('region', { name: '全部需求单' }))
+    expect(mine.getByRole('status')).toHaveTextContent('正在读取我的需求单')
+    expect(all.getByRole('status')).toHaveTextContent('正在读取全部需求单')
+  })
+
+  it('列表读取失败显示错误，点重新加载后恢复出卡片', async () => {
+    mockTasks.push(
+      makeTask({
+        assigneeUserIds: [mockAuthUser.id],
+        status: 'confirmed',
+        title: '我认领的需求单',
+      }),
+      makeTask({ status: 'published', title: '夏季新品视频' }),
+    )
+    let unavailable = true
+    server.use(
+      http.get('*/api/tasks', () =>
+        unavailable ? new HttpResponse(null, { status: 500 }) : undefined,
+      ),
+    )
+    const user = userEvent.setup()
+    await renderLoggedIn()
+
+    const mine = within(screen.getByRole('region', { name: '我的需求单' }))
+    const all = within(screen.getByRole('region', { name: '全部需求单' }))
+    expect(await mine.findByRole('alert')).toHaveTextContent('读取我的需求单失败')
+    expect(await all.findByRole('alert')).toHaveTextContent('读取需求单列表失败')
+
+    unavailable = false
+    await user.click(mine.getByRole('button', { name: '重新加载' }))
+    await user.click(all.getByRole('button', { name: '重新加载' }))
+    expect(await mine.findByRole('button', { name: '查看需求：我认领的需求单' })).toBeVisible()
+    expect(await all.findByRole('button', { name: '查看需求：夏季新品视频' })).toBeVisible()
+    expect(mine.queryByRole('alert')).not.toBeInTheDocument()
+    expect(all.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('翻页失败保留已读取的卡片，页脚报错并可重试', async () => {
+    const first = makeTask({ status: 'published', title: '第一页的需求单' })
+    const second = makeTask({ status: 'published', title: '第二页的需求单' })
+    let nextPageDown = true
+    server.use(
+      http.get('*/api/tasks', ({ request }) => {
+        const params = new URL(request.url).searchParams
+        if (params.get('claimedBy') === 'me') return undefined
+        if (params.get('cursor') === null) {
+          return HttpResponse.json({ items: [first], nextCursor: 'page-2', total: 2 })
+        }
+        return nextPageDown
+          ? new HttpResponse(null, { status: 500 })
+          : HttpResponse.json({ items: [second], nextCursor: null, total: 2 })
+      }),
+    )
+    const user = userEvent.setup()
+    await renderLoggedIn()
+
+    const all = within(screen.getByRole('region', { name: '全部需求单' }))
+    await user.click(await all.findByRole('button', { name: '展开显示更多需求单' }))
+    expect(await all.findByRole('alert')).toHaveTextContent('读取需求单列表失败')
+    expect(all.getByRole('button', { name: '查看需求：第一页的需求单' })).toBeVisible()
+
+    nextPageDown = false
+    await user.click(all.getByRole('button', { name: '重新加载' }))
+    expect(await all.findByRole('button', { name: '查看需求：第二页的需求单' })).toBeVisible()
+    expect(all.getByRole('button', { name: '查看需求：第一页的需求单' })).toBeVisible()
+    expect(all.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('两个分区都没有需求单时各自显示空态', async () => {
+    await renderLoggedIn()
+
+    const mine = within(screen.getByRole('region', { name: '我的需求单' }))
+    const all = within(screen.getByRole('region', { name: '全部需求单' }))
+    expect(await mine.findByText('还没有认领的需求单')).toBeVisible()
+    expect(await all.findByText('还没有需求单')).toBeVisible()
+  })
+
+  it('搜索没有匹配时两个分区显示没有匹配的需求单', async () => {
+    mockTasks.push(
+      makeTask({
+        assigneeUserIds: [mockAuthUser.id],
+        status: 'confirmed',
+        title: '我认领的需求单',
+      }),
+      makeTask({ status: 'published', title: '夏季新品视频' }),
+    )
+    const user = userEvent.setup()
+    await renderLoggedIn()
+
+    const mine = within(screen.getByRole('region', { name: '我的需求单' }))
+    const all = within(screen.getByRole('region', { name: '全部需求单' }))
+    await mine.findByRole('button', { name: '查看需求：我认领的需求单' })
+    await all.findByRole('button', { name: '查看需求：夏季新品视频' })
+
+    await user.type(screen.getByRole('textbox', { name: '搜索需求单' }), '没有这个关键字')
+    expect(mine.getByText('没有匹配的需求单')).toBeVisible()
+    expect(all.getByText('没有匹配的需求单')).toBeVisible()
+    expect(screen.queryAllByRole('button', { name: /^查看需求：/ })).toHaveLength(0)
   })
 
   // 三条按数据类别分：一条里串上几十次交互会在 CI 上撞满 5 秒超时，见 PR「tasks 与 audit 收尾」。

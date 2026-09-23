@@ -2,7 +2,7 @@ import { useId, useState, type ReactNode } from 'react'
 import { hasPermission, PERMISSION, useUser } from '@/shared/auth'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/field'
-import { LoadMoreFooter } from '@/shared/ui/list-state'
+import { ListEmpty, ListError, ListPending, LoadMoreFooter } from '@/shared/ui/list-state'
 import type { TaskCreationDraft } from '../task-creation'
 import { useTasksPages, type Task } from '../tasks.api'
 import { RenameTaskDialog } from './rename-task-dialog'
@@ -87,7 +87,14 @@ export function TasksRoute({ onStartCreation, relatedContent }: TasksRouteProps 
                 />
               </div>
             </div>
-            {mine.length > 0 && (
+            {/* 翻页失败时 isError 也为真，已读取的卡片照常显示，错误只落在页脚。 */}
+            {myTasks.isPending ? (
+              <ListPending label="正在读取我的需求单" />
+            ) : myTasks.isError && !myTasks.isFetchNextPageError ? (
+              <ListError message={myTasks.error.message} onRetry={() => void myTasks.refetch()} />
+            ) : mine.length === 0 ? (
+              <ListEmpty>{searching ? '没有匹配的需求单' : '还没有认领的需求单'}</ListEmpty>
+            ) : (
               <div className="grid-task-cards" id={myTasksId}>
                 {visibleMine.map((task) => (
                   <TaskCard
@@ -114,21 +121,35 @@ export function TasksRoute({ onStartCreation, relatedContent }: TasksRouteProps 
                 </Button>
               </div>
             )}
-            {/* 折叠着只看前三张，翻页入口等展开或搜索时再出现，不和「展开更多」挤在一起。 */}
+            {/* 折叠着只看前三张，翻页入口等展开或搜索时再出现，不和「展开更多」挤在一起。
+                重试翻页期间 isFetchNextPageError 仍为真，这时换回页脚显示「正在读取…」。 */}
             {(searching || myTasksExpanded) && myTasks.hasNextPage ? (
-              <LoadMoreFooter
-                isFetching={myTasks.isFetchingNextPage}
-                label="展开显示更多需求单"
-                onMore={() => void myTasks.fetchNextPage()}
-                shown={loadedMine.length}
-                total={myTasks.data?.pages.at(-1)?.total}
-              />
+              myTasks.isFetchNextPageError && !myTasks.isFetchingNextPage ? (
+                <ListError
+                  message={myTasks.error.message}
+                  onRetry={() => void myTasks.fetchNextPage()}
+                />
+              ) : (
+                <LoadMoreFooter
+                  isFetching={myTasks.isFetchingNextPage}
+                  label="展开显示更多需求单"
+                  onMore={() => void myTasks.fetchNextPage()}
+                  shown={loadedMine.length}
+                  total={myTasks.data?.pages.at(-1)?.total}
+                />
+              )
             ) : null}
           </section>
 
           <section aria-label="全部需求单" className="flex flex-col gap-4">
             <h2 className="text-title-lg font-semibold text-on-surface">全部需求单</h2>
-            {all.length > 0 && (
+            {allTasks.isPending ? (
+              <ListPending label="正在读取全部需求单" />
+            ) : allTasks.isError && !allTasks.isFetchNextPageError ? (
+              <ListError message={allTasks.error.message} onRetry={() => void allTasks.refetch()} />
+            ) : all.length === 0 ? (
+              <ListEmpty>{searching ? '没有匹配的需求单' : '还没有需求单'}</ListEmpty>
+            ) : (
               <div className="grid-task-cards">
                 {all.map((task) => (
                   <TaskCard
@@ -140,13 +161,20 @@ export function TasksRoute({ onStartCreation, relatedContent }: TasksRouteProps 
               </div>
             )}
             {allTasks.hasNextPage ? (
-              <LoadMoreFooter
-                isFetching={allTasks.isFetchingNextPage}
-                label="展开显示更多需求单"
-                onMore={() => void allTasks.fetchNextPage()}
-                shown={loadedAll.length}
-                total={allTasks.data?.pages.at(-1)?.total}
-              />
+              allTasks.isFetchNextPageError && !allTasks.isFetchingNextPage ? (
+                <ListError
+                  message={allTasks.error.message}
+                  onRetry={() => void allTasks.fetchNextPage()}
+                />
+              ) : (
+                <LoadMoreFooter
+                  isFetching={allTasks.isFetchingNextPage}
+                  label="展开显示更多需求单"
+                  onMore={() => void allTasks.fetchNextPage()}
+                  shown={loadedAll.length}
+                  total={allTasks.data?.pages.at(-1)?.total}
+                />
+              )
             ) : null}
           </section>
         </div>
