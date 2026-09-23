@@ -2,7 +2,7 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import type { ComponentPropsWithRef } from 'react'
 import { cn } from '@/shared/lib/utils'
 
-export const tagVariants = cva(
+const tagVariants = cva(
   'inline-flex h-(--control-height-xs) items-center gap-1.5 rounded-xs px-[9px] text-label font-medium',
   {
     variants: {

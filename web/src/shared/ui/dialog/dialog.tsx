@@ -5,9 +5,6 @@ import { IconButton } from '@/shared/ui/button'
 import { refuseFileDropProps } from '@/shared/ui/file-drop'
 
 export const DialogRoot = DialogPrimitive.Root
-export const DialogTrigger = DialogPrimitive.Trigger
-export const DialogClose = DialogPrimitive.Close
-export const DialogDescription = DialogPrimitive.Description
 
 type DialogSurfaceProps = ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
   children: ReactNode

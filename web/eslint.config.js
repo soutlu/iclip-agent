@@ -31,7 +31,8 @@ const NO_DEFAULT_EXPORT = {
 }
 const NO_RAW_IMPORT_META_ENV = {
   selector: 'MemberExpression[object.type="MetaProperty"][property.name="env"]',
-  message: '环境变量只经 src/shared/config/env.ts 的 zod schema 读取，新变量先在那里声明',
+  message:
+    '前端不读取 import.meta.env：后端走同源代理，启动参数只在 vite 配置中读取（见 README「启动参数」）',
 }
 const NO_MOCK_LOCAL_MODULE = {
   selector:
@@ -55,7 +56,7 @@ export default tseslint.config(
       'node_modules',
       // 文档示例不属于项目 tsconfig，排除类型感知检查。
       'docs',
-      // 外部合同保持原文，见该目录 README。
+      // vendor 按上游风格维护、不套本仓 lint，维护约定见该目录 README。
       'src/shared/transcript/vendor/**',
     ],
   },
@@ -114,13 +115,6 @@ export default tseslint.config(
         { paths: [LUCIDE_LOCK, RADIX_LOCK], patterns: LUCIDE_DEEP },
       ],
       'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT, NO_RAW_IMPORT_META_ENV],
-    },
-  },
-  // 环境变量入口允许读取 import.meta.env。
-  {
-    files: ['src/shared/config/env.ts'],
-    rules: {
-      'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT],
     },
   },
   // ── 文件名 kebab-case（routes/ 按 TanStack 约定用 _ 前缀与 . 分段，不在此列） ──
@@ -230,9 +224,9 @@ export default tseslint.config(
     },
   },
 
-  // UI 与 state 模块同时导出组件和辅助函数，支持整页刷新。
+  // 契约组件模块同时导出组件和辅助函数，支持整页刷新。
   {
-    files: ['src/**/state/**/*', 'src/shared/ui/**'],
+    files: ['src/shared/ui/**'],
     rules: {
       'react-refresh/only-export-components': 'off',
     },

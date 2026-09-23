@@ -1,1 +1,1 @@
-export { Tag, tagVariants } from './tag'
+export { Tag } from './tag'
