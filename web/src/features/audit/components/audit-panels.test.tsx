@@ -1,11 +1,12 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
+import { useState } from 'react'
 import { describe, expect, it } from 'vitest'
 import { addMockConversation, mockAuthUser, mockGovernor } from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
-import { DEFAULT_AUDIT_SCOPE, type AuditScope } from '../audit.api'
+import { DEFAULT_AUDIT_SCOPE, type AnomalyKind, type AuditScope } from '../audit.api'
 import { AnomaliesPanel } from './anomalies-panel'
 import { ConversationsPanel } from './conversations-panel'
 import { OverviewPanel } from './overview-panel'
@@ -318,13 +319,25 @@ describe('ConversationsPanel', () => {
   })
 })
 
+/** 种类筛选由上层持有，这里替路由层握住它。 */
+function AnomaliesWithKinds() {
+  const [kinds, setKinds] = useState<AnomalyKind[]>([])
+  return (
+    <AnomaliesPanel
+      kinds={kinds}
+      nameOf={nameOf}
+      onKindsChange={setKinds}
+      scope={ALL_TIME}
+      taskTitleOf={taskTitleOf}
+    />
+  )
+}
+
 describe('AnomaliesPanel', () => {
   it('列出异常并按种类筛', async () => {
     seed()
     const user = userEvent.setup()
-    await renderWithProviders(
-      <AnomaliesPanel nameOf={nameOf} scope={ALL_TIME} taskTitleOf={taskTitleOf} />,
-    )
+    await renderWithProviders(<AnomaliesWithKinds />)
 
     const list = await screen.findByRole('region', { name: '异常列表' })
     expect(within(list).getByText('反复重试')).toBeVisible()

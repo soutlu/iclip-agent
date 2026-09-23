@@ -185,7 +185,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
   }
 
   // 本对话全部出片记录，按镜头组挑格子的事交给各消费方——它们都自己读坐标。
-  const jobs = generations.data?.items ?? []
+  const jobs = generations.data ?? []
   // 编辑结果不带分镜坐标，抽屉里不单列；数一下折进原片那张卡。
   const editCounts = editCountsByRoot(jobs)
   const videoEditRoot =
@@ -420,7 +420,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
                   <Button onClick={closeSheet} size="md" variant="ghost">
                     关闭生成记录
                   </Button>
-                  <ReaderNotice text={errorMessageOf(generations.error, '读取生成任务失败')} />
+                  <ReaderNotice text={errorMessageOf(generations.error, '读取视频记录失败')} />
                 </>
               ) : generations.isPending ? (
                 <>
