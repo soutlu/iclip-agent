@@ -38,19 +38,34 @@ describe('审计数字的人话', () => {
 
 describe('较上期', () => {
   it('涨了算好，越低越好的指标涨了算坏', () => {
-    expect(compareWithPrevious(12, 10)).toEqual({ text: '+20%', tone: 'better' })
+    expect(compareWithPrevious(12, 10)).toEqual({ text: '+20%', tone: 'better', direction: 'up' })
     expect(compareWithPrevious(12, 10, { lowerIsBetter: true })).toEqual({
       text: '+20%',
       tone: 'worse',
+      direction: 'up',
     })
     expect(compareWithPrevious(9, 10, { lowerIsBetter: true })).toEqual({
       text: '-10%',
       tone: 'better',
+      direction: 'down',
     })
   })
 
+  it.each([
+    { current: 12, previous: 10, lowerIsBetter: false, direction: 'up' },
+    { current: 8, previous: 10, lowerIsBetter: false, direction: 'down' },
+    { current: 8, previous: 10, lowerIsBetter: true, direction: 'down' },
+    { current: 1001, previous: 1000, lowerIsBetter: false, direction: 'flat' },
+    { current: 999, previous: 1000, lowerIsBetter: true, direction: 'flat' },
+  ] as const)(
+    '$previous → $current 的涨跌方向是 $direction，与好坏无关',
+    ({ current, previous, lowerIsBetter, direction }) => {
+      expect(compareWithPrevious(current, previous, { lowerIsBetter })?.direction).toBe(direction)
+    },
+  )
+
   it('持平、上一期为零或缺数据都不给变化', () => {
-    expect(compareWithPrevious(10, 10)).toEqual({ text: '0%', tone: 'flat' })
+    expect(compareWithPrevious(10, 10)).toEqual({ text: '0%', tone: 'flat', direction: 'flat' })
     expect(compareWithPrevious(10, 0)).toBeNull()
     expect(compareWithPrevious(null, 10)).toBeNull()
     expect(compareWithPrevious(10, undefined)).toBeNull()

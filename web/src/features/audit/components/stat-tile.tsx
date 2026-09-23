@@ -86,9 +86,9 @@ export function StatTile({
           <span
             className={cn('inline-flex items-center gap-0.5 font-medium', TONE_CLASS[delta.tone])}
           >
-            {delta.tone === 'flat' ? null : (
+            {delta.direction === 'flat' ? null : (
               <Icon
-                className={delta.text.startsWith('+') ? '-rotate-90' : 'rotate-90'}
+                className={delta.direction === 'up' ? '-rotate-90' : 'rotate-90'}
                 decorative
                 name="next"
                 size="xs"

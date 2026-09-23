@@ -122,6 +122,7 @@ function ConversationRow({ report, nameOf, taskTitleOf }: ConversationRowProps) 
           </dl>
         </div>
         <Cell>{formatCount(metrics.completedVideos)}</Cell>
+        {/* 整段对话的平均每镜次数，与镜头带按单镜判定的「重试过多」阈值不是同一口径。 */}
         <Cell emphasis={metrics.attemptsPerShot !== null && metrics.attemptsPerShot > 2}>
           {formatTimes(metrics.attemptsPerShot)}
         </Cell>

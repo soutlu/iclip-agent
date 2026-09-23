@@ -1,12 +1,13 @@
 /** 总览：结果 → 效率 → 消耗 → 问题，一屏看完；人和需求单两张排行表放在下面下钻。 */
 
+import type { ComponentProps } from 'react'
 import { errorMessageOf } from '@/shared/api/client'
 import { Icon } from '@/shared/icons'
 import { Button } from '@/shared/ui/button'
 import { InlineAlert } from '@/shared/ui/inline-alert'
 import { ListError } from '@/shared/ui/list-state'
 import { Tag } from '@/shared/ui/tag'
-import { ANOMALY_META } from '../anomaly-kinds'
+import { ANOMALY_META, type AnomalyTone } from '../anomaly-kinds'
 import { bucketFor, useAuditSummary, type AuditScope, type Metrics } from '../audit.api'
 import {
   compareWithPrevious,
@@ -37,6 +38,12 @@ const USAGE_NOTE = '自用量台账上线起累计'
 const SAMPLE_HINT = '上游段不给样本：没留提交时刻的记录不计入这一行'
 /** 出片次数画到第几档为止，再多的并成「N 次以上」。 */
 const ATTEMPT_CAP = 5
+/** 异常概览标签按轻重配色；异常列表的圆点色是另一张表，在 anomalies-panel。 */
+const TONE_TAG = {
+  bad: 'error',
+  warn: 'running',
+  info: 'soft',
+} as const satisfies Record<AnomalyTone, NonNullable<ComponentProps<typeof Tag>['variant']>>
 
 const RANK_COLUMNS: readonly MetricsColumn[] = [
   {
@@ -361,15 +368,7 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
           <ul aria-label="异常按种类" className="flex flex-wrap gap-2">
             {anomalyCounts.map(({ kind, count }) => (
               <li key={kind}>
-                <Tag
-                  variant={
-                    ANOMALY_META[kind].tone === 'bad'
-                      ? 'error'
-                      : ANOMALY_META[kind].tone === 'warn'
-                        ? 'running'
-                        : 'soft'
-                  }
-                >
+                <Tag variant={TONE_TAG[ANOMALY_META[kind].tone]}>
                   {ANOMALY_META[kind].label}
                   <span className="tabular-nums">{count}</span>
                 </Tag>

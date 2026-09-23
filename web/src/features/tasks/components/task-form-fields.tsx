@@ -4,6 +4,16 @@ import { ASPECT_RATIOS } from '@/shared/lib/aspect-ratio'
 import { IconButton } from '@/shared/ui/button'
 import { Input, Textarea } from '@/shared/ui/field'
 import type { Task } from '../tasks.api'
+import {
+  MAX_DESCRIPTION_CHARS,
+  MAX_DURATION_SECONDS,
+  MAX_PRODUCTS,
+  MAX_REFERENCE_URLS,
+  MAX_SHORT_TEXT_CHARS,
+  MAX_STYLE_NO_CHARS,
+  MAX_TITLE_CHARS,
+  MIN_DURATION_SECONDS,
+} from '../task-limits'
 import type { TaskField } from '../task-permissions'
 import { PLATFORM_OPTIONS, VIDEO_TYPE_OPTIONS, CONTENT_TYPE_OPTIONS } from '../task-video-options'
 import { TaskMediaField } from './task-media-field'
@@ -15,8 +25,6 @@ type VideoSpec = TaskInputs['video_spec']
 
 const CONTROL =
   'task-form-control h-(--control-height-md) min-w-0 rounded-sm border-transparent bg-surface-container-low px-3 ui-focus-inline'
-/** 与合同 inputs.products 的上限一致。 */
-const MAX_PRODUCTS = 20
 const PRODUCT_ATTRIBUTES: readonly {
   label: string
   placeholder: string
@@ -107,7 +115,7 @@ export function TaskFormFields({
             aria-label="需求单名称"
             className={CONTROL}
             disabled={!editable('title')}
-            maxLength={200}
+            maxLength={MAX_TITLE_CHARS}
             required
             placeholder="输入需求单名称"
             onChange={(event) =>
@@ -187,10 +195,10 @@ export function TaskFormFields({
               disabled={!editable('duration_seconds')}
               type="number"
               inputMode="numeric"
-              min={3}
-              max={50}
+              min={MIN_DURATION_SECONDS}
+              max={MAX_DURATION_SECONDS}
               step={1}
-              placeholder="3–50 秒"
+              placeholder={`${MIN_DURATION_SECONDS}–${MAX_DURATION_SECONDS} 秒`}
               value={inputs.video_spec.duration_seconds ?? ''}
               onChange={(event) =>
                 patchVideo({
@@ -231,7 +239,7 @@ export function TaskFormFields({
                     disabled={!editable('style_no')}
                     required
                     placeholder="例如 SBPU24001W"
-                    maxLength={64}
+                    maxLength={MAX_STYLE_NO_CHARS}
                     value={product.style_no}
                     onChange={(event) => patchProduct(index, { style_no: event.target.value })}
                   />
@@ -242,7 +250,7 @@ export function TaskFormFields({
                     className={CONTROL}
                     disabled={!editable('product')}
                     placeholder="输入商品名称"
-                    maxLength={200}
+                    maxLength={MAX_SHORT_TEXT_CHARS}
                     value={product.name}
                     onChange={(event) => patchProduct(index, { name: event.target.value })}
                   />
@@ -256,7 +264,7 @@ export function TaskFormFields({
                       className={CONTROL}
                       disabled={!editable('product')}
                       placeholder={attribute.placeholder}
-                      maxLength={200}
+                      maxLength={MAX_SHORT_TEXT_CHARS}
                       value={attribute.value(product)}
                       onChange={(event) => patchProduct(index, attribute.patch(event.target.value))}
                     />
@@ -269,7 +277,7 @@ export function TaskFormFields({
                 kind="image"
                 value={product.image_oss_urls}
                 disabled={!editable('product')}
-                maxFiles={16}
+                maxFiles={MAX_REFERENCE_URLS}
                 onUploadingChange={(busy) => onUploadingChange(`product-${index}`, busy)}
                 onChange={(image_oss_urls) => patchProduct(index, { image_oss_urls })}
               />
@@ -296,7 +304,7 @@ export function TaskFormFields({
               compact
               label={label}
               kind="image"
-              maxFiles={16}
+              maxFiles={MAX_REFERENCE_URLS}
               value={inputs.reference_image_oss_urls[key]}
               disabled={!editable('references')}
               onUploadingChange={(busy) => onUploadingChange(key, busy)}
@@ -322,13 +330,13 @@ export function TaskFormFields({
             className="task-form-control min-h-48 resize-y rounded-md border-transparent bg-surface-container-low ui-focus-inline"
             rows={6}
             disabled={!editable('creative_requirement')}
-            maxLength={4000}
+            maxLength={MAX_DESCRIPTION_CHARS}
             placeholder="描述创作目标、风格偏好、目标受众和输出要求"
             value={inputs.creative_requirement}
             onChange={(event) => patchInputs({ creative_requirement: event.target.value })}
           />
           <span className="self-end text-caption text-on-surface-variant">
-            {inputs.creative_requirement.length}/4000
+            {inputs.creative_requirement.length}/{MAX_DESCRIPTION_CHARS}
           </span>
         </Field>
       </div>
