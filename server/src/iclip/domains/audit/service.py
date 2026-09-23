@@ -20,10 +20,8 @@ from iclip.domains.audit.models import (
 )
 from iclip.domains.audit.repository import AuditReports
 from iclip.domains.audit.schemas import AnomaliesOut, AuditConversationsOut, SummaryOut
-from iclip.domains.identity.public import Principal
+from iclip.domains.identity.public import MANAGE_PERMISSION, Principal
 from iclip.platform.paging import check_limit, decode_cursor, encode_cursor
-
-MANAGE_PERMISSION: Final = "users:manage"
 
 _ANOMALY_KINDS: Final[frozenset[str]] = frozenset(get_args(AnomalyKind))
 
@@ -172,4 +170,4 @@ class AuditService:
         return AnomaliesOut(items=list(items), next_cursor=next_cursor)
 
 
-__all__ = ["MANAGE_PERMISSION", "AuditService"]
+__all__ = ["AuditService"]

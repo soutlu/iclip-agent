@@ -8,6 +8,13 @@ from iclip.common.errors import ValidationFailed
 from iclip.domains.identity.models import Principal
 
 
+def require_own_user_name(principal: Principal, name: str) -> None:
+    """浏览器会话给的名字必须是自己的用户名，免得把账记到别人头上；不是就抛 ``ValidationFailed``。"""
+
+    if name != principal.username:
+        raise ValidationFailed("user_name 必须是当前登录账号的用户名")
+
+
 def resolve_user_name(principal: Principal, given: str | None) -> str:
     """定下这次请求发往上游的 ``user_name``。
 
@@ -23,9 +30,9 @@ def resolve_user_name(principal: Principal, given: str | None) -> str:
         return name
     if principal.username is None:
         raise ValidationFailed("当前账号没有用户名，不能提交")
-    if name and name != principal.username:
-        raise ValidationFailed("user_name 必须是当前登录账号的用户名")
+    if name:
+        require_own_user_name(principal, name)
     return principal.username
 
 
-__all__ = ["resolve_user_name"]
+__all__ = ["require_own_user_name", "resolve_user_name"]

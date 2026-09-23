@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from iclip.common.errors import Conflict, PermissionDenied, ValidationFailed
-from iclip.domains.identity.public import Principal
+from iclip.domains.identity.public import MANAGE_PERMISSION, Principal
 from iclip.domains.tasks.models import (
     ACTIVE_STATUSES,
     STATUS_DRAFT,
@@ -27,8 +27,6 @@ from iclip.domains.tasks.schemas import (
     TaskInputs,
 )
 from iclip.platform.paging import MAX_LIST_LIMIT, check_limit, decode_cursor, encode_cursor
-
-MANAGE_PERMISSION = "users:manage"
 
 _CONFLICT_RACED = "这张需求单刚被别人改过，请重新读一次再试"
 
@@ -227,4 +225,4 @@ def _says_what_to_make(inputs: TaskInputs) -> bool:
     )
 
 
-__all__ = ["MANAGE_PERMISSION", "TaskPage", "TaskService"]
+__all__ = ["TaskPage", "TaskService"]

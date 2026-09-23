@@ -7,6 +7,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+MANAGE_PERMISSION = "users:manage"
+"""治理者：读取范围扩到所有人的记录，并管理用户与全部 API key；能否写别人的记录由各资源自己定。"""
+
+ACT_AS_PERMISSION = "users:act_as"
+"""钥匙可以替 ``user_name`` 那个人提交。能替任何人写，也就能读任何人的记录。"""
+
 PERMISSIONS: tuple[str, ...] = (
     "collections:read",
     "collections:write",
@@ -17,8 +23,8 @@ PERMISSIONS: tuple[str, ...] = (
     "generation:read",
     "generation:submit",
     "analytics:read",
-    "users:manage",
-    "users:act_as",
+    MANAGE_PERMISSION,
+    ACT_AS_PERMISSION,
     "api_keys:issue",
     "agent:read",
     "agent:run",
@@ -35,8 +41,8 @@ _VIEWER = frozenset(
 )
 _EDITOR = frozenset(PERMISSIONS) - {
     "analytics:read",
-    "users:manage",
-    "users:act_as",
+    MANAGE_PERMISSION,
+    ACT_AS_PERMISSION,
     "api_keys:issue",
 }
 _ROOT = frozenset(PERMISSIONS)
@@ -68,6 +74,8 @@ def is_known_role(role: str) -> bool:
 
 
 __all__ = [
+    "ACT_AS_PERMISSION",
+    "MANAGE_PERMISSION",
     "PERMISSIONS",
     "ROLES",
     "ROLE_PERMISSIONS",

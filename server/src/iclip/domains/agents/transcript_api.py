@@ -18,6 +18,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from iclip.common.errors import DomainError
 from iclip.domains.identity.public import (
+    MANAGE_PERMISSION,
     ActAs,
     Principal,
     require_permission,
@@ -79,9 +80,6 @@ HEARTBEAT_MISS_LIMIT = 2
 
 MAX_EVENT_BUFFER = 2048
 """多对话共享的连接出站缓冲上限；溢出时断开并要求重连补批，避免阻塞运行。"""
-
-MANAGE_PERMISSION = "users:manage"
-"""治理者：看得见全平台的对话，全局帧与文件变更帧也都收；写入仍只属主能做。"""
 
 _CLIENT_FRAME = TypeAdapter[Any](ClientFrame)
 
@@ -882,7 +880,6 @@ async def _serve(
 __all__ = [
     "HEARTBEAT_MISS_LIMIT",
     "HEARTBEAT_SECONDS",
-    "MANAGE_PERMISSION",
     "MAX_EVENT_BUFFER",
     "ConversationHeader",
     "Conversations",

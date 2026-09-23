@@ -24,13 +24,14 @@ from iclip.domains.conversations.repository import (
     StateFilter,
 )
 from iclip.domains.conversations.schemas import DEFAULT_TITLE, MAX_TITLE_CHARS
-from iclip.domains.identity.public import ACT_AS_PERMISSION, Principal
+from iclip.domains.identity.public import (
+    MANAGE_PERMISSION,
+    Principal,
+    visible_owner_incl_act_as,
+)
 from iclip.platform.paging import check_limit, decode_cursor, encode_cursor
 
 _logger = structlog.stdlib.get_logger(__name__)
-
-MANAGE_PERMISSION = "users:manage"
-"""治理者可读取所有对话及工作区文件；写入仍限属主。"""
 
 SIDEBAR_COLLECTIONS = 100
 """侧栏最多带几个合集：只取最近建立的这些，更早的连同其中的对话不在侧栏里。"""
@@ -322,9 +323,7 @@ class ConversationService:
 
         if principal.has(MANAGE_PERMISSION):
             return await self._repo.get(conversation_id, owner=None, include_deleted=True)
-        if principal.kind == "api_key" and principal.has(ACT_AS_PERMISSION):
-            return await self._repo.get(conversation_id, owner=None)
-        return await self._repo.get(conversation_id, owner=principal.user_id)
+        return await self._repo.get(conversation_id, owner=visible_owner_incl_act_as(principal))
 
     async def files(
         self, principal: Principal, conversation_id: uuid.UUID
@@ -704,7 +703,6 @@ class ConversationService:
 
 __all__ = [
     "IDLE_ACTIVITY",
-    "MANAGE_PERMISSION",
     "SIDEBAR_COLLECTIONS",
     "SIDEBAR_PER_COLLECTION",
     "SIDEBAR_UNGROUPED",
