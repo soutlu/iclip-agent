@@ -36,6 +36,10 @@ if TYPE_CHECKING:  # 只为类型：真导入会和 models.py 成环
 
 GenerationKind = Literal["video", "image", "clip"]
 
+GenerationStatus = Literal["pending", "submitting", "submitted", "completed", "failed"]
+"""生成记录的业务状态，取值含义见 models.py 的 ``STATUS_*``。放在这里是因为 ``GenerationOut``
+运行时要解析它，models.py 反过来导入。"""
+
 KIND_VIDEO: Final = "video"
 KIND_IMAGE: Final = "image"
 KIND_CLIP: Final = "clip"
@@ -415,8 +419,8 @@ class GenerationOut(CamelModel):
     """
 
     id: uuid.UUID
-    kind: str
-    status: str
+    kind: GenerationKind
+    status: GenerationStatus
     request: dict[str, Any]
     metadata: dict[str, Any] | None
     task_id: uuid.UUID | None
@@ -593,6 +597,7 @@ __all__ = [
     "GenerationKind",
     "GenerationOut",
     "GenerationRequest",
+    "GenerationStatus",
     "GenerationsPageOut",
     "ImageGenerationIn",
     "ImageModelOut",

@@ -15,6 +15,7 @@ from iclip.domains.generation.models import (
     STATUS_SUBMITTING,
     TERMINAL_STATUSES,
     GenerationJob,
+    GenerationKind,
     GenerationStatus,
     InFlightPhase,
 )
@@ -169,7 +170,7 @@ class InMemoryGenerationRepository:
         owner: uuid.UUID | None,
         limit: int,
         conversation_id: uuid.UUID | None = None,
-        kind: str | None = None,
+        kind: GenerationKind | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
         root_job_id: uuid.UUID | None = None,
@@ -321,7 +322,7 @@ class InMemoryGenerationRepository:
         return self._replace(job_id, provider_status=provider_status, **extra)
 
     async def in_flight_by_conversation(
-        self, conversation_ids: Sequence[uuid.UUID], *, kind: str
+        self, conversation_ids: Sequence[uuid.UUID], *, kind: GenerationKind
     ) -> Mapping[uuid.UUID, InFlightPhase]:
         phases: dict[uuid.UUID, InFlightPhase] = {}
         for job in self.jobs.values():

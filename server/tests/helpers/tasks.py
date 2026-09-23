@@ -9,6 +9,7 @@ from typing import Any
 
 from iclip.common.errors import NotFound
 from iclip.domains.tasks.models import (
+    ACTIVE_STATUSES,
     STATUS_CONFIRMED,
     STATUS_DRAFT,
     STATUS_PUBLISHED,
@@ -156,7 +157,7 @@ class InMemoryTaskRepository:
         from dataclasses import replace
 
         found = self.tasks.get(task_id)
-        if found is None or found.status not in (STATUS_PUBLISHED, STATUS_CONFIRMED):
+        if found is None or found.status not in ACTIVE_STATUSES:
             return None
         assignees = found.assignee_user_ids
         if user_id not in assignees:

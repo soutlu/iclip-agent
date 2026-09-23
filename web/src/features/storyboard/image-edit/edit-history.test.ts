@@ -86,7 +86,7 @@ describe('frameImageEntries', () => {
     ['pending', 'pending'],
     ['submitted', 'pending'],
     ['failed', 'failed'],
-  ])('没有产出的任务照样占一格：%s', (status, kind) => {
+  ] as const)('没有产出的任务照样占一格：%s', (status, kind) => {
     const entries = frameImageEntries(
       [job({ id: 'live', createdAt: '2026-09-13T04:00:00Z', status })],
       CURRENT,

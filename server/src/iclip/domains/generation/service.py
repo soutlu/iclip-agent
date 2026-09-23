@@ -17,6 +17,7 @@ from iclip.domains.generation.repository import GenerationRepository
 from iclip.domains.generation.schemas import (
     KIND_VIDEO,
     ClipIn,
+    GenerationKind,
     GenerationRequest,
     ImageGenerationIn,
     VideoGenerationIn,
@@ -237,7 +238,7 @@ class GenerationService:
         return job
 
     async def in_flight_by_conversation(
-        self, conversation_ids: Sequence[uuid.UUID], *, kind: str
+        self, conversation_ids: Sequence[uuid.UUID], *, kind: GenerationKind
     ) -> Mapping[uuid.UUID, InFlightPhase]:
         """给对话侧栏用：这些对话下还没跑完的某类任务各到哪一步。可见性由对话那边判过，这里不再按属主筛。"""
 
@@ -249,7 +250,7 @@ class GenerationService:
         *,
         limit: int = 20,
         conversation_id: uuid.UUID | None = None,
-        kind: str | None = None,
+        kind: GenerationKind | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
         root_job_id: uuid.UUID | None = None,

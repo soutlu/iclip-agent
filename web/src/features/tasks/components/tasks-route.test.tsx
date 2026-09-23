@@ -723,9 +723,9 @@ describe('TasksRoute', () => {
   })
 
   it.each([
-    { status: 'confirmed', claimed: false, canRun: true },
-    { status: 'published', claimed: true, canRun: true },
-    { status: 'confirmed', claimed: true, canRun: false },
+    { status: 'confirmed' as const, claimed: false, canRun: true },
+    { status: 'published' as const, claimed: true, canRun: true },
+    { status: 'confirmed' as const, claimed: true, canRun: false },
   ])('开始入口要求已认领、confirmed和agent:run：%j', async ({ status, claimed, canRun }) => {
     server.use(
       http.get('*/api/users/me', () =>

@@ -171,7 +171,7 @@ class SqlGenerationRepository:
         owner: uuid.UUID | None,
         limit: int,
         conversation_id: uuid.UUID | None = None,
-        kind: str | None = None,
+        kind: GenerationKind | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
         root_job_id: uuid.UUID | None = None,
@@ -242,7 +242,7 @@ class SqlGenerationRepository:
         return result.rowcount
 
     async def in_flight_by_conversation(
-        self, conversation_ids: Sequence[uuid.UUID], *, kind: str
+        self, conversation_ids: Sequence[uuid.UUID], *, kind: GenerationKind
     ) -> Mapping[uuid.UUID, InFlightPhase]:
         if not conversation_ids:
             return {}

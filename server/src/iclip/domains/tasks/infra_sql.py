@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from iclip.common.errors import NotFound
 from iclip.domains.tasks.models import (
+    ACTIVE_STATUSES,
     STATUS_CONFIRMED,
     STATUS_DRAFT,
     STATUS_PUBLISHED,
@@ -304,7 +305,7 @@ class SqlTaskRepository:
                     select(_ROWS.status).where(_ROWS.id == task_id).with_for_update()
                 )
             ).scalar_one_or_none()
-            if current not in (STATUS_PUBLISHED, STATUS_CONFIRMED):
+            if current not in ACTIVE_STATUSES:
                 return None
             await conn.execute(
                 pg_insert(task_assignees_table)

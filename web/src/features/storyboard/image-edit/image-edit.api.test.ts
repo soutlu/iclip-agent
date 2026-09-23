@@ -87,7 +87,7 @@ describe('submitImageEdit', () => {
               metadata: body['metadata'],
               outputUrl: null,
               request: {},
-              status: 'queued',
+              status: 'pending',
               taskId: null,
               rootJobId: null,
               clipStage: null,
@@ -107,7 +107,7 @@ describe('submitImageEdit', () => {
       channel: 'dev',
     })
 
-    expect(job.status).toBe('queued')
+    expect(job.status).toBe('pending')
     expect(body['metadata']).toEqual({
       shot: 2,
       frame: 3,

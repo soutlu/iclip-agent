@@ -13,9 +13,8 @@ from datetime import UTC, datetime
 from iclip.common.errors import Conflict, PermissionDenied, ValidationFailed
 from iclip.domains.identity.public import Principal
 from iclip.domains.tasks.models import (
-    STATUS_CONFIRMED,
+    ACTIVE_STATUSES,
     STATUS_DRAFT,
-    STATUS_PUBLISHED,
     STATUS_WITHDRAWN,
     Task,
     TaskCursor,
@@ -153,7 +152,7 @@ class TaskService:
         """幂等认领需求单，支持多人认领；撤回后保留认领记录。"""
 
         task = await self._repo.get(task_id)
-        if task.status not in (STATUS_PUBLISHED, STATUS_CONFIRMED):
+        if task.status not in ACTIVE_STATUSES:
             raise Conflict(f"只有已下发或已确认的需求单能认领，这张是 {task.status}")
         confirmed = await self._repo.confirm(task_id, user_id=principal.user_id)
         if confirmed is None:
@@ -169,7 +168,7 @@ class TaskService:
         """将 published 或 confirmed 转为 withdrawn 终态。"""
 
         task = await self._repo.get(task_id)
-        if task.status not in (STATUS_PUBLISHED, STATUS_CONFIRMED):
+        if task.status not in ACTIVE_STATUSES:
             raise Conflict(f"只有已下发或已确认的需求单能撤回，这张是 {task.status}")
         withdrawn = await self._repo.set_status(
             task_id, expect=task.status, status=STATUS_WITHDRAWN
