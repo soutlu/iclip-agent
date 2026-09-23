@@ -3,12 +3,19 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
 import type { z } from 'zod'
 import { apiFetch } from '@/shared/api/client'
-import { zConversationsAuditOut } from '@/shared/api/generated/zod.gen'
+import {
+  zAuditConversationsConversationsAuditGetQuery,
+  zConversationsAuditOut,
+} from '@/shared/api/generated/zod.gen'
 import { dateRangeBounds, type DateRange } from '@/shared/lib/date-range'
 import { conversationsQueryKeys, type ConversationListState } from './conversations.api'
 
-/** 删没删：缺省只看活着的，deleted 只看属主删掉的，all 都看。 */
-export type AuditDeleted = 'live' | 'deleted' | 'all'
+/** 删没删：缺省只看活着的，deleted 只看属主删掉的，all 都看。取合同查询参数的枚举。 */
+export const auditDeletedSchema = zAuditConversationsConversationsAuditGetQuery.shape.deleted
+  .unwrap()
+  .unwrap()
+
+type AuditDeleted = z.output<typeof auditDeletedSchema>
 
 /** 时间范围作用在 createdAt 上，与列表排序同一列。 */
 export interface AuditFilters extends DateRange {

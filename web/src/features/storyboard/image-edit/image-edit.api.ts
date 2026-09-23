@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/shared/api/client'
-import type { ImageModelOut } from '@/shared/api/generated/types.gen'
+import type { ImageGenerationIn, ImageModelOut } from '@/shared/api/generated/types.gen'
 import {
   zGenerationEnvelope,
   zGenerationsPageOut,
@@ -144,8 +144,8 @@ export function useImageModels() {
 export const modelSupportsAspect = (model: ImageModel, aspectRatio: string) =>
   model.aspectRatios.includes(aspectRatio)
 
-export type ImageResolution = '1k' | '2k' | '4k'
-export type ImageChannel = 'dev' | 'pro'
+export type ImageResolution = NonNullable<ImageGenerationIn['resolution']>
+export type ImageChannel = NonNullable<ImageGenerationIn['channel']>
 
 export type ResolvedImageOptions = {
   model: ImageModel | undefined
@@ -198,8 +198,8 @@ export async function submitImageEdit(
   baseUrl: string,
   options: {
     model: string
-    channel?: 'dev' | 'pro'
-    resolution: '1k' | '2k' | '4k'
+    channel?: ImageChannel
+    resolution: ImageResolution
     aspectRatio: string
   },
 ) {

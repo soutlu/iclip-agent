@@ -593,8 +593,26 @@ describe('TasksRoute', () => {
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByLabelText('需求单名称')).toBeDisabled()
     expect(within(dialog).getByLabelText('创作要求')).toBeDisabled()
-    expect(within(dialog).getByRole('button', { name: '保存' })).toBeDisabled()
+    expect(within(dialog).queryByRole('button', { name: '保存' })).not.toBeInTheDocument()
     expect(within(dialog).queryByRole('button', { name: '发布' })).not.toBeInTheDocument()
+  })
+  it.each([
+    { owner: '自己', creatorUserId: mockAuthUser.id, menus: 1 },
+    { owner: '他人', creatorUserId: '4133e687-07d8-4460-a0dc-954f802697f4', menus: 0 },
+  ])('我的需求单里 $owner 创建的草稿，重命名入口与详情改标题同一规则', async (row) => {
+    // 卡片只在「我的需求单」挂重命名；mock 按认领人筛，挂上认领人让草稿落进这一区。
+    mockTasks.push(
+      makeTask({
+        assigneeUserIds: [mockAuthUser.id],
+        creatorUserId: row.creatorUserId,
+        title: '认领区里的草稿',
+      }),
+    )
+    await renderLoggedIn()
+
+    const mine = within(screen.getByRole('region', { name: '我的需求单' }))
+    await mine.findByRole('button', { name: '查看需求：认领区里的草稿' })
+    expect(mine.queryAllByRole('button', { name: '更多操作' })).toHaveLength(row.menus)
   })
   it('详情加载失败显示错误，可重试恢复', async () => {
     const task = makeTask({ title: '读取重试需求' })
