@@ -1,8 +1,9 @@
-/** 生成任务状态跳转帧到了就重拉本对话的生成查询；轮询保留为兜底（contract/conventions.md §5、§11）。 */
+/** 生成任务状态跳转帧到了就重拉本对话的生成查询（分镜页与需求单面板）；轮询保留为兜底（contract/conventions.md §5、§11）。 */
 
 import { useQueryClient } from '@tanstack/react-query'
 import { use, useEffect } from 'react'
 import { TranscriptConnectionContext } from '@/shared/transcript/transcript-context'
+import { conversationVideosQueryKey } from './conversation-videos/conversation-videos.api'
 import { imageEditConversationKey } from './image-edit/image-edit.api'
 import { storyboardQueryKeys } from './storyboard.api'
 import { videoEditConversationKey } from './video-editor/video-editor.api'
@@ -26,6 +27,8 @@ export const useLiveGenerations = (conversationId: string): void => {
       void queryClient.invalidateQueries({ queryKey: imageEditConversationKey(conversationId) })
       // 视频编辑链的三条记录（切片、编辑、成片）都走生成队列，跳转也在这个前缀下重拉。
       void queryClient.invalidateQueries({ queryKey: videoEditConversationKey(conversationId) })
+      // 需求单面板的视频列表读的是同一段对话的出片。
+      void queryClient.invalidateQueries({ queryKey: conversationVideosQueryKey(conversationId) })
     })
   }, [connection, conversationId, queryClient])
 }

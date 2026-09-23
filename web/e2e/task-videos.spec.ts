@@ -22,7 +22,7 @@ const openTask = async (page: Page, username: 'tester' | 'governor' = 'tester') 
   return page.getByRole('dialog', { name: TASK_TITLE, exact: true })
 }
 
-/** 通过浏览器 MSW 提交，既覆盖轮询发现新产物，也避免向真实后端发起生成。 */
+/** 通过浏览器 MSW 提交，既覆盖生成帧推动发现新产物，也避免向真实后端发起生成。 */
 const submitMockVideo = (page: Page, conversationId: string) =>
   page.evaluate(async (id) => {
     const response = await fetch('/api/generations/video', {

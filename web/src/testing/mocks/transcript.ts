@@ -2,7 +2,7 @@
 
 import { http, HttpResponse, ws } from 'msw'
 import { mockConversationOwner } from './conversations'
-import { SHOTS_MOCK_PATH, touchMockShots } from './workspace'
+import { SHOTS_MOCK_PATH, touchMockShots, watchMockGenerations } from './workspace'
 
 const HISTORY_TURNS = 2
 
@@ -618,7 +618,19 @@ export const transcriptHandlers = [
       }
     })
 
+    // 生成帧是全局帧，不看这条连接订了哪段对话；mock 里同一浏览器只有一个登录用户，不按属主过滤。
+    const unwatchGenerations = watchMockGenerations(({ conversationId, ...payload }) => {
+      client.send(
+        JSON.stringify({
+          payload,
+          session_id: conversationId,
+          type: 'event.generation.changed',
+        }),
+      )
+    })
+
     client.addEventListener('close', () => {
+      unwatchGenerations()
       if (joined !== null) connections.delete(joined)
     })
   }),

@@ -125,18 +125,21 @@ describe('ConversationVideos', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('挂载时每五秒发现新结果并默认选择最新版本，卸载后停止轮询', async () => {
+  it('有在途记录时每五秒兜底发现新结果并默认选择最新版本，全部结束后停止轮询', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     let reads = 0
     server.use(
       http.get('*/api/generations', () => {
         reads += 1
-        return HttpResponse.json({ items: reads === 1 ? [job(1)] : [job(1), job(2)] })
+        return HttpResponse.json({
+          items:
+            reads === 1
+              ? [job(1), job(2, { status: 'submitted', outputUrl: null })]
+              : [job(1), job(2)],
+        })
       }),
     )
-    const { unmount } = await renderWithProviders(
-      <ConversationVideos conversationId={conversationId} />,
-    )
+    await renderWithProviders(<ConversationVideos conversationId={conversationId} />)
     expect(await screen.findByLabelText('镜头组 1视频')).toHaveAttribute('src', job(1).outputUrl)
 
     await act(() => vi.advanceTimersByTime(5000))
@@ -144,8 +147,54 @@ describe('ConversationVideos', () => {
     await screen.findByRole('button', { name: '镜头组 1 V2' })
     expect(screen.getByLabelText('镜头组 1视频')).toHaveAttribute('src', job(2).outputUrl)
     expect(reads).toBe(2)
-    unmount()
     await act(() => vi.advanceTimersByTime(5000))
+    expect(reads).toBe(2)
+  })
+
+  it('列表全部结束时不轮询', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    let reads = 0
+    server.use(
+      http.get('*/api/generations', () => {
+        reads += 1
+        return HttpResponse.json({ items: [job(1)] })
+      }),
+    )
+    await renderWithProviders(<ConversationVideos conversationId={conversationId} />)
+    await screen.findByLabelText('镜头组 1视频')
+
+    await act(() => vi.advanceTimersByTime(5000))
+
+    expect(reads).toBe(1)
+  })
+
+  it('只认本对话的生成帧：别的对话的帧不重拉，本对话的帧立刻重拉并展示新成片', async () => {
+    let reads = 0
+    server.use(
+      http.get('*/api/generations', () => {
+        reads += 1
+        return HttpResponse.json({ items: reads === 1 ? [job(1)] : [job(1), job(2)] })
+      }),
+    )
+    const { socket } = await renderWithProviders(
+      <ConversationVideos conversationId={conversationId} />,
+    )
+    await screen.findByLabelText('镜头组 1视频')
+    const changed = (sessionId: string) => ({
+      type: 'event.generation.changed',
+      session_id: sessionId,
+      payload: { id: job(2).id, kind: 'video', status: 'completed', metadata: { shot: 1 } },
+    })
+
+    act(() => socket.deliver(changed('0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d')))
+    // 留出一次真实请求往返的时间，否则「没重拉」是空断言。
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)))
+    expect(reads).toBe(1)
+
+    act(() => socket.deliver(changed(conversationId)))
+
+    await screen.findByRole('button', { name: '镜头组 1 V2' })
+    expect(screen.getByLabelText('镜头组 1视频')).toHaveAttribute('src', job(2).outputUrl)
     expect(reads).toBe(2)
   })
 

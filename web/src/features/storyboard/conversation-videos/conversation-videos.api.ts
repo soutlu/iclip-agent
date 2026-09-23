@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/shared/api/client'
 import { zGenerationsPageOut } from '@/shared/api/generated/zod.gen'
 import { drainPages } from '@/shared/api/paging'
-import type { GenerationJob } from '../storyboard.api'
+import { generationsRefetchInterval, type GenerationJob } from '../storyboard.api'
 import { groupConversationVideos } from './video-groups'
 
 const PAGE_LIMIT = 100
@@ -23,13 +23,14 @@ const readConversationVideos = (conversationId: string, signal: AbortSignal) =>
     return { items: page.items, next: last.id }
   })
 
+export const conversationVideosQueryKey = (conversationId: string) =>
+  ['generations', 'conversation-videos', conversationId] as const
+
 export const useConversationVideos = (conversationId: string) =>
   useQuery({
-    queryKey: ['generations', 'conversation-videos', conversationId],
+    queryKey: conversationVideosQueryKey(conversationId),
     queryFn: ({ signal }) => readConversationVideos(conversationId, signal),
     select: groupConversationVideos,
-    staleTime: 0,
-    // 这条键没人按生成帧失效，轮询是发现新产物的唯一途径，不能改成有在途任务才轮询。
-    // 面板挂载期间持续发现新产物；关闭面板、卸载组件后由 Query 停止轮询。
-    refetchInterval: 5000,
+    // 生成帧到了由 useLiveGenerations 立刻失效；有在途任务时每 5 秒轮询兜底，全部结束后停。
+    refetchInterval: ({ state }) => generationsRefetchInterval(state.data ?? []),
   })
