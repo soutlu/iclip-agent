@@ -1,28 +1,13 @@
 import { Dialog as DialogPrimitive } from 'radix-ui'
-import type { ComponentPropsWithoutRef, DragEvent, ReactNode } from 'react'
-import { hasDraggedFiles } from '@/shared/lib/drag-files'
+import type { ComponentPropsWithoutRef, ReactNode } from 'react'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
+import { refuseFileDropProps } from '@/shared/ui/file-drop'
 
 export const DialogRoot = DialogPrimitive.Root
 export const DialogTrigger = DialogPrimitive.Trigger
 export const DialogClose = DialogPrimitive.Close
 export const DialogDescription = DialogPrimitive.Description
-
-/**
- * 弹窗不收文件：标成禁止落点并保留冒泡，背后的聊天输入框看到 defaultPrevented 就让出，
- * 不会把落在弹窗上的文件当聊天附件收走。弹窗里自己的拖放区先接管了的不动。
- */
-const refuseDraggedFiles = (event: DragEvent<HTMLElement>) => {
-  if (!hasDraggedFiles(event) || event.defaultPrevented) return
-  event.preventDefault()
-  event.dataTransfer.dropEffect = 'none'
-}
-export const refuseFileDropProps = {
-  onDragEnter: refuseDraggedFiles,
-  onDragOver: refuseDraggedFiles,
-  onDrop: refuseDraggedFiles,
-}
 
 type DialogSurfaceProps = ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
   children: ReactNode
@@ -32,7 +17,7 @@ type DialogSurfaceProps = ComponentPropsWithoutRef<typeof DialogPrimitive.Conten
   overlayClassName?: string
 }
 
-/** 视口小于 600px 时使用底部 sheet，其余居中；层级与外观遵循设计契约。 */
+/** 视口小于 600px 时使用底部 sheet，其余居中；层级与外观遵循设计契约。本体与遮罩是文件拖放的拒收面，协议见 file-drop。 */
 export function DialogSurface({
   bare = false,
   children,

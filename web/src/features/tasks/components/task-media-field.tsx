@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { errorMessageOf } from '@/shared/api/client'
 import { MEDIA_IMAGE_ACCEPT, MEDIA_VIDEO_ACCEPT, uploadMediaFile } from '@/shared/api/media-upload'
 import { Icon } from '@/shared/icons'
-import { hasDraggedFiles } from '@/shared/lib/drag-files'
 import { videoSnapshotUrl } from '@/shared/lib/media-url'
 import { cn } from '@/shared/lib/utils'
+import { useFileDropTarget } from '@/shared/ui/file-drop'
 import { MediaFallback } from '@/shared/ui/media-fallback'
 import { MediaLightbox, type LightboxMedia } from '@/shared/ui/media-lightbox'
 
@@ -35,9 +36,7 @@ export function TaskMediaField({
   const inputRef = useRef<HTMLInputElement>(null)
   const operationRef = useRef({ active: true, busy: false })
   const callbacksRef = useRef({ onChange, onUploadingChange })
-  const dragDepthRef = useRef(0)
   const [uploading, setUploading] = useState(false)
-  const [dragOver, setDragOver] = useState(false)
   const [progress, setProgress] = useState('')
   const [error, setError] = useState('')
   const [preview, setPreview] = useState<LightboxMedia | null>(null)
@@ -85,7 +84,7 @@ export function TaskMediaField({
           nextUrls = kind === 'video' ? [url] : [...nextUrls, url]
           callbacksRef.current.onChange(nextUrls)
         } catch (cause) {
-          failures.push(`${file.name}：${cause instanceof Error ? cause.message : '上传失败'}`)
+          failures.push(`${file.name}：${errorMessageOf(cause, '上传失败')}`)
         }
       }
       if (operation.active && failures.length > 0) {
@@ -101,36 +100,11 @@ export function TaskMediaField({
     }
   }
 
-  const onDragEnter = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasDraggedFiles(event)) return
-    event.preventDefault()
-    dragDepthRef.current += 1
-    if (!blocked) setDragOver(true)
-  }
-  const onDragOver = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasDraggedFiles(event)) return
-    event.preventDefault()
-    event.dataTransfer.dropEffect = blocked ? 'none' : 'copy'
-  }
-  const onDragLeave = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasDraggedFiles(event)) return
-    event.preventDefault()
-    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
-    if (dragDepthRef.current === 0) setDragOver(false)
-  }
-  const onDrop = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasDraggedFiles(event)) return
-    // 保留冒泡以清理全局拖放状态，defaultPrevented 表明此字段已接管上传。
-    event.preventDefault()
-    dragDepthRef.current = 0
-    setDragOver(false)
-    if (blocked) return
-    if ([...event.dataTransfer.items].some((item) => item.webkitGetAsEntry?.()?.isDirectory)) {
-      setError('请选择文件，不支持上传文件夹')
-      return
-    }
-    void uploadFiles([...event.dataTransfer.files])
-  }
+  const { dragOver, dragHandlers } = useFileDropTarget({
+    blocked,
+    onDirectory: () => setError('请选择文件，不支持上传文件夹'),
+    onFiles: (files) => void uploadFiles(files),
+  })
 
   return (
     <div className="flex min-w-0 flex-col gap-2">
@@ -161,10 +135,7 @@ export function TaskMediaField({
           'relative flex flex-wrap gap-2 rounded-sm',
           dragOver && 'outline-2 outline-offset-4 outline-primary',
         )}
-        onDragEnter={onDragEnter}
-        onDragLeave={onDragLeave}
-        onDragOver={onDragOver}
-        onDrop={onDrop}
+        {...dragHandlers}
         role="group"
       >
         {value.map((url, index) => (
@@ -242,7 +213,7 @@ export function TaskMediaField({
         {disabled && value.length === 0 && (
           <p className="text-body-sm text-on-surface-faint">未添加</p>
         )}
-        {dragOver && !blocked && (
+        {dragOver && (
           <div className="pointer-events-none absolute inset-0 grid place-items-center rounded-sm bg-primary-container text-body-sm text-on-primary-container">
             松开{kind === 'video' && value.length > 0 ? '替换视频' : '添加素材'}
           </div>

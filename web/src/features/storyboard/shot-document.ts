@@ -1,6 +1,7 @@
 /** 结构化分镜文件、局部编辑与文本导出；保留字段身份和原始正文。 */
 
 import { z } from 'zod'
+import { UserFacingError } from '@/shared/api/client'
 import { MAX_REFERENCE_IMAGES } from './shots'
 
 const nonblank = z.string().refine((value) => value.trim().length > 0, '内容不能为空')
@@ -138,7 +139,8 @@ export const validateShotsDocument = (document: ShotsDocument): string | undefin
 export type PromptInsertion = { text: string; start: number; end: number }
 
 export const updateTimelinePrompt = (shot: Shot, position: number, prompt: string): Shot => {
-  if (shot.prompt.timeline[position] === undefined) throw new Error('这个镜头已不存在，请重新选择')
+  if (shot.prompt.timeline[position] === undefined)
+    throw new UserFacingError('这个镜头已不存在，请重新选择')
   return {
     ...shot,
     prompt: {

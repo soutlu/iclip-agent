@@ -295,7 +295,7 @@ describe('uploadFrameImage', () => {
   it('OSS 上传失败时不去确认', async () => {
     server.use(http.put(uploadUrl, () => new HttpResponse(null, { status: 503 })))
 
-    await expect(uploadFrameImage(imageFile())).rejects.toThrow('上传失败：503')
+    await expect(uploadFrameImage(imageFile())).rejects.toThrow('上传失败（503）')
     expect(requests).toEqual(['POST /api/uploads/sign', `PUT /mock-oss/${uploadId}`])
   })
 

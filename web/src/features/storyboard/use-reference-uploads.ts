@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { errorMessageOf } from '@/shared/api/client'
 import { uploadMediaFile } from '@/shared/api/media-upload'
-import { hasDraggedFiles } from '@/shared/lib/drag-files'
+import { useFileDropTarget } from '@/shared/ui/file-drop'
 import { toast } from '@/shared/ui/toast'
 
 type Options<T extends { id: string }> = {
@@ -33,7 +34,6 @@ export const useReferenceUploads = <T extends { id: string }>({
   }, [references])
   const uploadingRef = useRef(false)
   const [uploading, setUploading] = useState(false)
-  const [dragOver, setDragOver] = useState(false)
   const locked = disabled || uploading
 
   const upload = async (files: readonly File[]) => {
@@ -56,7 +56,7 @@ export const useReferenceUploads = <T extends { id: string }>({
         onChange(next)
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '参考图上传失败')
+      toast.error(errorMessageOf(error, '参考图上传失败'))
     } finally {
       uploadingRef.current = false
       setUploading(false)
@@ -66,30 +66,11 @@ export const useReferenceUploads = <T extends { id: string }>({
 
   const remove = (id: string) => onChange(latestRef.current.filter((item) => item.id !== id))
 
-  // 拖进来先接管：保留冒泡让全局拖放状态收尾，defaultPrevented 表明此处已接管；锁定时标成禁止落点。
-  const claimDrag = (event: DragEvent<HTMLElement>) => {
-    if (!hasDraggedFiles(event)) return
-    event.preventDefault()
-    event.dataTransfer.dropEffect = locked ? 'none' : 'copy'
-    if (!locked) setDragOver(true)
-  }
-  const dragHandlers = {
-    onDragEnter: claimDrag,
-    onDragOver: claimDrag,
-    onDragLeave: (event: DragEvent<HTMLElement>) => {
-      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOver(false)
-    },
-    onDrop: (event: DragEvent<HTMLElement>) => {
-      if (!hasDraggedFiles(event)) return
-      event.preventDefault()
-      setDragOver(false)
-      if ([...event.dataTransfer.items].some((item) => item.webkitGetAsEntry?.()?.isDirectory)) {
-        toast.error('请拖入图片文件，不支持文件夹')
-        return
-      }
-      void upload([...event.dataTransfer.files])
-    },
-  }
+  const { dragOver, dragHandlers } = useFileDropTarget({
+    blocked: locked,
+    onDirectory: () => toast.error('请拖入图片文件，不支持文件夹'),
+    onFiles: (files) => void upload(files),
+  })
 
   return { uploading, locked, dragOver, upload, remove, dragHandlers, latest: latestRef }
 }

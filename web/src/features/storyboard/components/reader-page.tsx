@@ -1,5 +1,6 @@
 /** 一组分镜的内容选择、预览与编辑；全局设定和时间线共用图片操作。 */
 import { useEffect, useEffectEvent, useRef, useState, type CSSProperties } from 'react'
+import { errorMessageOf, UserFacingError } from '@/shared/api/client'
 import { Icon } from '@/shared/icons'
 import { copyText } from '@/shared/lib/clipboard'
 import { cn } from '@/shared/lib/utils'
@@ -101,16 +102,16 @@ export function ReaderPage({
   const updateTarget = (updater: (current: Shot) => Shot): Shot => {
     const updated = onUpdateShot((current) => {
       const target = shotContents(current).find((item) => item.id === content.id)
-      if (target?.prompt === undefined) throw new Error('所选内容已不存在，请重新选择')
+      if (target?.prompt === undefined) throw new UserFacingError('所选内容已不存在，请重新选择')
       if (content.timelineIndex !== undefined) {
         const before = shot.prompt.timeline[content.timelineIndex]?.timestamps
         const after = current.prompt.timeline[content.timelineIndex]?.timestamps
         if (before?.[0] !== after?.[0] || before?.[1] !== after?.[1])
-          throw new Error('这个镜头已发生变化，请重新选择')
+          throw new UserFacingError('这个镜头已发生变化，请重新选择')
       }
       return updater(current)
     })
-    if (updated === undefined) throw new Error('镜头组已不存在，请重新选择')
+    if (updated === undefined) throw new UserFacingError('镜头组已不存在，请重新选择')
     return updated
   }
   const pickExisting = (number: number, previousUrl: string) => {
@@ -119,12 +120,12 @@ export function ReaderPage({
       const insertion = editorRef.current?.getInsertion()
       updateTarget((current) => {
         if (current.image_urls[number - 1] !== previousUrl)
-          throw new Error('这张图片已发生变化，请重新选择')
+          throw new UserFacingError('这张图片已发生变化，请重新选择')
         return insertContentReference(current, content.id, number, insertion)
       })
       select(content.id, number)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '关联图片失败')
+      toast.error(errorMessageOf(error, '关联图片失败'))
     }
   }
   const upload = async (file: File) => {
@@ -143,7 +144,7 @@ export function ReaderPage({
       select(content.id, updated.image_urls.length)
     } catch (error) {
       // 切走之后结果可以不要，失败必须让人知道。
-      toast.error(error instanceof Error ? error.message : '上传失败')
+      toast.error(errorMessageOf(error, '上传失败'))
     } finally {
       if (revision === uploadRevisionRef.current) setUploadTarget(null)
     }

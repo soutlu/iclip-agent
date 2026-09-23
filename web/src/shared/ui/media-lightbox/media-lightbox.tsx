@@ -3,7 +3,7 @@
 import { Dialog as DialogPrimitive } from 'radix-ui'
 import { useRef } from 'react'
 import { Icon } from '@/shared/icons'
-import { refuseFileDropProps } from '@/shared/ui/dialog'
+import { refuseFileDropProps } from '@/shared/ui/file-drop'
 
 export type LightboxMedia = { kind: 'image' | 'video'; url: string; name: string }
 

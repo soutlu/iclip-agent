@@ -1,5 +1,6 @@
 /** 镜头组可选择的内容；内容身份独立于它引用的图片。 */
 import { z } from 'zod'
+import { UserFacingError } from '@/shared/api/client'
 import { MAX_REFERENCE_IMAGES } from './shots'
 import {
   extractImageIndexes,
@@ -80,7 +81,7 @@ export const updateContentPrompt = (shot: Shot, id: string, text: string): Shot 
     return { ...shot, prompt: { ...shot.prompt, global_settings: text } }
   if (content?.timelineIndex !== undefined)
     return updateTimelinePrompt(shot, content.timelineIndex, text)
-  throw new Error('请先选择全局设定或镜头')
+  throw new UserFacingError('请先选择全局设定或镜头')
 }
 
 /** 在指定正文插入图片引用；已有编号保持不变。 */
@@ -91,9 +92,9 @@ export const insertContentReference = (
   insertion?: PromptInsertion,
 ): Shot => {
   const content = shotContents(shot).find((item) => item.id === id)
-  if (content?.prompt === undefined) throw new Error('请先选择全局设定或镜头')
+  if (content?.prompt === undefined) throw new UserFacingError('请先选择全局设定或镜头')
   if (!Number.isInteger(number) || number < 1 || number > shot.image_urls.length)
-    throw new Error('这张图片已不存在，请重新选择')
+    throw new UserFacingError('这张图片已不存在，请重新选择')
   return updateContentPrompt(shot, id, insertReferenceText(content.prompt, number, insertion))
 }
 
@@ -105,8 +106,8 @@ export const appendContentImage = (
   insertion?: PromptInsertion,
 ): Shot => {
   if (shot.image_urls.length >= MAX_REFERENCE_IMAGES)
-    throw new Error(`每组最多使用 ${MAX_REFERENCE_IMAGES} 张参考图`)
-  if (url.trim() === '') throw new Error('图片地址不能为空')
+    throw new UserFacingError(`每组最多使用 ${MAX_REFERENCE_IMAGES} 张参考图`)
+  if (url.trim() === '') throw new UserFacingError('图片地址不能为空')
   const image_urls = [...shot.image_urls, url]
   return insertContentReference({ ...shot, image_urls }, id, image_urls.length, insertion)
 }
