@@ -40,7 +40,7 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
         "harness/jobs.py",
         # 外部只读表使用独立适配器；infra_sql.py 仅表示模块自有表。
         "domains/products/catalog_pg.py",
-        # 审计报表跨模块只读聚合，同样不是模块自有表（ADR-0027）。
+        # 审计报表跨模块只读聚合，同样不是模块自有表。
         "domains/audit/reports_pg.py",
     ),
     ("fastapi_users", "fastapi_users_db_sqlalchemy"): ("domains/identity/",),

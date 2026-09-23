@@ -969,7 +969,7 @@ async def test_video_submit_marks_an_edit_result_with_its_root_job() -> None:
 
 
 async def test_submit_clears_the_conversation_completion_flag() -> None:
-    """在一段对话里又出片就是又开工了，属主标的收尾标记不该留着（ADR-0031）。"""
+    """在一段对话里又出片就是又开工了，属主标的收尾标记不该留着。"""
 
     repo = InMemoryGenerationRepository()
     owner, conversation = uuid.uuid4(), uuid.uuid4()

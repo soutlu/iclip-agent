@@ -74,7 +74,7 @@ tasks_table = Table(
 
 _ROWS = tasks_table.c
 
-# 列表按 (created_at, id) 倒序（ADR-0030）。
+# 列表按 (created_at, id) 倒序。
 Index("ix_tasks_created", _ROWS.created_at.desc(), _ROWS.id.desc())
 
 _ORDER: Final = (_ROWS.created_at.desc(), _ROWS.id.desc())

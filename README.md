@@ -14,7 +14,7 @@ Productor 的后端与 Web 前端。产品定位、业务术语和不变量见 [
 │   └── agents/         # Agent 声明、spec、提示词与技能
 ├── web/                # Vite + React SPA
 ├── contract/           # 后端导出的 OpenAPI 与跨端约定
-├── docs/               # 领域、架构、测试、工具规范与 ADR
+├── docs/               # 领域、架构、测试与工具规范
 ├── design-system.html  # 全局视觉规范与 token
 ├── Makefile            # 根目录命令入口
 └── AGENTS.md           # 开发约定
@@ -87,7 +87,7 @@ curl http://localhost/api/healthz
 
 ### 改配置
 
-模型、agent、skill 与其参考资料只存在于服务器的 `configs/`、`agents/`，不进仓库、不随镜像发版。直接改文件保存：后端监听这两个目录，约 1.5 秒后完整装配一遍并整体替换，正在跑的运行不受影响；写错则拒绝并沿用旧配置，原因在 `docker compose logs server` 与 `/healthz` 的 `config` 段（[ADR-0019](docs/adr/0019-hot-reload-agent-layer.md)）。手动触发一次：`docker compose kill -s HUP server`。
+模型、agent、skill 与其参考资料只存在于服务器的 `configs/`、`agents/`，不进仓库、不随镜像发版。直接改文件保存：后端监听这两个目录，约 1.5 秒后完整装配一遍并整体替换，正在跑的运行不受影响；写错则拒绝并沿用旧配置，原因在 `docker compose logs server` 与 `/healthz` 的 `config` 段。手动触发一次：`docker compose kill -s HUP server`。
 
 要重启的只有两种情况：改了 `models` 与 agents 以外的配置段（`/healthz` 会标 `needs_restart`），或 `.env` 加了新变量（比如新模型用新的 key 变量）。两种都执行 `docker compose up -d`，`restart` 不重读 `.env`。
 
@@ -106,4 +106,3 @@ curl http://localhost/api/healthz
 | [web/docs/frontend-implementation.md](web/docs/frontend-implementation.md) | 前端实现与测试约定变化时更新 |
 | [docs/test-design.md](docs/test-design.md) | 后端测试分层、边界和环境变化时更新 |
 | [docs/tool-design.md](docs/tool-design.md) | Agent 工具面向模型的接口与文字规范变化时更新 |
-| [docs/adr/](docs/adr/)、[web/docs/adr/](web/docs/adr/) | 记录架构决策与取舍；后继决策标明替代关系 |

@@ -47,7 +47,7 @@ from iclip.domains.audit.schemas import (
 # 算进去会把原作者的产量重计一遍，副本自己跑的也是试验数据。挡在 videos / person / runs
 # 三个根 CTE 上，其余口径都从它们派生。
 # SQL 里的 'video' / 'completed' / 'submitted' 镜像生成域的 KIND_VIDEO / STATUS_COMPLETED /
-# STATUS_SUBMITTED（ADR-0027：报表按表名直接查，不 import 业务模块）；集成测试的种子取自那些
+# STATUS_SUBMITTED（报表按表名直接查，不 import 业务模块）；集成测试的种子取自那些
 # 常量，生成域改词这里的用例就红。
 # ---------------------------------------------------------------------------
 

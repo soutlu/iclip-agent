@@ -435,7 +435,7 @@ def test_activity_frames_reach_a_connection_that_subscribed_nothing(
 def test_governor_can_subscribe_to_a_deleted_conversation_but_its_owner_cannot(
     ws_agent_app: FastAPI, pg_url: str
 ) -> None:
-    """ADR-0024：订阅与文件监听跟着 ``agent_of(writing=False)`` 放开墓碑，治理者订得上；属主订不上，与 REST 同口径。"""
+    """订阅与文件监听跟着 ``agent_of(writing=False)`` 放开墓碑，治理者订得上；属主订不上，与 REST 同口径。"""
 
     with TestClient(ws_agent_app) as tc:
         owner = sign_in_as(tc, pg_url, username="luke", roles=("editor",))

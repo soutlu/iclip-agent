@@ -208,7 +208,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
     video.submitting.includes(shot.index)
   // 改过之后原因就过期了，等下一次出片再说；存盘状态那一格有自己的提示，不重复说。
   const submitError = draft.hasUnsavedChanges ? undefined : video.errorOf(shot.index)
-  // 选中的模型做不了这份分镜的画幅：只提醒，不拦——真拒还是由上游拒（ADR-0018）。
+  // 选中的模型做不了这份分镜的画幅：只提醒，不拦——真拒还是由上游拒。
   const aspectMismatch = supportsAspectRatio(video.options.model, document.aspect_ratio)
     ? undefined
     : `${video.options.model} 做不了 ${document.aspect_ratio}`

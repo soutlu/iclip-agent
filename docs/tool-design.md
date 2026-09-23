@@ -1,6 +1,6 @@
 # Agent 工具编写规范
 
-> 本文管工具的模型面文本与登记声明。装配机制见 [architecture.md](architecture.md)，业务事实见 [CONTEXT.md](CONTEXT.md)，声明面决策见 [ADR-0007](adr/0007-tool-declaration-surface.md)。
+> 本文管工具的模型面文本与登记声明。装配机制见 [architecture.md](architecture.md)，业务事实见 [CONTEXT.md](CONTEXT.md)。
 
 ## 1. 文本归属
 

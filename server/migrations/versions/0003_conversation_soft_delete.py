@@ -6,8 +6,8 @@ Create Date: 2026-09-12 14:00:00.000000
 
 存量墓碑只在 ``conversation_ids`` 里有一个 id，对话行早没了；属主与 Agent 只能从
 ``agent_runtime.agent_jobs`` 的票据找回。有票据的补成已删除的对话行，没有任何票据的丢掉：
-ADR-0017 挡重用是为了保护运行历史，这些 id 没有历史。属主已不在 ``users`` 的同样丢掉，
-否则外键会让整次迁移中断（测试库里就有这种孤儿票据）。决策见 docs/adr/0021-conversation-soft-delete.md。
+对话 id 不可重用是为了保护运行历史，这些 id 没有历史。属主已不在 ``users`` 的同样丢掉，
+否则外键会让整次迁移中断（测试库里就有这种孤儿票据）。
 """
 
 from __future__ import annotations

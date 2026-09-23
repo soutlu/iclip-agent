@@ -92,7 +92,7 @@ _ROWS = conversations_table.c
 _LIVE = _ROWS.deleted_at.is_(None)
 _DELETED = _ROWS.deleted_at.is_not(None)
 
-# 列表一律按 (created_at, id) 倒序（ADR-0030），索引都带上这两列以同时支撑排序与游标。
+# 列表一律按 (created_at, id) 倒序，索引都带上这两列以同时支撑排序与游标。
 # 属主视角的索引只收活着的行；首列覆盖 owner_user_id 查询，无需另建单列索引。
 Index(
     "ix_conversations_owner_created",
@@ -105,7 +105,7 @@ Index(
 # 审计能查墓碑，所以它的游标索引收全部行。
 Index("ix_conversations_created", _ROWS.created_at.desc(), _ROWS.id.desc())
 
-# 审计报表的 idle 指标按最近活动筛（ADR-0027），是 updated_at 仅剩的读路径。
+# 审计报表的 idle 指标按最近活动筛，是 updated_at 仅剩的读路径。
 Index("ix_conversations_updated", _ROWS.updated_at.desc(), _ROWS.id.desc())
 
 # 再排除无归属记录；需求单下的尝试倒序扫这个升序索引。
@@ -143,7 +143,7 @@ def _row(mapping: RowMapping) -> Conversation:
     )
 
 
-# 全站列表的排序键（ADR-0030）。改这里必须同时改 ``_after``，两者不同源会漏取或重复记录。
+# 全站列表的排序键。改这里必须同时改 ``_after``，两者不同源会漏取或重复记录。
 _ORDER: Final = (_ROWS.created_at.desc(), _ROWS.id.desc())
 
 
@@ -161,7 +161,7 @@ def _after(cursor: PageCursor | None) -> list[ColumnElement[bool]]:
 
 
 def _state_conditions(state: StateFilter | None) -> list[ColumnElement[bool]]:
-    """``done`` / ``open`` 按属主标记筛（ADR-0031）；``running`` 只留 busy 里的；None 不筛。
+    """``done`` / ``open`` 按属主标记筛；``running`` 只留 busy 里的；None 不筛。
 
     busy 为空时 ``running`` 直接为假，不渲染空 ``IN``。"""
 
@@ -511,7 +511,7 @@ class SqlConversationRepository:
     async def touch_run(
         self, conversation_id: uuid.UUID, *, owner: uuid.UUID, agent_id: str, run_id: str
     ) -> None:
-        # agent_id 仅用于匹配，不能改写对话绑定。属主又开跑就不再算收尾（ADR-0031）。
+        # agent_id 仅用于匹配，不能改写对话绑定。属主又开跑就不再算收尾。
         statement = (
             update(conversations_table)
             .where(

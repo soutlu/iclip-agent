@@ -214,7 +214,7 @@ def create_sso_router(
 
         async with user_manager_ctx() as manager:
             email = session.email or sso_placeholder_email(session.union_id)
-            # 仅新建账号时设置默认角色；同邮箱关联不得重置既有授权（ADR-0002）。
+            # 仅新建账号时设置默认角色；同邮箱关联不得重置既有授权。
             is_new_account = False
             try:
                 await manager.get_by_oauth_account(OAUTH_NAME, session.union_id)

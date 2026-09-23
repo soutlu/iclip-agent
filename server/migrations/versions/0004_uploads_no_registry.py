@@ -6,7 +6,7 @@ Create Date: 2026-09-12 15:00:00.000000
 
 权限名同时存在两个 JSONB 数组里：``users.direct_permissions`` 与 ``api_keys.permissions``；
 角色到权限的映射在代码里，不用迁。``media_assets`` 的存量行没有任何地方引用，随表删除，
-downgrade 只能重建空表。决策见 docs/adr/0022-uploads-without-registry.md。
+downgrade 只能重建空表。
 """
 
 from __future__ import annotations

@@ -35,4 +35,4 @@ HOST=127.0.0.1 PORT=3015 VITE_BACKEND_PROXY_TARGET=http://127.0.0.1:7789 pnpm de
 
 ## 分镜工作台
 
-分镜工作台用于查看和编辑 Agent 交付的分镜、发起媒体生成。宿主与产品行为见 [ADR-0009](../docs/adr/0009-storyboard-workbench.md)，文件写回与生成约定见[跨端合同](../contract/conventions.md)。
+分镜工作台用于查看和编辑 Agent 交付的分镜、发起媒体生成。产物与渲染器登记以 [artifact.ts](src/shared/workbench/artifact.ts) 为准，文件写回与生成约定见[跨端合同](../contract/conventions.md)。

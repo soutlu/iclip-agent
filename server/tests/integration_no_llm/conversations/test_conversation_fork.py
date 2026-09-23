@@ -355,7 +355,7 @@ async def test_start_moving_between_counting_and_seeding_voids_the_fork(
     """数完轮数到写种子快照之间源变了，起点端口回 False：这次分叉作废，对话行不落库。
 
     HTTP 层造不出这个间隙，直接装配用例：仓储用真的，起点端口用一个报「源变了」的替身，
-    分叉用不到的端口一碰就报错。副本寻址不到是 ADR-0029 的承诺。
+    分叉用不到的端口一碰就报错。中途失败只留下寻址不到的副本数据，见 architecture.md §4 对话分叉。
     """
 
     owner = await login_as(client, pg_url, username="luke")

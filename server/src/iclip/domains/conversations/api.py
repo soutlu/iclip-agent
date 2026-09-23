@@ -127,8 +127,8 @@ def create_conversations_router(
         一次返回而不是「先列合集再按合集列对话」：侧栏是一屏里的一个整体，分两次查
         会让两半在不同时刻的库状态上拼出来。
 
-        ``state`` 只要在跑的（``running``）或者只要跑完过的（``done``），两个数字按同一个
-        筛选算。
+        ``state`` 四值：``open`` / ``done`` 看属主标没标收尾，``running`` 是此刻在跑，
+        ``all`` 不筛；两个数字按同一个筛选算。
         """
 
         groups = await service.sidebar(principal, state=state)
@@ -199,7 +199,7 @@ def create_conversations_router(
         """治理者查全平台的对话：按人、按单、按时间段、按状态、按删没删筛，最近建的排前面。
 
         没有 ``users:manage`` 就 403。``since`` / ``until`` 作用在建立时刻上，与排序同一列——
-        同页报表按各指标自己的事件时刻分期，两边不是同一批对话（ADR-0030）；
+        同页报表按各指标自己的事件时刻分期，两边不是同一批对话；
         ``state`` 的四值与侧栏同一口径；``deleted`` 缺省只看活着的，``deleted`` 只看属主删掉的，
         ``all`` 都看。``total`` 与 ``runningTotal`` 是真总数，不随翻页变。
         """
@@ -329,7 +329,7 @@ def create_conversations_router(
         body: ConversationCompletionIn,
         principal: Annotated[Principal, Depends(require_permission("agent:run"))],
     ) -> ConversationEnvelope:
-        """属主标记这段对话收尾了，或取消标记。机器不会自己标（ADR-0031）。"""
+        """属主标记这段对话收尾了，或取消标记。机器不会自己标。"""
 
         conversation = await service.set_completed(
             principal, conversation_id, completed=body.completed

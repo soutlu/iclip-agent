@@ -6,7 +6,6 @@ Create Date: 2026-09-15 18:00:00.000000
 
 模型每答一次，harness 的用量台账把四类 token 加到对应行上，不逐次落行。审计按对话汇总，
 需求单粒度沿 ``iclip.conversations.task_id`` 拿。``conversation_id`` 与其他运行表一样是文本。
-决策见 docs/adr/0026-conversation-usage-ledger.md。
 """
 
 from __future__ import annotations

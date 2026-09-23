@@ -26,7 +26,7 @@
 - feature 之间的稳定共用能力提取到 `shared/`，跨 feature 流程在 `app/` 或 `routes/` 组合。构建期助手放 `vite/`。
 - 后端 REST 请求使用 `@/shared/api/client` 的 `apiFetch`；需要响应头或状态码时使用 `apiFetchWithResponse`。两者共用同源请求、鉴权回调和 zod 校验。裸 `fetch` 仅用于 OSS 预签名直传与外链素材下载。
 - 接口 schema 使用 `src/shared/api/generated/` 的生成物；额外业务校验叠在生成 schema 上。后端字段缺失时保留其空值语义，不编造业务默认值。
-- 登录与守卫遵守 [登录交互决策](docs/adr/0002-login-dialog-no-login-page.md)；权限门控使用后端 `user.permissions`，不使用用户名白名单。
+- 登录与守卫规则见 [实现规范](docs/frontend-implementation.md#登录与守卫)；权限门控使用后端 `user.permissions`，不使用用户名白名单。
 - 不手改生成文件，不靠关闭检查、放宽类型配置或抬高 design-guard 基线让代码通过；修复存量后可以收紧基线。
 
 依赖边界、导入入口、命名与语法由 [ESLint](eslint.config.js) 管理；死代码范围由 [knip](knip.json) 管理；视觉与 token 规则见根 [设计系统](../design-system.html)。

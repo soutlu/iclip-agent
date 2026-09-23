@@ -1,4 +1,4 @@
-/** 视频编辑的三次提交与链查询。切与合成走本地裁剪端点，编辑走出片端点（ADR-0028）。 */
+/** 视频编辑的三次提交与链查询。切与合成走本地裁剪端点，编辑走出片端点。 */
 
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/shared/api/client'
@@ -42,7 +42,7 @@ export type EditTrigger = {
   providerOptions?: Record<string, string>
 }
 
-/** 哪个模型能做视频编辑、怎么触发。上游没有接口交代这件事，服务端也不管，按模型名认（ADR-0028 §7）。
+/** 哪个模型能做视频编辑、怎么触发。上游没有接口交代这件事，服务端也不管，按模型名认。
  * 按片段匹配：同一个模型在网关上有 `moyu-` / `mmt-` 两种前缀。 */
 const EDIT_TRIGGERS: readonly { matches: RegExp; trigger: EditTrigger }[] = [
   // Seedance 2.5 靠 provider_options 显式声明编辑子任务，不认正文里的意图词。

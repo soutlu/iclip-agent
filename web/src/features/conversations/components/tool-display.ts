@@ -1,5 +1,5 @@
 /**
- * 工具卡的数据全部来自服务端的 display / view / metadata（ADR-0007）：display 画卡头，
+ * 工具卡的数据全部来自服务端的 display / view / metadata：display 画卡头，
  * view 选卡身，metadata 填角标与卡身。工具名属于内部标识，不展示给用户。
  * 标题词表与写法见 docs/tool-design.md §4。
  */
