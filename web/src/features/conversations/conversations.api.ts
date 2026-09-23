@@ -166,9 +166,6 @@ export const createConversation = async (
     method: 'POST',
   })
 
-/** 需求单发起创作用的分镜 agent。取值是服务端 agents.yaml（不入库）里声明的键，那边改名这里跟着改。 */
-export const STORYBOARD_AGENT_ID = 'storyboard'
-
 /** 起一段对话的入参：正文给 composer 的 ``parts`` 或已拼好的 ``content``；归属与标题不给就不带。 */
 export type StartConversationInput = {
   agentId: string

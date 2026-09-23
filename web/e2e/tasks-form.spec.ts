@@ -299,6 +299,18 @@ test('认领需求后预览单段文字与图片，创建关联对话并发送�
   expect(previewText).not.toContain('素材说明')
   expect(previewText).not.toContain('不发送平台')
   expect(previewText).not.toContain('不发送品牌')
+  const confirm = preview.getByRole('button', { name: '确认并开始' })
+  await expect(confirm).toBeDisabled()
+  const agentTrigger = preview.getByRole('button', { name: '请选择 Agent', exact: true })
+  await agentTrigger.click()
+  // 菜单叠在弹窗上，Escape 只收起菜单。
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toBeHidden()
+  await expect(preview).toBeVisible()
+  await agentTrigger.click()
+  await page.getByRole('menuitem', { name: '分镜 Agent', exact: true }).click()
+  await expect(preview.getByRole('button', { name: '分镜 Agent', exact: true })).toBeVisible()
+  await expect(confirm).toBeEnabled()
   await expect
     .poll(() =>
       preview
@@ -323,7 +335,7 @@ test('认领需求后预览单段文字与图片，创建关联对话并发送�
     (request) =>
       /\/api\/conversations\/[^/]+\/prompts$/.test(request.url()) && request.method() === 'POST',
   )
-  await preview.getByRole('button', { name: '确认并开始' }).click()
+  await confirm.click()
   const created = await createdResponse
   const createBody = created.request().postDataJSON() as { id: string }
   // 对话 id 由客户端铸，回执丢了重发也是同一段。

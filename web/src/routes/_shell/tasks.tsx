@@ -15,10 +15,10 @@ export const Route = createFileRoute('/_shell/tasks')({
 })
 
 function TasksIndexRoute() {
-  const startCreation = useStartTaskCreation()
+  const creation = useStartTaskCreation()
   return (
     <TasksRoute
-      onStartCreation={startCreation}
+      creation={creation}
       relatedContent={(taskId) => <TaskRelatedConversations taskId={taskId} />}
     />
   )

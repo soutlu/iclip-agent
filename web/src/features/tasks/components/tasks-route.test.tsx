@@ -7,8 +7,15 @@ import { ApiError } from '@/shared/api/client'
 import { zTaskInputsOutput } from '@/shared/api/generated/zod.gen'
 import { loginAs, mockAuthUser, mockTasks, type MockUser } from '@/testing/mocks/handlers'
 import { renderWithProviders } from '@/testing/render'
-import type { TaskCreationDraft } from '../task-creation'
+import type { TaskCreationAgents, TaskCreationDraft } from '../task-creation'
 import { TasksRoute } from './tasks-route'
+
+const READY_AGENTS: TaskCreationAgents = {
+  items: [{ id: 'storyboard', name: '分镜 Agent' }],
+  pending: false,
+  error: null,
+  retry: () => undefined,
+}
 
 const makeTask = (overrides: Partial<(typeof mockTasks)[number]>) => ({
   assigneeUserIds: [],
@@ -29,13 +36,20 @@ const makeTask = (overrides: Partial<(typeof mockTasks)[number]>) => ({
   ...overrides,
 })
 
-/** 以测试用户登录后挂载；overrides 换权限等字段。 */
+/** 以测试用户登录后挂载；给了 start 就接上现成名册，overrides 换权限等字段。 */
 const renderLoggedIn = async (
-  onStartCreation?: (draft: TaskCreationDraft) => Promise<void>,
+  start?: (draft: TaskCreationDraft, agentId: string) => Promise<void>,
   overrides: Partial<MockUser> = {},
 ) => {
   loginAs(mockAuthUser, overrides)
-  return renderWithProviders(<TasksRoute {...(onStartCreation ? { onStartCreation } : {})} />)
+  return renderWithProviders(
+    <TasksRoute {...(start ? { creation: { agents: READY_AGENTS, start } } : {})} />,
+  )
+}
+
+const chooseAgent = async (user: ReturnType<typeof userEvent.setup>, dialog: HTMLElement) => {
+  await user.click(within(dialog).getByRole('button', { name: '请选择 Agent' }))
+  await user.click(await screen.findByRole('menuitem', { name: '分镜 Agent' }))
 }
 
 describe('TasksRoute', () => {
@@ -666,9 +680,11 @@ describe('TasksRoute', () => {
     task.inputs.reference_image_oss_urls.outfit = ['https://assets.example.com/excluded.png']
     mockTasks.push(task)
     const sent: TaskCreationDraft[] = []
+    const agentIds: string[] = []
     const user = userEvent.setup()
-    await renderLoggedIn(async (draft) => {
+    await renderLoggedIn(async (draft, agentId) => {
       sent.push(draft)
+      agentIds.push(agentId)
       if (sent.length === 1) throw new ApiError(503, '启动连接失败，可重试')
     })
     const mine = screen.getByRole('region', { name: '我的需求单' })
@@ -680,6 +696,9 @@ describe('TasksRoute', () => {
     expect(previewText).toHaveAttribute('readonly')
     expect((previewText as HTMLTextAreaElement).value).toContain(task.inputs.creative_requirement)
     expect(within(dialog).getAllByRole('img')).toHaveLength(2)
+    expect(within(dialog).getByRole('button', { name: '确认并开始' })).toBeDisabled()
+    await chooseAgent(user, dialog)
+    expect(within(dialog).getByRole('button', { name: '分镜 Agent' })).toBeVisible()
     expect(sent).toHaveLength(0)
     await user.click(within(dialog).getByRole('button', { name: '返回修改' }))
     expect(within(await screen.findByRole('dialog')).getByLabelText('创作要求')).toHaveValue(
@@ -687,6 +706,10 @@ describe('TasksRoute', () => {
     )
     expect(sent).toHaveLength(0)
     await user.click(screen.getByRole('button', { name: '开始创作' }))
+    // 重新进入预览不沿用上一次的选择。
+    dialog = await screen.findByRole('dialog', { name: '发起创作' })
+    expect(within(dialog).getByRole('button', { name: '确认并开始' })).toBeDisabled()
+    await chooseAgent(user, dialog)
     await user.click(screen.getByRole('button', { name: '确认并开始' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('启动连接失败，可重试')
     expect(screen.getByLabelText<HTMLTextAreaElement>('发送文字预览').value).toContain(
@@ -696,6 +719,7 @@ describe('TasksRoute', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(sent).toHaveLength(2)
     expect(sent[1]).toBe(sent[0])
+    expect(agentIds).toEqual(['storyboard', 'storyboard'])
     expect(sent[0]?.content.filter((part) => part.type === 'text')).toHaveLength(1)
     expect(task.inputs.creative_requirement).toBe('  保留原文\n口播：Hello!  ')
   })
@@ -776,6 +800,7 @@ describe('TasksRoute', () => {
     const preview = await screen.findByRole('dialog', { name: '发起创作' })
     task.status = 'withdrawn'
     task.inputs.creative_requirement = '另一个窗口修改的内容'
+    await chooseAgent(user, preview)
     await user.click(within(preview).getByRole('button', { name: '确认并开始' }))
     expect(await within(preview).findByRole('alert')).toHaveTextContent(
       '需求单已撤回，无法开始创作',
