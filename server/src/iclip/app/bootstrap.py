@@ -366,7 +366,7 @@ def build_app(
     )
 
     async def clear_conversation_completion(conversation_id: uuid.UUID, owner: uuid.UUID) -> None:
-        """出片提交即在这段对话里又开工了，收尾标记不再成立（ADR-0031）。
+        """出片提交即在这段对话里又开工了，收尾标记不再成立。
 
         对话模块在下面才装配好，这里靠闭包在调用时才取；两个域仍互不引用。"""
 
@@ -475,7 +475,7 @@ def build_app(
     transcript_history = TranscriptHistory(step_store, job_queue, tool_displays, DELEGATE_TOOL)
 
     tasks = build_tasks_module(SqlTaskRepository(active_engine), act_as=identity.act_as)
-    # 审计报表跨模块只读聚合，直接查表（决策见 ADR-0027）。
+    # 审计报表跨模块只读聚合，直接查表。
     audit = build_audit_module(PgAuditReports(active_engine))
     conversations = build_conversations_module(
         SqlConversationRepository(active_engine),
@@ -500,7 +500,7 @@ def build_app(
     uploads = build_uploads_module(public_objects) if public_objects is not None else None
     context_limits = live_context_limits(agent_layer)
 
-    # 删除不中止在跑的 run（ADR-0024），删掉那一刻在跑或排队的几轮收尾时对话已是墓碑：
+    # 删除不中止在跑的 run，删掉那一刻在跑或排队的几轮收尾时对话已是墓碑：
     # 这是预期内的常态，记一条 info 就够，不让 runner 的兜底打成带栈的 exception。
 
     async def name_conversation(row: JobRow) -> None:
@@ -531,7 +531,7 @@ def build_app(
     async def deps_for_prompt(row: JobRow) -> AgentRunDeps:
         """按队列记录的属主重建运行主体，以开跑时的账号状态和权限执行。
 
-        替人办事的消息，属主就是 ``user_name`` 指名的人；不带发消息那把 key 的身份与权限（ADR-0025 §4）。"""
+        替人办事的消息，属主就是 ``user_name`` 指名的人；不带发消息那把 key 的身份与权限。"""
 
         account = await identity.service.get_account(row.owner_user_id)
         return AgentRunDeps(

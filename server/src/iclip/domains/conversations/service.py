@@ -37,7 +37,7 @@ SIDEBAR_UNGROUPED = 20
 SIDEBAR_PER_COLLECTION = 10
 
 ListState = Literal["all", "running", "done", "open"]
-"""列表状态筛选：``done`` / ``open`` 看属主标没标收尾（ADR-0031），两者互补；``running`` 是此刻占着的那几段。"""
+"""列表状态筛选：``done`` / ``open`` 看属主标没标收尾，两者互补；``running`` 是此刻占着的那几段。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,9 +64,7 @@ ActivitiesOf = Callable[[Sequence[uuid.UUID]], Awaitable[Mapping[uuid.UUID, Conv
 """批量读取引擎侧活动信息，由组合根注入；未返回的 id 使用 IDLE_ACTIVITY。"""
 
 BusyConversationIds = Callable[[uuid.UUID | None], Awaitable[frozenset[uuid.UUID]]]
-"""此刻在跑（含等审批）的对话 id；给属主就按属主算，给 None 算全平台。
-
-「已完成」不另查：跑过至少一次（``last_run_id`` 非空）且不在这个集合里就是。"""
+"""此刻在跑（含等审批）的对话 id；给属主就按属主算，给 None 算全平台。"""
 
 GenerateTitle = Callable[[str], Awaitable[str | None]]
 """由组合根注入的标题生成器；返回 None 表示本次不生成标题。"""
@@ -623,7 +621,7 @@ class ConversationService:
     async def set_completed(
         self, principal: Principal, conversation_id: uuid.UUID, *, completed: bool
     ) -> Conversation:
-        """标记或取消属主的收尾标记。机器不会自己标；属主再动手会自动取消（ADR-0031）。"""
+        """标记或取消属主的收尾标记。机器不会自己标；属主再动手会自动取消。"""
 
         return await self._repo.set_completed(
             conversation_id, owner=principal.user_id, completed=completed

@@ -1,4 +1,4 @@
-/** 审批与工具卡共用 display 合同（ADR-0007 决策 5）；两个正式按钮，数字键 1 / 2 是快捷方式。 */
+/** 审批与工具卡共用 display 合同；两个正式按钮，数字键 1 / 2 是快捷方式。 */
 
 import { useEffect, useRef, useState } from 'react'
 import { ApiError } from '@/shared/api/client'

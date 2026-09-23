@@ -51,7 +51,7 @@ export const useLiveConversations = (enabled = true): void => {
         const owner = ownerOf(queryClient, conversationId)
         if (owner !== undefined && owner !== userId) return
 
-        // 对话里还有出片任务在动就谈不上收尾，与后端受理时抹掉标记同步（ADR-0031）。
+        // 对话里还有出片任务在动就谈不上收尾，与后端受理时抹掉标记同步。
         queryClient.setQueriesData({ queryKey: conversationsQueryKeys.all }, (data: unknown) =>
           patchConversationRows(data, conversationId, { completedAt: null }),
         )

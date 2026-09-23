@@ -245,7 +245,7 @@ describe('SidebarConversations', () => {
     await user.click(await screen.findByRole('menuitem', { name: '标记完成' }))
     expect(await screen.findByLabelText('已完成')).toBeVisible()
 
-    // 后端 touch_run 抹掉标记但不发帧，行上要照开跑与收尾互斥自己收掉（ADR-0031）。
+    // 后端 touch_run 抹掉标记但不发帧，行上要照开跑与收尾互斥自己收掉。
     socket.deliver(workChanged(conversation?.id ?? '', { busy: true }))
 
     expect(await screen.findByLabelText('进行中')).toBeVisible()

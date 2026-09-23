@@ -7,7 +7,6 @@ Create Date: 2026-09-22 10:00:00.000000
 视频编辑的参考片段、编辑结果与成片此前在 ``metadata.rootJob`` 里手写最初那条出片的 id，
 审计与分叉拷贝都靠读这个键判「这是衍生记录」。现在它是一列自引用外键：空即独立记录，
 非空指向同一段对话里的一条独立记录，链只有一层。存量照抄进列，再从便签上擦掉。
-决策见 docs/adr/0032-generation-root-job.md。
 """
 
 from __future__ import annotations

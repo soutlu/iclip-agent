@@ -1,6 +1,6 @@
 # Agent 工具编写规范
 
-> 本文管工具的模型面文本与登记声明。装配机制见 [architecture.md](architecture.md)，业务事实见 [CONTEXT.md](CONTEXT.md)，声明面决策见 [ADR-0007](adr/0007-tool-declaration-surface.md)。
+> 本文管工具的模型面文本与登记声明。装配机制见 [architecture.md](architecture.md)，业务事实见 [CONTEXT.md](CONTEXT.md)。
 
 ## 1. 文本归属
 
@@ -26,7 +26,7 @@
 
 不放设计理由，不复述业务背景或计费细节。需要约束重复付费调用时，直接说明禁止重复的条件和失败后的动作。
 
-例如，「镜头组 3 的 seconds 是 42，只收 4-30；重新切分这一组再交付」写清了上限与超限后的动作；解释为什么卡这个区间不属于工具指引。完整工具示例直接阅读 [ShotVideoToolset.plan_shot_frames](../server/src/iclip/capabilities/shot_video/toolset.py)，不在文档复制 docstring。
+例如，「镜头组 3 的 seconds 是 42，只收 4-30；重新切分这一组再交付」写清了上限与超限后的动作；解释为什么卡这个区间不属于工具指引。完整工具示例直接阅读 [WorkspaceToolset.read_media_file](../server/src/iclip/capabilities/workspace/capability.py)，不在文档复制 docstring。
 
 ## 3. 登记与范围校验
 

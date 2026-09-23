@@ -69,7 +69,7 @@ const pageOf = (rows: MockConversation[], limit: number) => {
   }
 }
 
-/** 筛选与后端一致：running 包含待审批，done 要求已结束且至少运行过一轮；计数使用相同筛选。 */
+/** done / open 看 completedAt，running 含待审批；计数用相同筛选。 */
 const inState = (item: MockConversation, state: string | null) => {
   if (state === 'running') return item.activity.busy
   if (state === 'done') return item.completedAt !== null

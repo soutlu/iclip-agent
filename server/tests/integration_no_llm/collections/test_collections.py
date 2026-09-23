@@ -318,7 +318,7 @@ async def test_sidebar_keeps_creation_order_after_edits(
 
 
 async def test_sidebar_filters_by_run_state(client: httpx.AsyncClient, pg_url: str) -> None:
-    """running 只看此刻在不在跑；跑完的活动事实照旧，但不由它决定收尾（ADR-0031）。"""
+    """running 只看此刻在不在跑；跑完的活动事实照旧，但不由它决定收尾。"""
 
     owner = await login_as_editor(client, pg_url)
     collection_id = await open_collection(client, "在跑的那些")
@@ -369,7 +369,7 @@ async def test_sidebar_filters_by_run_state(client: httpx.AsyncClient, pg_url: s
 
 
 async def test_sidebar_filters_by_completion(client: httpx.AsyncClient, pg_url: str) -> None:
-    """done / open 看属主标没标收尾，与跑没跑过无关（ADR-0031）。"""
+    """done / open 看属主标没标收尾，与跑没跑过无关。"""
 
     await login_as_editor(client, pg_url)
     collection_id = await open_collection(client, "收尾了的那些")

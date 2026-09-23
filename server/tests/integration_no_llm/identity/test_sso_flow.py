@@ -101,7 +101,7 @@ async def test_second_login_reuses_account_and_keeps_roles(
 
 
 class TestBindingToExistingAccount:
-    """同邮箱的既有账号首次走 SSO：只关联身份，不重置授权（ADR-0002）。"""
+    """同邮箱的既有账号首次走 SSO：只关联身份，不重置授权。"""
 
     @pytest.fixture
     def sso_transport(self) -> httpx.MockTransport:

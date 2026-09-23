@@ -36,7 +36,6 @@ const conversationEnvelopeSchema = zConversationEnvelope.transform(
 
 const SEARCH_LIMIT = 50
 
-/** running 为正在运行，done 为至少结束过一轮；未发送过消息的对话仅属于 all。 */
 /** 侧栏与全部对话页共用：``open`` / ``done`` 看属主标没标收尾，``running`` 是此刻在跑的那几段。 */
 export type ConversationListState = 'all' | 'open' | 'done' | 'running'
 

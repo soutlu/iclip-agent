@@ -63,11 +63,10 @@ depends_on = [
 ]
 
 [[modules]]
-# 产品资料与对象存储由组合根按 ports.py 注入。
 path = "iclip.domains.tasks"
 depends_on = ["iclip.common", "iclip.platform.paging", "iclip.domains.identity"]
 
-# 审计报表是跨模块的只读读模型，按表名直接查，不依赖各业务模块（ADR-0027）。
+# 审计报表是跨模块的只读读模型，按表名直接查，不依赖各业务模块。
 [[modules]]
 path = "iclip.domains.audit"
 depends_on = ["iclip.common", "iclip.platform.paging", "iclip.domains.identity"]

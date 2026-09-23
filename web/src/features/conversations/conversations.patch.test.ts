@@ -31,7 +31,7 @@ describe('applyPatch', () => {
     expect(applyPatch(row(), { completedAt: null }).completedAt).toBeNull()
   })
 
-  it('开跑的帧同时抹掉收尾标记，即使轮次三件事实都没变（ADR-0031）', () => {
+  it('开跑的帧同时抹掉收尾标记，即使轮次三件事实都没变', () => {
     const busy = row({ activity: { ...row().activity, busy: true } })
 
     const patched = applyPatch(busy, { activity: activityOf(busy) })

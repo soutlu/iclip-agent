@@ -28,7 +28,7 @@ export const applyPatch = (row: Conversation, patch: RowPatch): Conversation => 
     return row.completedAt === null ? row : { ...row, completedAt: null }
   }
   const { activity } = patch
-  // 开跑与收尾互斥，后端 touch_run 抹标记不发帧，这里照同一条不变量补上（ADR-0031）。
+  // 开跑与收尾互斥，后端 touch_run 抹标记不发帧，这里照同一条不变量补上。
   const completedAt = activity.busy ? null : row.completedAt
   const same =
     completedAt === row.completedAt &&

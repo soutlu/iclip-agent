@@ -7,7 +7,7 @@ import { canonicalUuid } from '@/shared/lib/uuid'
 import { WorkbenchHost } from '@/shared/workbench'
 import { conversationsReturnSearch } from '../-conversations-return'
 
-// 产物、组、帧与正在看的文件保存在查询参数，支持刷新与分享（ADR-0009 决策 6）。
+// 产物、组、帧与正在看的文件保存在查询参数，支持刷新与分享。
 const ConversationSearchSchema = z.object({
   artifact: z.string().optional().catch(undefined),
   file: z.string().optional().catch(undefined),

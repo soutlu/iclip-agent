@@ -171,7 +171,7 @@ class GenerationService:
         return created
 
     async def _note_conversation_active(self, job: GenerationJob) -> None:
-        """出片提交就是又在这段对话里开工了，收尾标记不该留着（ADR-0031）。
+        """出片提交就是又在这段对话里开工了，收尾标记不该留着。
 
         归档标签指向的对话不校验，对话域按属主自己判；这一步失败只记日志——受理已经成立，
         不能因为一个标记回滚。"""

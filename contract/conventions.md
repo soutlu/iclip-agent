@@ -15,14 +15,14 @@
 - **登录态**：以 `GET /users/me` 为准；`401` 表示未登录或会话失效，前端不从 SSO 票据或本地标记推断已登录。
 - **机器端调用方**：基于 Bearer Token 的无状态调用（请求头携带 `Authorization: Bearer <token>`）。明文形态不构成合同，服务端按哈希查表认证，不从前缀判断。
   - 明文仅在成功创建的响应中返回一次；权限语义见 [CONTEXT.md](../docs/CONTEXT.md)。
-- **替人办事**：持 `users:act_as` 的 API key 在 `POST /conversations`（`userName`）、`POST /tasks`（`userName`）、`POST /conversations/{id}/prompts`（`user_name`）与 `POST /generations/*`（`user_name` / `userName`）的请求体里指名，那次请求的属主、创建者、认领人就是那个人；系统里没有他时服务端先建一个只有用户名的占位账号。没有这个权限的 key 照旧记在 key 属主名下，名字只是发往上游的标签。这样的 key 读对话与生成记录不限属主。浏览器会话在这些字段里只能写自己的用户名，写别人是 `422`。
+- **替人办事**：持 `users:act_as` 的 API key 在 `POST /conversations`（`userName`）、`POST /tasks`（`userName`）、`POST /conversations/{id}/prompts`（`user_name`）与 `POST /generations/*`（`user_name` / `userName`）的请求体里指名，那次请求的属主、创建者、认领人就是那个人，语义见 [CONTEXT.md「API Key」](../docs/CONTEXT.md#术语)。浏览器会话在这些字段里只能写自己的用户名，写别人是 `422`。
 
 ## 3. 数据载荷与格式 (Payload Formatting)
 
 - **命名**：业务 HTTP API 的请求体、查询参数和响应使用 camelCase。既有例外是 SSO `authorization_url`、注册接口的用户状态字段、§5 的 Transcript 协议字段，以及 §11 里视频提交与视频任务查询这一对端点（它们是上游视频异步接口的原样镜像）；消费者按生成合同取名，新业务端点不沿用这些例外。
 - **时间**：时间戳使用 ISO 8601 UTC。
 - **排序**：列表一律按建立时间（`createdAt`）倒序，同一时刻按资源 ID 倒序兜底；游标分页续的就是这个排序键。列表位置因此只随新建改变，后续操作不会让条目换位。
-- **标识**：资源 ID、游标与协议 ID 按各自合同使用，不从 URL、显示名称或序号推导资源身份。客户端 `prompt_id` 是消息幂等键；对话和需求单 ID 可由调用方提供，运行 ID 由服务端发放，轮 ID 则是 Transcript 内的顺序标识。
+- **标识**：资源 ID、游标与协议 ID 按各自合同使用，不从 URL、显示名称或序号推导资源身份。客户端 `prompt_id` 是消息幂等键；对话和需求单 ID 可由调用方提供，运行 ID 由服务端发放，轮 ID 则是 Transcript 内的顺序标识；幂等语义见 [CONTEXT.md 不变量 8](../docs/CONTEXT.md#不变量)。
 
 ## 4. 错误处理与响应信封
 
@@ -51,6 +51,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - **信封 snake_case**：`agent_id`、`has_more_older`、`has_more`、`latest_seq`、`prompt_id`、
   `since_seq`、`before_turn`、`after_turn`、`page_size`。
 - **里面装的实体与操作 camelCase**：`turnId`、`stepId`、`frameId`、`toolCallId`、`hasMoreOlder`。
+- **协议字段只增不改**：已镜像的字段不改名、不改类型、不删；新字段只能是可选项，服务端模型、前端 vendored schema、实时投影、历史重建与金样在同一个 PR 落齐；前端 schema 会剥掉未声明的字段，金样测试要对新字段做存在性断言。
 
 ### 发消息
 
@@ -93,7 +94,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ### 订阅
 
-`WS /ws` 一条连接订阅多段对话，经过同源代理时使用 `/api/ws`。WebSocket 帧不在 OpenAPI 中：标准 Transcript 实体与操作消费 [vendor](../web/src/shared/transcript/vendor/README.md)，本项目的连接帧 schema 位于 [connection.ts](../web/src/shared/transcript/connection.ts)。后端实际发出的帧序列与 REST 一页存成金样 [transcript/](transcript/)，由后端场景测试生成、前端测试解析，两端形状对不上会在其中一边先红。协议字段哪些填、哪些留空，以及加字段的规则，见 [ADR-0013](../docs/adr/0013-transcript-protocol-freeze.md)。
+`WS /ws` 一条连接订阅多段对话，经过同源代理时使用 `/api/ws`。WebSocket 帧不在 OpenAPI 中：标准 Transcript 实体与操作消费 [vendor](../web/src/shared/transcript/vendor/README.md)，本项目的连接帧 schema 位于 [connection.ts](../web/src/shared/transcript/connection.ts)。后端实际发出的帧序列与 REST 一页存成金样 [transcript/](transcript/)，覆盖 `transcript.reset` / `transcript.ops`，两端形状对不上会在其中一边先红，生成与解析见[测试规范](../docs/test-design.md#1-按行为选择测试层)；全局帧与文件变更帧没有金样，前端 schema 照后端 [wire.py](../server/src/iclip/platform/transcript/wire.py) 手写。
 
 - 握手：服务端先发 `server_hello`（客户端只取 `heartbeat_ms`），客户端**每段对话各发一帧**
   `subscribe_v2`，体里 `session_id` 是对话 id，`transcript` 是按 agent 给的档位，带
@@ -192,14 +193,13 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ### 分叉
 
-`POST /conversations/{id}:fork` 从看得见的某段对话的第 `turn` 轮岔出一段新对话，归调用者所有。源对话一个字节都不改，所以它只要 `agent:run`（写自己）加上对源的读可见性：**人人能分叉自己的，治理者能分叉任何人的，包括墓碑**。副本的 id 由服务端铸，不收调用方铸的 id——分叉先把工作区、素材与出片记录拷进新命名空间，最后才落对话行，没有可供幂等重放的位置。
+`POST /conversations/{id}:fork` 从看得见的某段对话的第 `turn` 轮岔出一段新对话，归调用者所有，语义见 [CONTEXT.md「对话」](../docs/CONTEXT.md#术语)。它只要 `agent:run`（写自己）加上对源的读可见性：**人人能分叉自己的，治理者能分叉任何人的，包括墓碑**。副本的 id 由服务端铸，不收调用方铸的 id。
 
 - 体是 `{ turn, title?, agentId?, collectionId? }`。`turn` 从 1 数，这一轮含在副本里；`agentId` 不给就沿用源的，给了就换一个用于对照试跑；`title` 不给就是源标题加「（分叉 · 第 N 轮）」，并按用户自定义记，自动起名不再碰它。
 - 源看不见是 `404`，`turn` 越界或源从没跑过是 `422`，源还有没跑完的消息（在跑、等审批或排队）是 `409`。
 - 答复形状同 `POST /conversations`，行上多两个字段：`forkedFrom`（源对话 id）与 `forkTurn`（分叉自第几轮），不是分叉来的对话两个都是 `null`。副本再分叉时 `forkedFrom` 指它的直接上游。会话页首屏另从 `GET /transcript` 的顶层拿 `forked_from` 与 `fork_turn`（照 §5 的协议命名，与 `owner_user_id`、`deleted_at` 同一处）。
 - **拷过去的**：截到第 `turn` 轮的对话历史、工作区文件（版本从 1 起）、素材台账、已完成的出片连同它们名下已完成的编辑结果与成片（`rootJobId` 换成副本里新根的 id，见 §11「原作号」；便签里的 `baseEdit` 是 `editId` 不是记录 id，拷贝后照旧有效）。**不拷的**：运行记录（副本拿原 run id 回源查终态与子代理）、参考片段（切给模型看的中间素材，桶上配了过期规则）、未完成的记录（分叉那一刻进行中的编辑不继承）、源的需求单归属（挂上就等于替别人认领）。
-- **工作区文件与出片记录没有逐轮历史**，拷的是分叉那一刻的那一份。从第 3 轮分叉，agent 的上下文停在第 3 轮，但它读到的 `video_shot.json` 可能是第 6 轮写的。
-- **继承来的轮不能重新生成**：副本下没有它们对应的消息记录，`:regenerate` 返回 `404`。副本上发过一条新消息之后，那一轮照常可重新生成。源对话里跨多次运行的一轮（审批后恢复、续跑）在副本里会拆成多轮显示。
+- 继承来的轮 `:regenerate` 返回 `404`；副本上发过一条新消息之后，那一轮照常可重新生成。源对话里跨多次运行的一轮（审批后恢复、续跑）在副本里会拆成多轮显示。
 - 媒体字节不复制：两边的地址指向同一批对象，编辑只会按新任务 id 产出新地址，不覆盖也不删除。
 - 副本不进审计报表（见 §12）。
 
@@ -212,7 +212,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 ### 收尾标记
 
 - `PUT /conversations/{id}/completion` 收 `{ "completed": true | false }`，标记或取消属主对这段对话的收尾判断，答复整行。标记时刻在 `completedAt` 上，没标过是 `null`。
-- **只有属主按得动，服务端不会自己标**：一轮跑完、一次出片完成都不写它。反过来属主再动手就自动抹掉——发消息开跑新一轮，或者在这段对话下提交任何一次出片（§11），`completedAt` 都回到 `null`。
+- 只有属主按得动。属主发消息（§5）或在这段对话下提交出片（§11）时 `completedAt` 回到 `null`；语义见 [CONTEXT.md「对话」](../docs/CONTEXT.md#术语)。
 - 标完照旧在列表里，位置不变（§3），只是 `state=done` 筛得到它。
 
 ### 治理者复盘
@@ -315,7 +315,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ## 10. 上传 (Uploads)
 
-上传分两步：`POST /uploads/sign` 领一个 `uploadId` 和一条限时直传地址，浏览器直接把字节 PUT 到对象存储，再 `POST /uploads/{uploadId}/confirm` 确认，拿回 `{ url, contentType, sizeBytes }`。服务端不登记上传：没有素材 id、没有列表，交回的 `url` 就是这个文件从此以后的身份，与别处出现的 URL 没有区别。决策见 [ADR-0022](../docs/adr/0022-uploads-without-registry.md)。
+上传分两步：`POST /uploads/sign` 领一个 `uploadId` 和一条限时直传地址，浏览器直接把字节 PUT 到对象存储，再 `POST /uploads/{uploadId}/confirm` 确认，拿回 `{ url, contentType, sizeBytes }`。服务端不登记上传，语义见 [CONTEXT.md「上传」](../docs/CONTEXT.md#术语)。
 
 **权限**：两步都需要 `uploads:write`。
 
@@ -332,11 +332,11 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 业务状态每跳一格，属主连着的每条 WebSocket 都收到一帧 `event.generation.changed`（见 §5 全局帧）；帧易失且不带结果，`GET /generations` 与任务查询接口仍是事实源，浏览器在有运行中任务时保留轮询兜底。
 
-带 `conversationId` 的提交还有一个副作用：那段对话若属于提交者且标过收尾，`completedAt` 被抹回 `null`（§6）——又出片就是又开工了。不属于提交者或对话不在了都当没发生，不影响受理。
+带 `conversationId` 的提交还有一个副作用：那段对话若属于提交者且标过收尾，`completedAt` 被抹回 `null`（§6）。不属于提交者或对话不在了都当没发生，不影响受理。
 
 ### 归属标签 `user_name`
 
-- 两种提交都带 `user_name`（图片端点按 camelCase 叫 `userName`），是上游落表对账用的归属标签，不是身份：不参与授权，不决定行归属。规则与发消息（§5）相同：API key 调用方必填、给什么用什么；浏览器会话可省略，服务端填登录用户名，给了就必须等于登录用户名，否则 `422`。
+- 两种提交都带 `user_name`（图片端点按 camelCase 叫 `userName`），含义与取值规则同发消息（§5）。
 
 ### 视频：镜像上游异步接口
 
@@ -344,10 +344,9 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - 正文二选一：直接给 `prompt`，或给 `shot`（与分镜文件 `video_shot.json` 里 `shots[].prompt` 同形：`global_settings` 加 `timeline[]`，每镜 `timestamps: [起, 止]`、`prompt`、`image_indexes`）由服务端拼成 `prompt`。时间线规则与分镜交付相同：结束晚于开始、第一镜从 0 起、各镜按先后排不重叠。拼法：全局设定、空一行、每镜一行 `[起–止秒｜镜头N] 正文`（起止照给的，保留到毫秒），末尾一行 `不要生成字幕，不要生成背景音乐。`。两者都不给、都给但不一致、`@ImageN` 超出 `reference_image_urls` 的张数、`image_indexes` 与正文里 `@Image` 的出现顺序不一致、拼出的正文超过 4000 字，都是 `422`。记录的 `request` 里 `shot` 与拼好的 `prompt` 都在；发给上游的只有 `prompt`，`shot` 不转发。
 - 三类参考素材地址各自最多 30 个，与分镜文件里一组镜头的帧图上限同一个数；只收 http(s) 地址，超出或写别的 scheme 是 `422`。
 - `model` 必填，只接受运行配置 `config.yaml` 中 `media_generation.video.allowed_models` 声明的模型；其余字段原样转发，画幅、时长范围、分辨率、素材规格由上游按模型判，本系统不复制那套规则。不在允许范围内的模型返回 `422`，不创建任务、不入队。
-- `GET /generations/video-models` 给出默认模型与允许表，只有模型 id。哪个模型能做视频编辑、编辑时要给上游加什么（正文前缀或 `provider_options`）、哪些画幅某个模型不收，都由调用方按模型名自己认（ADR-0028 §7）；服务端不替任何模型拼任何东西，也不声明画幅。
+- `GET /generations/video-models` 给出默认模型与允许表，只有模型 id。哪个模型能做视频编辑、编辑时要给上游加什么（正文前缀或 `provider_options`）、哪些画幅某个模型不收，都由调用方按模型名自己认；服务端不替任何模型拼任何东西，也不声明画幅。
 - 上游会丢弃的 `session_id` 与废弃别名 `image_urls` 在这里是未知字段，返回 `422`。
 - `GET /generations/video/{task_id}` 照上游任务查询的形状：`task_id`、`type: "video"`、`status`、`result`、`error`、`created_at`。`status` 用上游的词：`queued`（已受理未提交）、`running`（提交中或等结果）、`succeeded`（带 `result.output_url` 与 `result.watermark_output_url`）、`failed`（带 `error.code` 与 `error.message`）。可见性与 `GET /generations/{id}` 相同，拿图片记录的 id 来查是 `404`。本系统去上游查状态时带的 `user_name` 查询参数（上游缺它报 400）由服务端从记录里取，调用方不用带。
-- 视频成功时存的是上游发布好的两个地址，不转存；缺任一份这次生成判失败。
 
 ### 本地裁剪拼接
 
@@ -360,7 +359,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ### 原作号
 
-- 每条生成记录带 `rootJobId`（视频端点的请求体里是 `root_job_id`）：空即**独立记录**，自己占一个格子；非空即**衍生记录**，值是它所属的那条独立记录的 id。视频编辑的参考片段、编辑结果与成片都写最初那条出片，不写各自基于的版本，链只有一层。术语见 [CONTEXT.md「生成任务」](../docs/CONTEXT.md#术语)，决策见 [ADR-0032](../docs/adr/0032-generation-root-job.md)。
+- 每条生成记录带 `rootJobId`（视频端点的请求体里是 `root_job_id`）：空＝独立记录，非空＝所属独立记录的 id，术语见 [CONTEXT.md「生成任务」](../docs/CONTEXT.md#术语)。
 - 受理时核对：原作号指向的记录必须是调用方可见的、同一段对话里的独立记录；不存在、不可见、别的对话、本身是衍生记录，都是同一句 `422`，不创建任务、不入队。
 - 衍生记录不计审计口径（§12）；分叉时跟着根一起拷进副本，`rootJobId` 换成新根（§6）。`GET /generations?rootJobId=` 一次列出一条出片名下的全部衍生记录。
 
@@ -369,22 +368,22 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - `POST /generations/image` 只接受运行配置接入的那几家模型，`GET /generations/image-models` 声明有哪几家、各家支持的画幅与分辨率档位、以及有没有渠道这个轴。`model` 省略或为 `null` 时使用该接口给出的 `default`；受理阶段将选定模型写入请求快照。
 - 图片的画幅与分辨率枚举是各家的并集。所选模型不支持这次的画幅或分辨率、点了没接入的模型、或给没有渠道轴的模型传了 `channel`，都返回 `422`，不创建任务、不入队。
 - 图片的 `channel` 只对声明了渠道轴的模型合法，省略时按该模型声明的默认渠道填；它与视频的模型策略互不相干。
-- 图片结果转存成本系统的公开对象后才算完成，`outputUrl` 存本系统地址。
+- `outputUrl` 存本系统地址。
 
 ### 参考帧图片编辑
 
 - 图片请求的 `prompt` 由调用方编译成最终文本，服务端原样存进请求快照，不解析也不改写。前端把引用写成 `@图片N` / `@标注N`，编号即图片在本次 `referenceImageUrls` 里的位置。
-- `metadata` 是调用方自己的坐标标签：JSON 对象，三种生成都收，服务端原样存、原样回读（`GenerationOut.metadata`）、不校验含义，序列化后不超过 2000 字符，超了 `422`。它不进 `request`，也不发上游。服务端只认其中 `shot` 一个键（审计按它数镜，见 §12），其余键不读。分镜页写 `{"shot": <镜头组>, "frame": <第几帧>}`，视频出片不带 `frame`；这个形状归前端定义（`web/src/features/storyboard/generation-metadata.ts`），决策见 [ADR-0020](../docs/adr/0020-generation-metadata.md)。视频请求另收 `shot_index`（正整数，从 1 起，与分镜文件的 `shots[].index` 同一套编号）：它是 `metadata.shot` 的别名，受理时折进 `metadata`，不落 `request`、不发上游；不写 `metadata` 的调用方给它就够了。
+- `metadata` 是调用方自己的坐标标签：JSON 对象，三种生成都收，服务端原样存、原样回读（`GenerationOut.metadata`）、不校验含义，序列化后不超过 2000 字符，超了 `422`。它不进 `request`，也不发上游。服务端只认其中 `shot` 一个键（审计按它数镜，见 §12），其余键不读。这个形状归前端定义（`web/src/features/storyboard/generation-metadata.ts`）。视频请求另收 `shot_index`（正整数，从 1 起，与分镜文件的 `shots[].index` 同一套编号）：它是 `metadata.shot` 的别名，受理时折进 `metadata`，不落 `request`、不发上游；不写 `metadata` 的调用方给它就够了。
 - `GET /generations` 的类型、对话、需求单、原作号（`rootJobId`）与 `metadata` 筛选在分页截断前执行，归属范围不因筛选扩大。`metadata` 在查询串里是一段 JSON 对象（如 `metadata={"shot":1,"frame":2}`），按 JSONB 包含匹配；不是 JSON 对象返回 `422`。使用上一页最后一项的 `id` 作为 `before` 继续读取；按创建时间与 ID 倒序，空列表表示读完。每条记录带 `taskId` 与 `watermarkOutputUrl`，图片的后者恒为 `null`。
 - 生成完成只产生候选图片。应用到参考帧须由用户确认，再经现有工作区文件版本校验保存；既有视频任务和视频结果不随候选生成或采用而改写。
 
 ## 12. 审计报表 (Audit)
 
-治理者看产量、成功率、耗时与模型消耗的三个只读端点，都要 `users:manage`，否则 `403`。口径的定义见 [CONTEXT.md「审计口径」](../docs/CONTEXT.md#术语)，决策见 [ADR-0027](../docs/adr/0027-audit-reports.md)。
+治理者看产量、成功率、耗时与模型消耗的三个只读端点，都要 `users:manage`，否则 `403`。口径的定义见 [CONTEXT.md「审计口径」](../docs/CONTEXT.md#术语)。
 
-- **分叉出来的副本一律不进这三个端点**：它带着源对话拷来的出片记录，算进去会把原作者的产量重计一遍；副本自己跑出来的也是试验数据。分叉见 §6。
+- **分叉出来的副本一律不计入**（口径见 [CONTEXT.md「审计口径」](../docs/CONTEXT.md#术语)），分叉见 §6。
 - 三个端点共用筛选 `since` / `until`（左闭右开）、`userName`、`taskId`。时间窗作用在各指标自己的锚点上：成片与视频耗时看完成时刻，每镜次数与一次通过看该镜首次出片时刻，运行看发起时刻，交付周期看最后成片时刻，模型用量整段对话按最后记账时刻归期。`since` 不早于 `until` 是 `422`。
 - 每一格指标都是同一个 `metrics` 形状：`deliveries`（成片件数 = `deliveredTasks` + `deliveredOrphanConversations`）、`completedVideos`、`producers`、`shots` / `attempts` / `oneTakeShots`（只出了一条且成了的镜）与派生的 `attemptsPerShot`、`oneTakeRate`、`runs`（agent 运行次数，归发起人）、`deliveredConversations`、三组秒数分布 `cycleSeconds` / `videoSeconds` / `upstreamSeconds`（各带 `avg`、`median`、`p90`，没有样本为 `null`）、`usage`（五个 token 计数、`totalTokens`、`cacheHitRate`）与 `tokensPerDelivery`。分母为零的比率是 `null`。
-- `GET /audit/summary` 返回 `overall`（整个筛选范围一格）、`users[]`（每人一行，成片件数多的在前；只跑过没出片的人也占一行）、`tasks[]`（每张有动静的需求单一行，带 `title`；没挂需求单的对话不在这里）。给 `bucket`（`day` / `week` / `month`）时多返回 `series[]`，每期一行带 `periodStart`，按 `timezone`（IANA 名，缺省 `UTC`）切：给了 `since` 时从 `since` 所在期到 `until`（缺省此刻）所在期每期都有一行，没动静的期计数为 0、比率与分布为 `null`；没给 `since` 只列有数据的期。不给 `bucket` 时 `series` 为 `null`。时区名不认识是 `422`。另带 `attemptDistribution[]`：整个筛选范围的出片次数分档计数（`attempts` 次的镜有 `shots` 个），次数少的在前、不封顶、只给全体一档（`users[]` / `tasks[]` / `series[]` 的行上没有）；次数是这个镜名下的全部出片记录数，不看终态——出过视频就算这一镜收工了。锚点同每镜次数。还带 `anomalyCounts[]`：整个筛选范围里每种异常各几条（`kind`、`count`），按 `GET /audit/anomalies` 的缺省阈值判定，只列出现过的种类，多的在前、同数按种类名。
+- `GET /audit/summary` 返回 `overall`（整个筛选范围一格）、`users[]`（每人一行，成片件数多的在前；只跑过没出片的人也占一行）、`tasks[]`（每张有动静的需求单一行，带 `title`；没挂需求单的对话不在这里）。给 `bucket`（`day` / `week` / `month`）时多返回 `series[]`，每期一行带 `periodStart`，按 `timezone`（IANA 名，缺省 `UTC`）切：给了 `since` 时从 `since` 所在期到 `until`（缺省此刻）所在期每期都有一行，没动静的期计数为 0、比率与分布为 `null`；没给 `since` 只列有数据的期。不给 `bucket` 时 `series` 为 `null`。时区名不认识是 `422`。另带 `attemptDistribution[]`：整个筛选范围的出片次数分档计数（`attempts` 次的镜有 `shots` 个），次数少的在前、不封顶、只给全体一档（`users[]` / `tasks[]` / `series[]` 的行上没有）；次数是这个镜名下的全部出片记录数。锚点同每镜次数。还带 `anomalyCounts[]`：整个筛选范围里每种异常各几条（`kind`、`count`），按 `GET /audit/anomalies` 的缺省阈值判定，只列出现过的种类，多的在前、同数按种类名。
 - `GET /audit/conversations` 列有成片的对话，最后成片晚的排前面；时间窗作用在最后成片时刻上，每行的 `metrics`、`shots[]`（镜号、次数、是否一次通过 `oneTake`、首末时刻）与 `usage[]`（按模型）都是这段对话的全量。`userName` 是这段对话归属的人，`startedAt` 是首次运行（没有运行就是对话创建）。属主删掉的对话照列，`deletedAt` 非空。翻页 `limit` 与 `cursor`，规则同 §6 审计列表。
 - `GET /audit/anomalies` 列异常，按发生时刻倒序，翻页同上。`kind` 可重复给以只看某几种：`retry`（单镜生成次数超过 `retryOver`，缺省 2）、`idle`（有运行、无成片、最近活动距今超过 `idleHours`，缺省 24）、`slow`（交付周期超过筛选范围内的 P90）、`stuck`（视频停在 `submitted` 超过 `stuckHours`，缺省 1）、`spend`（对话总 token 超过筛选范围内的 P95）、`task_stuck`（需求单挂了至少 `taskConversations` 段对话、缺省 3，且没有成片）、`deleted`（属主删掉的对话，`value` 是它的成片数）、`no_task`（有成片却没挂需求单的对话）、`missing_shot`（独立记录的视频却没带数字 `metadata.shot`，调用方接入退化的信号；编辑链上的衍生记录本来就不带镜号，不算）。每行带 `kind`、`at`、`value`、`threshold` 与按需带的 `conversationId` / `taskId` / `userName` / `shot` / `generationId`。P90 / P95 按当前筛选范围现算，样本少时会抖。
