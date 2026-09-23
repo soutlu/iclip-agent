@@ -22,8 +22,13 @@ def placeholder_email(username: str) -> str:
     return f"{uuid.uuid5(_PLACEHOLDER_NAMESPACE, username).hex}@{SSO_EMAIL_PLACEHOLDER_DOMAIN}"
 
 
-def is_placeholder_email(email: str) -> bool:
-    return email.endswith(f"@{SSO_EMAIL_PLACEHOLDER_DOMAIN}")
+def is_placeholder_account(username: str, email: str) -> bool:
+    """这个用户名的账号是否仍挂着为它合成的占位邮箱。
+
+    按用户名重建后精确比对而不看后缀：SSO 无邮箱的真人也落在同一个占位域下。
+    """
+
+    return email == placeholder_email(username)
 
 
 class ActAs:
@@ -56,4 +61,4 @@ class ActAs:
         )
 
 
-__all__ = ["ACT_AS_PERMISSION", "ActAs", "is_placeholder_email", "placeholder_email"]
+__all__ = ["ACT_AS_PERMISSION", "ActAs", "is_placeholder_account", "placeholder_email"]

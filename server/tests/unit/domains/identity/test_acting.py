@@ -10,10 +10,11 @@ from iclip.common.errors import ValidationFailed
 from iclip.domains.identity.acting import (
     ACT_AS_PERMISSION,
     ActAs,
-    is_placeholder_email,
+    is_placeholder_account,
     placeholder_email,
 )
 from iclip.domains.identity.models import Principal
+from iclip.domains.identity.sso import sso_placeholder_email
 from tests.helpers.identity import InMemoryUserRepository, make_account
 
 
@@ -66,7 +67,7 @@ async def test_key_with_the_permission_acts_as_the_named_person() -> None:
     (placeholder,) = users.accounts.values()
     assert placeholder.username == "Shan.Hu"
     assert placeholder.roles == ()
-    assert is_placeholder_email(placeholder.email)
+    assert is_placeholder_account("Shan.Hu", placeholder.email)
     assert acting.user_id == placeholder.id
     assert acting.username == "Shan.Hu"
     assert acting.audit_label == "Shan.Hu#multiflow"
@@ -94,11 +95,19 @@ async def test_blank_name_means_nobody_to_act_as() -> None:
     assert users.accounts == {}
 
 
-def test_placeholder_email_is_deterministic_and_recognizable() -> None:
+def test_placeholder_email_is_deterministic_per_name() -> None:
     assert placeholder_email("Shan.Hu") == placeholder_email("Shan.Hu")
     assert placeholder_email("Shan.Hu") != placeholder_email("shan.hu")
-    assert is_placeholder_email(placeholder_email("Shan.Hu"))
-    assert not is_placeholder_email("shan.hu@mirmiles.com")
+
+
+def test_placeholder_account_is_recognized_only_by_its_own_name() -> None:
+    assert is_placeholder_account("Shan.Hu", placeholder_email("Shan.Hu"))
+    assert not is_placeholder_account("Shan.Hu", "shan.hu@mirmiles.com")
+    # SSO 无邮箱的真人与占位账号同域，不能因为后缀相同就被当成空座。
+    assert not is_placeholder_account("Shan.Hu", sso_placeholder_email("u-7"))
+    # 大小写不同或换一个名字，合成出来的都不是这一个。
+    assert not is_placeholder_account("shan.hu", placeholder_email("Shan.Hu"))
+    assert not is_placeholder_account("Rudy", placeholder_email("Shan.Hu"))
 
 
 def act_as_with(users: InMemoryUserRepository) -> ActAs:
