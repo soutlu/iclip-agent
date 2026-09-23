@@ -222,6 +222,81 @@ export function annotationVisual(annotation: ImageAnnotation, size: ImageSize, u
   }
 }
 
+/** 选中标注操作条的尺寸（px），高度对应 CSS 的 --control-height-xl。 */
+const TOOLBAR_MAX_WIDTH = 240
+const TOOLBAR_HEIGHT = 44
+/** 与视口四边、与其它编号之间的留白。 */
+const TOOLBAR_INSET = 8
+/** 与选中标注之间的间距。 */
+const TOOLBAR_GAP = 12
+/** 避让时的占位：操作条加下方留白。 */
+const TOOLBAR_FOOTPRINT = TOOLBAR_HEIGHT + TOOLBAR_INSET
+
+/** 编号框，以中心点和尺寸表示（annotationVisual 的 label）。 */
+type LabelBox = { x: number; y: number; width: number; height: number }
+
+/**
+ * 选中标注操作条在视口里的位置（px）。优先放在标注与编号上方，放不下翻到下方；挡住其它编号
+ * 就让开，密集标注时也能点到它们；最后夹在视口内。
+ * `image` 是底图固有尺寸与显示缩放，底图按 contain 居中；`selected` 与 `labels` 用图片像素坐标，
+ * `labels` 含选中标注自己的编号。
+ */
+export function placeAnnotationToolbar({
+  viewport,
+  image,
+  selected,
+  labels,
+}: {
+  viewport: ImageSize
+  image: ImageSize & { scale: number }
+  selected: { top: number; height: number; label: LabelBox }
+  labels: LabelBox[]
+}): { left: number; top: number; width: number } {
+  const offsetX = (viewport.width - image.width * image.scale) / 2
+  const offsetY = (viewport.height - image.height * image.scale) / 2
+  const width = Math.min(TOOLBAR_MAX_WIDTH, Math.max(0, viewport.width - 2 * TOOLBAR_INSET))
+  const left = Math.max(
+    TOOLBAR_INSET,
+    Math.min(
+      viewport.width - width - TOOLBAR_INSET,
+      offsetX + selected.label.x * image.scale - width / 2,
+    ),
+  )
+  const { label } = selected
+  const markTop = offsetY + Math.min(selected.top, label.y - label.height / 2) * image.scale
+  const markBottom =
+    offsetY + Math.max(selected.top + selected.height, label.y + label.height / 2) * image.scale
+  const clampTop = (top: number) =>
+    Math.max(TOOLBAR_INSET, Math.min(viewport.height - TOOLBAR_FOOTPRINT, top))
+  const obstacles: Bounds[] = labels
+    .map((box) => ({
+      left: offsetX + (box.x - box.width / 2) * image.scale,
+      right: offsetX + (box.x + box.width / 2) * image.scale,
+      top: offsetY + (box.y - box.height / 2) * image.scale,
+      bottom: offsetY + (box.y + box.height / 2) * image.scale,
+    }))
+    .filter((box) => box.right + TOOLBAR_INSET > left && box.left - TOOLBAR_INSET < left + width)
+  const blocks = (top: number, box: Bounds) =>
+    top < box.bottom + TOOLBAR_INSET && top + TOOLBAR_FOOTPRINT > box.top - TOOLBAR_INSET
+
+  let top =
+    markTop >= TOOLBAR_HEIGHT + TOOLBAR_GAP + TOOLBAR_INSET
+      ? markTop - TOOLBAR_HEIGHT - TOOLBAR_GAP
+      : clampTop(markBottom + TOOLBAR_GAP)
+  // 自下而上逐个让到编号上方；顶出视口就改到标注下方，自上而下让到编号下方。
+  for (const box of obstacles.toSorted((a, b) => b.top - a.top)) {
+    if (blocks(top, box)) top = box.top - TOOLBAR_INSET - TOOLBAR_FOOTPRINT
+  }
+  if (top < TOOLBAR_INSET) {
+    top = markBottom + TOOLBAR_GAP
+    for (const box of obstacles.toSorted((a, b) => a.top - b.top)) {
+      if (blocks(top, box)) top = box.bottom + TOOLBAR_INSET
+    }
+    top = clampTop(top)
+  }
+  return { left, top, width }
+}
+
 export function isUsableAnnotation(annotation: ImageAnnotation): boolean {
   if (annotation.kind === 'point') return annotation.points.length === 1
   if (annotation.points.length < 2) return false

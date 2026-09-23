@@ -5,6 +5,7 @@ import {
   imagePoint,
   isUsableAnnotation,
   moveAnnotation,
+  placeAnnotationToolbar,
   resizeAnnotation,
 } from './annotation-geometry'
 import type { ImageAnnotation } from './image-edit-types'
@@ -183,4 +184,78 @@ describe('annotation image coordinates', () => {
       ).toBe(false)
     },
   )
+})
+
+describe('selected annotation toolbar placement', () => {
+  // The 400×300 image fills the 800×600 viewport at 2×: viewport px = image px × 2.
+  const viewport = { width: 800, height: 600 }
+  const image = { width: 400, height: 300, scale: 2 }
+  const BAR_HEIGHT = 44
+  const label = (x: number, y: number) => ({ x, y, width: 20, height: 20 })
+  const selected = { top: 100, height: 50, label: label(100, 90) }
+  const covers = (
+    bar: { left: number; top: number; width: number },
+    box: ReturnType<typeof label>,
+  ) =>
+    bar.left < (box.x + box.width / 2) * image.scale &&
+    bar.left + bar.width > (box.x - box.width / 2) * image.scale &&
+    bar.top < (box.y + box.height / 2) * image.scale &&
+    bar.top + BAR_HEIGHT > (box.y - box.height / 2) * image.scale
+
+  it('centres the bar on the selected number, above both the mark and its number', () => {
+    const bar = placeAnnotationToolbar({ viewport, image, selected, labels: [selected.label] })
+    // The number's top edge sits at 160 px; the bar keeps a gap above it.
+    expect(bar).toEqual({ left: 80, top: 100, width: 240 })
+  })
+
+  it('flips below the mark when there is no room above', () => {
+    const nearTop = { top: 10, height: 50, label: label(100, 20) }
+    const labels = [nearTop.label]
+    const bar = placeAnnotationToolbar({ viewport, image, selected: nearTop, labels })
+    // Mark bottom is at 120 px.
+    expect(bar.top).toBe(132)
+    expect(covers(bar, nearTop.label)).toBe(false)
+  })
+
+  it('steps above another number that the bar would cover', () => {
+    const other = label(100, 55)
+    const labels = [selected.label, other]
+    const bar = placeAnnotationToolbar({ viewport, image, selected, labels })
+    expect(bar.top).toBe(30)
+    expect(covers(bar, other)).toBe(false)
+  })
+
+  it('falls back below the mark and past lower numbers once stepping up leaves the viewport', () => {
+    const labels = [selected.label, label(100, 40), label(100, 160)]
+    const bar = placeAnnotationToolbar({ viewport, image, selected, labels })
+    // Mark bottom is at 300 px; the lowest number spans 300–340 px.
+    expect(bar.top).toBe(348)
+    for (const box of labels) expect(covers(bar, box)).toBe(false)
+  })
+
+  it('keeps the bar inside the bottom edge', () => {
+    const tall = { top: 10, height: 290, label: label(100, 20) }
+    const bar = placeAnnotationToolbar({ viewport, image, selected: tall, labels: [tall.label] })
+    expect(bar.top).toBe(548)
+    expect(bar.top + BAR_HEIGHT).toBeLessThanOrEqual(viewport.height)
+  })
+
+  it.each([
+    ['left', 5, 8],
+    ['right', 395, 552],
+  ])('clamps a number near the %s edge inside the viewport', (_edge, x, left) => {
+    const nearEdge = { ...selected, label: label(x, 90) }
+    const bar = placeAnnotationToolbar({ viewport, image, selected: nearEdge, labels: [] })
+    expect(bar.left).toBe(left)
+  })
+
+  it('narrows to the viewport minus its inset on small screens', () => {
+    const bar = placeAnnotationToolbar({
+      viewport: { width: 200, height: 600 },
+      image,
+      selected,
+      labels: [],
+    })
+    expect(bar).toMatchObject({ left: 8, width: 184 })
+  })
 })

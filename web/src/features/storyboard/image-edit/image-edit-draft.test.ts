@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { MAX_ANNOTATIONS } from '../generation-limits'
 import {
   draftOf,
   editDraftError,
@@ -6,6 +7,7 @@ import {
   emptyEditDraft,
   isEmptyDraft,
   loadEditDrafts,
+  TOO_MANY_ANNOTATIONS,
 } from './image-edit-draft'
 import type { FrameEditDraft, FrameEditTarget } from './image-edit-types'
 
@@ -107,5 +109,24 @@ describe('未提交图片编辑草稿', () => {
     expect(
       editDraftError({ ...restored, references: [...restored.references, reference] }),
     ).toBeNull()
+  })
+
+  it('标注到上限仍可提交，超出一个就给出与画布相同的提示', () => {
+    const mark = (index: number) => ({
+      id: `mark-${index}`,
+      number: index + 1,
+      kind: 'point' as const,
+      points: [{ x: 0.5, y: 0.5 }],
+    })
+    const draft: FrameEditDraft = {
+      annotations: Array.from({ length: MAX_ANNOTATIONS }, (_, index) => mark(index)),
+      instructions: [{ kind: 'text', text: '改成蓝色' }],
+      references: [{ id: 'base', kind: 'image', url: BASE, label: '编辑底图' }],
+    }
+
+    expect(editDraftError(draft)).toBeNull()
+    expect(
+      editDraftError({ ...draft, annotations: [...draft.annotations, mark(MAX_ANNOTATIONS)] }),
+    ).toBe(TOO_MANY_ANNOTATIONS)
   })
 })
