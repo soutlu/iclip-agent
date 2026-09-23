@@ -19,6 +19,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RequestUsage
 from pydantic_ai_harness.step_persistence import StepEvent
 
+from iclip.harness.job_status import JobStatus
 from iclip.harness.media import media_tag_close, media_tag_open
 from iclip.harness.transcript.from_messages import (
     ORPHAN_TOOL_ERROR,
@@ -273,7 +274,7 @@ def _decided(outcome: str) -> list[ModelRequest | ModelResponse]:
 
 
 _BOTH_COMPLETED: dict[str, TurnState] = {"r1": "completed", "r2": "completed"}
-_SETTLED = {"r1": "completed", "r2": "completed"}
+_SETTLED: dict[str, JobStatus] = {"r1": "completed", "r2": "completed"}
 
 
 def _card(turn: TranscriptTurn) -> ToolFrame:
@@ -312,7 +313,11 @@ def test_a_frontier_approval_is_settled_by_the_prompt_that_stopped_waiting() -> 
 
     messages = _awaiting()
     states: dict[str, TurnState] = {"r1": "completed"}
-    for status, turn_state in (("aborted", "cancelled"), ("failed", "failed")):
+    cases: tuple[tuple[JobStatus, TurnState], ...] = (
+        ("aborted", "cancelled"),
+        ("failed", "failed"),
+    )
+    for status, turn_state in cases:
         turns = turns_from_messages(
             messages,
             turn_states=states,

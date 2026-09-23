@@ -7,13 +7,9 @@ busy、attention 与最近结果为独立字段；等待审批时 busy 仍为真
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
+from iclip.harness.job_status import JobStatus
 from iclip.platform.transcript.wire import LastTurnReason, PendingInteraction
-
-if TYPE_CHECKING:
-    # 仅类型检查时导入，避免 jobs 的运行时循环依赖。
-    from iclip.harness.jobs import JobStatus
 
 
 @dataclass(frozen=True, slots=True)

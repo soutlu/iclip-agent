@@ -20,6 +20,7 @@ from iclip.harness.models import (
     ThinkingEffort,
     build_model,
     build_models,
+    thinking_effort_of,
 )
 
 BAILIAN = "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -118,13 +119,16 @@ def test_build_models_keys_by_name_and_reuses_instance() -> None:
 
 
 def test_thinking_lands_in_model_settings_on_both_apis() -> None:
-    """chat 分派入口不接受 settings，需额外构造模型并保持两种 API 设置一致。"""
+    """chat 分派入口不接受 settings，需额外构造模型并保持两种 API 设置一致；档位能从模型读回。"""
 
     for api in ("chat", "responses"):
         model = build_model(spec(api=api, thinking="medium"))
         assert model.settings == {"openai_reasoning_effort": "medium"}
+        assert thinking_effort_of(model) == "medium"
     assert isinstance(build_model(spec(api="chat", thinking="low")), OpenAIChatModel)
-    assert build_model(spec()).settings is None
+    plain = build_model(spec())
+    assert plain.settings is None
+    assert thinking_effort_of(plain) is None
 
 
 def _reasoning_stream() -> bytes:

@@ -27,6 +27,7 @@ from pydantic_ai.tools import RunContext, ToolDefinition
 from pydantic_ai.ui import NativeEvent
 from pydantic_ai_harness.step_persistence import StepStore, annotate_tool_effect
 
+from iclip.harness.agents import SubAgentProfile
 from iclip.harness.transcript.projector import TranscriptEventStream
 from iclip.harness.transcript.store import TranscriptStore
 from iclip.platform.transcript.display import ToolDisplayRegistry
@@ -50,7 +51,7 @@ class Delegation:
     """
 
     conversation_id: str
-    on_spawn: Callable[[str, Mapping[str, str]], None]
+    on_spawn: Callable[[str, SubAgentProfile], None]
     """子运行开跑时回调 (child_run_id, 子代理档案)，由父侧写自己那条流。"""
     child_run_id: str | None = None
 
@@ -118,7 +119,7 @@ class SubAgentBridge(AbstractCapability[Any]):
         await self._settle(ctx, call=call, tool_def=tool_def, delegation=delegation)
         return result
 
-    def _spawned(self, tool_call_id: str, child_run_id: str, profile: Mapping[str, str]) -> None:
+    def _spawned(self, tool_call_id: str, child_run_id: str, profile: SubAgentProfile) -> None:
         """子运行开跑：父流上的那张卡认领它，并开一条 subagent 任务。"""
 
         self.live.append(
@@ -166,7 +167,7 @@ class SubAgentMirror(AbstractCapability[Any]):
     id: str | None = "subagent_mirror"
     live: TranscriptStore
     display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY
-    profiles: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
+    profiles: Mapping[str, SubAgentProfile] = field(default_factory=dict)
     """子代理名 → 落库 metadata 那份档案，由 subagent_profiles 产出；任务卡上的字段从这里取。"""
     _delegation: Delegation | None = None
     _queue: asyncio.Queue[_Item] | None = None

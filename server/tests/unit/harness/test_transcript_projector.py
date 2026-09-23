@@ -27,7 +27,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from iclip.harness.agents import DELEGATE_TOOL, delegate_display_table
+from iclip.harness.agents import DELEGATE_TOOL, SubAgentProfile, delegate_display_table
 from iclip.harness.transcript.from_messages import turns_from_messages
 from iclip.harness.transcript.projector import TranscriptEventStream
 from iclip.harness.transcript.store import TranscriptStore
@@ -59,7 +59,7 @@ CONTENT: tuple[PromptContent, ...] = (TextContent(text=PROMPT),)
 WRITER = "shot-writer"
 TASK = "写第 3 组的三个镜头"
 CHILD = "child-run-1"
-PROFILE = {"agent_name": WRITER, "model": "test-model"}
+PROFILE: SubAgentProfile = {"agent_name": WRITER, "model": "test-model"}
 
 
 def _read_display(args: Any) -> ToolDisplay | None:

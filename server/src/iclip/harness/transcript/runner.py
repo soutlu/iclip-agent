@@ -37,7 +37,8 @@ from pydantic_ai_harness.step_persistence import ContinuableSnapshot
 from iclip.common.errors import Conflict, NotFound
 from iclip.harness.agents import DELEGATE_TOOL
 from iclip.harness.context_compaction import ContextCompaction
-from iclip.harness.jobs import JobQueue, JobRow, JobStatus
+from iclip.harness.job_status import JobStatus
+from iclip.harness.jobs import JobQueue, JobRow
 from iclip.harness.transcript.from_messages import (
     ORPHAN_TOOL_ERROR,
     run_ids_from_messages,

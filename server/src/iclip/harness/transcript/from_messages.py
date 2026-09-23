@@ -27,6 +27,7 @@ from pydantic_ai.usage import RequestUsage
 from pydantic_ai_harness.step_persistence import StepEvent
 
 from iclip.harness.context_compaction import compaction_boundary, compaction_only
+from iclip.harness.job_status import JobStatus
 from iclip.harness.transcript.prompt_media import plain_text, prompt_content
 from iclip.platform.transcript.display import ToolDisplayRegistry
 from iclip.platform.transcript.ops import (
@@ -74,10 +75,10 @@ _Steer = tuple[tuple[PromptContent, ...], tuple[str, ...] | None]
 _CLOSED_OUT_OUTCOMES: Final = ("failed", "interrupted")
 """系统补全的失败结果：新消息关闭旧调用使用 failed，中断恢复使用 interrupted。"""
 
-_WAITING_PROMPT_STATUSES: Final = ("awaiting", "running")
+_WAITING_PROMPT_STATUSES: Final[tuple[JobStatus, ...]] = ("awaiting", "running")
 """审批仍可被处理的状态：等待审批或已开始续跑。"""
 
-_TURN_STATE_BY_PROMPT: Final[dict[str, TurnState]] = {
+_TURN_STATE_BY_PROMPT: Final[dict[JobStatus, TurnState]] = {
     "awaiting": "running",
     "running": "running",
     "aborted": "cancelled",
@@ -92,7 +93,7 @@ def turns_from_messages(
     turn_states: Mapping[str, TurnState] | None = None,
     turn_errors: Mapping[str, str | None] | None = None,
     prompt_of_run: Mapping[str, str] | None = None,
-    prompt_status_of_run: Mapping[str, str] | None = None,
+    prompt_status_of_run: Mapping[str, JobStatus] | None = None,
     subagent_of_call: Mapping[str, str] | None = None,
     steered: Sequence[SteeredPrompt] = (),
     display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY,
@@ -120,8 +121,8 @@ def turns_from_messages(
                 segments,
                 ordinal=ordinal,
                 state=(
-                    _TURN_STATE_BY_PROMPT.get(prompt_status or "", from_events)
-                    if waiting
+                    _TURN_STATE_BY_PROMPT.get(prompt_status, from_events)
+                    if waiting and prompt_status is not None
                     else from_events
                 ),
                 error=errors.get(last_run),
@@ -221,7 +222,7 @@ def approvals_from_messages(
     *,
     turn_states: Mapping[str, TurnState] | None = None,
     prompt_of_run: Mapping[str, str] | None = None,
-    prompt_status_of_run: Mapping[str, str] | None = None,
+    prompt_status_of_run: Mapping[str, JobStatus] | None = None,
 ) -> tuple[Interaction, ...]:
     """重建审批交互；等待审批和续跑中的调用为 pending，撤回或失败的调用为 cancelled。"""
 

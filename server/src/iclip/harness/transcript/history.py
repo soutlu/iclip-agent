@@ -8,12 +8,14 @@ from __future__ import annotations
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, cast
 
 from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart
 from pydantic_ai_harness.compaction import estimate_context_tokens
 from pydantic_ai_harness.step_persistence import ContinuableSnapshot, StepEvent, StepStore
 
+from iclip.harness.agents import SubAgentProfile
+from iclip.harness.job_status import JobStatus
 from iclip.harness.transcript.from_messages import (
     ChildRun,
     SteeredPrompt,
@@ -54,7 +56,7 @@ class PromptRunsSource(Protocol):
 
     async def prompt_of_runs(self, conversation_id: str) -> dict[str, str]: ...
 
-    async def prompt_status_of_runs(self, conversation_id: str) -> dict[str, str]: ...
+    async def prompt_status_of_runs(self, conversation_id: str) -> dict[str, JobStatus]: ...
 
     async def steered_prompts(self, conversation_id: str) -> tuple[SteeredPrompt, ...]:
         """本对话插过话的消息，按插话先后。"""
@@ -201,15 +203,17 @@ class TranscriptHistory:
                 state = run_state_from_events(events)
                 if not _ended(events) and parent_states.get(run_id) == "cancelled":
                     state = "cancelled"
+                # 子运行的 metadata 就是装配时写入的档案；按 get 读，缺键得 None。
+                profile = cast("SubAgentProfile", record.metadata)
                 children.append(
                     ChildRun(
                         run_id=record.run_id,
-                        agent_name=record.metadata.get("agent_name"),
+                        agent_name=profile.get("agent_name"),
                         started_at=record.started_at,
                         ended_at=events[-1].timestamp if events else None,
                         state=state,
-                        model=record.metadata.get("model"),
-                        thinking_effort=record.metadata.get("thinking_effort"),
+                        model=profile.get("model"),
+                        thinking_effort=profile.get("thinking_effort"),
                     )
                 )
         return tuple(children)
