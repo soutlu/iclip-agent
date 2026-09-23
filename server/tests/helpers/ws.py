@@ -1,14 +1,15 @@
-"""WS 集成测试共用的动作：登录、开对话、订阅、按类型等帧、按轮收操作。"""
+"""WS 集成测试共用的同步动作：登录、开对话、等运行结束、订阅、按类型等帧、按轮收操作。"""
 
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Mapping
 from typing import Any
 
 from starlette.testclient import TestClient
 
-from tests.integration_no_llm.conftest import set_roles_in_db
+from tests.helpers.auth import set_roles_in_db
 
 AGENT_ID = "storyboard"
 PASSWORD = "password-123"
@@ -54,6 +55,17 @@ def open_conversation(tc: TestClient, headers: Mapping[str, str] | None = None) 
     created = tc.post("/conversations", json={"agentId": AGENT_ID}, headers=headers)
     assert created.status_code == 201, created.text
     return str(created.json()["conversation"]["id"])
+
+
+def settled(tc: TestClient, conversation_id: str, *, tries: int = 200) -> None:
+    """app.settled 的同步客户端版。"""
+
+    for _ in range(tries):
+        queue = tc.get(f"/conversations/{conversation_id}/prompts").json()
+        if queue["active"] is None and not queue["queued"]:
+            return
+        time.sleep(0.02)
+    raise AssertionError("这段对话没跑完")
 
 
 def subscribe(
@@ -104,6 +116,7 @@ __all__ = [
     "SESSION_COOKIE",
     "drain_turn",
     "open_conversation",
+    "settled",
     "sign_in",
     "sign_in_as",
     "subscribe",

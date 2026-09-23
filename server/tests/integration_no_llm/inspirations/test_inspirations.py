@@ -7,7 +7,7 @@ import pytest
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from tests.integration_no_llm.conftest import register_and_login
+from tests.helpers.auth import register_and_login
 from tests.integration_no_llm.inspirations.conftest import seed_style, seed_video, urls_of
 
 URL = "/inspirations/videos/search"

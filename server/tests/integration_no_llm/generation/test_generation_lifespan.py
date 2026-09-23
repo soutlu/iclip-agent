@@ -16,8 +16,8 @@ from iclip.config import (
     RuntimeConfig,
     VideoGenerationSection,
 )
+from tests.helpers.app import make_runtime_config
 from tests.helpers.generation import MemoryObjectStore
-from tests.integration_no_llm.conftest import make_runtime_config
 
 MEDIA_ENVS = {
     "OSS_BUCKET": "iclip-test",

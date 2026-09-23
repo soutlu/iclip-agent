@@ -8,7 +8,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -16,40 +15,26 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
 from starlette.testclient import TestClient
 
 from iclip.config import ResolvedAgent
+from tests.helpers.agents import declared_agent
+from tests.helpers.pg import connected
 from tests.helpers.ws import (
     AGENT_ID,
     drain_turn,
     open_conversation,
+    settled,
     sign_in,
     sign_in_as,
     subscribe,
     until,
 )
-from tests.integration_no_llm.conftest import TEST_MODEL_NAME
 
 
 @pytest.fixture
 def agent_declarations(tmp_path: Path) -> tuple[ResolvedAgent, ...]:
-    folder = tmp_path / AGENT_ID
-    folder.mkdir(parents=True, exist_ok=True)
-    spec = folder / "agent.yaml"
-    spec.write_text("", encoding="utf-8")
-    return (
-        ResolvedAgent(
-            agent_id=AGENT_ID,
-            name=AGENT_ID,
-            spec=spec,
-            instructions=None,
-            model=TEST_MODEL_NAME,
-            skills=None,
-            capabilities=(),
-            subagents=(),
-        ),
-    )
+    return (declared_agent(tmp_path, AGENT_ID),)
 
 
 def test_subscribe_then_receive_ops(ws_agent_app: FastAPI, pg_url: str) -> None:
@@ -89,20 +74,7 @@ def test_subscribe_then_receive_ops(ws_agent_app: FastAPI, pg_url: str) -> None:
             assert "frame_id" not in text
 
             # 等待运行结束后再断开；运行中断连由独立用例覆盖。
-            for _ in range(200):
-                queue = tc.get(f"/conversations/{conversation_id}/prompts").json()
-                if queue["active"] is None and not queue["queued"]:
-                    break
-                time.sleep(0.02)
-
-
-def _settled(tc: TestClient, conversation_id: str, *, tries: int = 200) -> None:
-    for _ in range(tries):
-        queue = tc.get(f"/conversations/{conversation_id}/prompts").json()
-        if queue["active"] is None and not queue["queued"]:
-            return
-        time.sleep(0.02)
-    raise AssertionError("这段对话没跑完")
+            settled(tc, conversation_id)
 
 
 def test_resubscribing_with_a_stale_watermark_gets_a_reset(
@@ -229,7 +201,7 @@ def test_subscribing_with_a_dashless_conversation_id_receives_frames(
             assert sent.status_code == 200, sent.text
             assert until(ws, "transcript.ops")["session_id"] == conversation_id
 
-            _settled(tc, conversation_id)
+            settled(tc, conversation_id)
 
 
 def test_cross_origin_upgrade_is_refused(
@@ -264,19 +236,15 @@ def test_cross_origin_upgrade_is_refused(
 async def _seed_file(pg_url: str, namespace: str, path: str, content: str) -> None:
     """直接插入会话工作区文件。"""
 
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "INSERT INTO agent_runtime.workspace_files "
-                    "(namespace, path, content, version, created_at, updated_at) "
-                    "VALUES (:ns, :path, :content, 1, now(), now())"
-                ),
-                {"ns": namespace, "path": path, "content": content},
-            )
-    finally:
-        await engine.dispose()
+    async with connected(pg_url) as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO agent_runtime.workspace_files "
+                "(namespace, path, content, version, created_at, updated_at) "
+                "VALUES (:ns, :path, :content, 1, now(), now())"
+            ),
+            {"ns": namespace, "path": path, "content": content},
+        )
 
 
 def _watch(ws: Any, conversation_id: str, *paths: str, recursive: bool = False) -> dict[str, Any]:

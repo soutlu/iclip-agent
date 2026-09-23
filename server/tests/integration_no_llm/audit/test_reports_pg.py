@@ -25,7 +25,7 @@ from iclip.domains.audit.models import (
 from iclip.domains.audit.reports_pg import PgAuditReports
 from iclip.domains.generation.models import STATUS_COMPLETED, STATUS_FAILED, STATUS_SUBMITTED
 from iclip.domains.generation.schemas import KIND_VIDEO
-from tests.helpers.pg import IDENTITY_TABLES, truncate_clean
+from tests.helpers.pg import reset_database
 
 BASE = datetime.now(UTC).replace(microsecond=0)
 SHAN = "Shan.Hu"
@@ -388,8 +388,7 @@ class Seed:
 async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
     created = create_async_engine(migrated_pg)
     async with created.begin() as conn:
-        await truncate_clean(conn, IDENTITY_TABLES, cascade=True)
-        await truncate_clean(conn, ("agent_runtime.agent_jobs", "agent_runtime.conversation_usage"))
+        await reset_database(conn)
     try:
         yield created
     finally:

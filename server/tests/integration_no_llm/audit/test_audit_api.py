@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import httpx
 
-from tests.integration_no_llm.conftest import register_and_login, set_roles_in_db
+from tests.helpers.auth import register_and_login, set_roles_in_db
 
 SUMMARY = "/audit/summary"
 CONVERSATIONS = "/audit/conversations"

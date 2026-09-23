@@ -11,13 +11,9 @@ from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from iclip.config import ResolvedAgent, SkillMount
-from tests.integration_no_llm.agents.waiting import settled
-from tests.integration_no_llm.conftest import (
-    TEST_MODEL_NAME,
-    new_conversation,
-    register_and_login,
-    set_roles_in_db,
-)
+from tests.helpers.agents import declared_agent
+from tests.helpers.app import TEST_MODEL_NAME, new_conversation, settled
+from tests.helpers.auth import register_and_login, set_roles_in_db
 
 AGENT_ID = "storyboard"
 SKILL = "拆解素材"
@@ -42,11 +38,6 @@ def models(seen_tools: list[str]) -> dict[str, FunctionModel]:
 
 @pytest.fixture
 def agent_declarations(tmp_path: Path) -> tuple[ResolvedAgent, ...]:
-    spec_dir = tmp_path / AGENT_ID
-    spec_dir.mkdir(parents=True)
-    spec = spec_dir / "agent.yaml"
-    spec.write_text("", encoding="utf-8")
-
     library = tmp_path / "skills"
     skill = library / SKILL
     skill.mkdir(parents=True)
@@ -55,18 +46,8 @@ def agent_declarations(tmp_path: Path) -> tuple[ResolvedAgent, ...]:
         encoding="utf-8",
     )
 
-    return (
-        ResolvedAgent(
-            agent_id=AGENT_ID,
-            name=AGENT_ID,
-            spec=spec,
-            instructions=None,
-            model=TEST_MODEL_NAME,
-            skills=SkillMount(library=library, names=(SKILL,)),
-            capabilities=(),
-            subagents=(),
-        ),
-    )
+    mount = SkillMount(library=library, names=(SKILL,))
+    return (declared_agent(tmp_path, AGENT_ID, skills=mount),)
 
 
 async def test_declared_skill_reaches_the_running_agent(

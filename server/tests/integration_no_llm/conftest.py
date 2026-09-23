@@ -6,6 +6,7 @@ Postgres 解析顺序：显式 ``TEST_DATABASE_URL`` > testcontainers 本地兜�
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
@@ -17,22 +18,15 @@ from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI
 from pydantic_ai import models as pydantic_ai_models
 from pydantic_ai.models.test import TestModel
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from iclip.app.bootstrap import build_app
-from iclip.config import (
-    AppSection,
-    DbSection,
-    OpsSection,
-    ResolvedAgent,
-    RuntimeConfig,
-    SecuritySection,
-    SsoSection,
-)
+from iclip.config import ResolvedAgent
 from iclip.domains.identity.pms import PmsUserClient
 from iclip.domains.identity.sso import SsoVerifier
-from tests.helpers.pg import AGENT_RUNTIME_TABLES, IDENTITY_TABLES, truncate_clean
+from tests.helpers.app import TEST_MODEL_NAME, make_client, make_runtime_config
+from tests.helpers.pg import connected, reset_database
 
 SERVER_DIR = Path(__file__).resolve().parents[2]
 
@@ -45,8 +39,6 @@ def _no_real_model_requests(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 TEST_SECRET = "test-secret-0123456789-0123456789-xyz"
-
-_APP_TABLES = IDENTITY_TABLES
 
 
 @pytest.fixture(scope="session")
@@ -86,18 +78,6 @@ def migrated_pg(pg_url: str) -> str:
     return pg_url
 
 
-def make_runtime_config() -> RuntimeConfig:
-    """测试运行配置；地址与凭证由 base_env 提供。"""
-
-    return RuntimeConfig(
-        app=AppSection(name="iclip-test"),
-        db=DbSection(schema="iclip"),
-        security=SecuritySection(),
-        sso=SsoSection(app_name="iclip"),
-        ops=OpsSection(log_level="WARNING"),
-    )
-
-
 @pytest.fixture
 def base_env(monkeypatch: pytest.MonkeyPatch, migrated_pg: str) -> None:
     monkeypatch.setenv("DATABASE_URL", migrated_pg)
@@ -112,29 +92,21 @@ def base_env(monkeypatch: pytest.MonkeyPatch, migrated_pg: str) -> None:
     monkeypatch.delenv("OSS_BUCKET", raising=False)
 
 
-async def _fresh_engine(url: str):
-    engine = create_async_engine(url)
-    async with engine.begin() as conn:
-        await truncate_clean(conn, _APP_TABLES, cascade=True)
-        # 治理视图会查全平台占着的对话；runner 用例留在票据表里的行不能混进来。
-        await truncate_clean(conn, ("agent_runtime.agent_jobs", "agent_runtime.agent_job_runs"))
-    return engine
+async def _reset(url: str) -> None:
+    async with connected(url) as conn:
+        await reset_database(conn)
 
 
 @pytest.fixture
 async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
-    """清空 agent 运行时各表后给出引擎；runner 与 transcript 场景测试直接用它装配。"""
+    """清空测试表后给出引擎；runner 与 transcript 场景测试直接用它装配。"""
 
+    await _reset(migrated_pg)
     engine = create_async_engine(migrated_pg)
-    async with engine.begin() as conn:
-        await truncate_clean(conn, AGENT_RUNTIME_TABLES)
     try:
         yield engine
     finally:
         await engine.dispose()
-
-
-TEST_MODEL_NAME = "test-model"
 
 
 @pytest.fixture
@@ -153,20 +125,16 @@ def models() -> dict[str, TestModel]:
 
 @pytest.fixture
 async def app(
-    monkeypatch: pytest.MonkeyPatch,
     base_env: None,
     migrated_pg: str,
     agent_declarations: tuple[ResolvedAgent, ...],
     models: dict[str, TestModel],
 ) -> AsyncGenerator[FastAPI]:
-    engine = await _fresh_engine(migrated_pg)
+    await _reset(migrated_pg)
+    engine = create_async_engine(migrated_pg)
     try:
         yield build_app(
-            make_runtime_config(),
-            agents=agent_declarations,
-            engine=engine,
-            models=models,
-            # 固定快照隔离 PDM 与对象存储，数据库仍验证快照的持久化往返。
+            make_runtime_config(), agents=agent_declarations, engine=engine, models=models
         )
     finally:
         await engine.dispose()
@@ -184,22 +152,7 @@ def ws_agent_app(
     使用 NullPool 避免 asyncpg 连接跨事件循环复用。
     """
 
-    import asyncio
-
-    from sqlalchemy.pool import NullPool
-
-    async def _truncate() -> None:
-        engine = create_async_engine(migrated_pg, poolclass=NullPool)
-        try:
-            async with engine.begin() as conn:
-                await truncate_clean(conn, _APP_TABLES, cascade=True)
-                await truncate_clean(
-                    conn, ("agent_runtime.agent_jobs", "agent_runtime.agent_job_runs")
-                )
-        finally:
-            await engine.dispose()
-
-    asyncio.run(_truncate())
+    asyncio.run(_reset(migrated_pg))
     engine = create_async_engine(migrated_pg, poolclass=NullPool)
     yield build_app(
         make_runtime_config(),
@@ -217,19 +170,7 @@ def ws_app(base_env: None, migrated_pg: str) -> Generator[FastAPI]:
     使用 NullPool 避免 asyncpg 连接跨事件循环复用。
     """
 
-    import asyncio
-
-    from sqlalchemy.pool import NullPool
-
-    async def _truncate() -> None:
-        engine = create_async_engine(migrated_pg, poolclass=NullPool)
-        try:
-            async with engine.begin() as conn:
-                await truncate_clean(conn, _APP_TABLES, cascade=True)
-        finally:
-            await engine.dispose()
-
-    asyncio.run(_truncate())
+    asyncio.run(_reset(migrated_pg))
     engine = create_async_engine(migrated_pg, poolclass=NullPool)
     yield build_app(make_runtime_config(), engine=engine)
     asyncio.run(engine.dispose())
@@ -271,61 +212,15 @@ async def sso_app(
         if pms_transport is not None
         else None
     )
-    engine = await _fresh_engine(migrated_pg)
+    await _reset(migrated_pg)
+    engine = create_async_engine(migrated_pg)
     try:
         yield build_app(make_runtime_config(), engine=engine, sso_verifier=verifier, pms_client=pms)
     finally:
         await engine.dispose()
 
 
-def make_client(app: FastAPI) -> httpx.AsyncClient:
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
-
-
 @pytest.fixture
 async def client(app: FastAPI) -> AsyncGenerator[httpx.AsyncClient]:
     async with make_client(app) as c:
         yield c
-
-
-async def register_and_login(
-    client: httpx.AsyncClient,
-    *,
-    username: str = "luke",
-    email: str = "luke@example.com",
-    password: str = "password-123",
-) -> str:
-    """注册 + 登录；返回用户 id。"""
-
-    created = await client.post(
-        "/auth/register",
-        json={"email": email, "password": password, "username": username},
-    )
-    assert created.status_code == 201, created.text
-    logged_in = await client.post("/auth/login", data={"username": username, "password": password})
-    assert logged_in.status_code == 204, logged_in.text
-    return str(created.json()["id"])
-
-
-async def set_roles_in_db(pg_url: str, email: str, roles: list[str]) -> None:
-    """测试内的角色引导（生产路径是 ROOT_EMAIL / scripts/admin.py）。"""
-
-    import json
-
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("UPDATE iclip.users SET roles = CAST(:roles AS jsonb) WHERE email = :email"),
-                {"roles": json.dumps(roles), "email": email},
-            )
-    finally:
-        await engine.dispose()
-
-
-async def new_conversation(client: httpx.AsyncClient, agent_id: str) -> str:
-    """创建会话并返回 AG-UI threadId；agent 端点仅接受服务端创建的会话。"""
-
-    created = await client.post("/conversations", json={"agentId": agent_id})
-    assert created.status_code == 201, created.text
-    return str(created.json()["conversation"]["id"])

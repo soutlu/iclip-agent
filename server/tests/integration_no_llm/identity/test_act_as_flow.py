@@ -8,14 +8,10 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
 
-from tests.integration_no_llm.agents.waiting import settled
-from tests.integration_no_llm.conftest import (
-    make_client,
-    register_and_login,
-    set_roles_in_db,
-)
+from tests.helpers.app import make_client, settled
+from tests.helpers.auth import register_and_login, set_roles_in_db
+from tests.helpers.pg import connected
 from tests.integration_no_llm.tasks.test_tasks import INPUTS
 
 ACT_AS_GRANTS = ["agent:run", "agent:read", "tasks:read", "tasks:write", "users:act_as"]
@@ -130,19 +126,15 @@ async def test_act_as_key_can_prompt_the_conversation_it_opened_for_someone(
 async def job_owner(pg_url: str, conversation_id: str) -> str:
     """这段对话最近一条消息记在谁名下。"""
 
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.connect() as conn:
-            row = await conn.execute(
-                text(
-                    "SELECT owner_user_id FROM agent_runtime.agent_jobs"
-                    " WHERE conversation_id = :conversation_id"
-                ),
-                {"conversation_id": conversation_id},
-            )
-            return str(row.scalar_one())
-    finally:
-        await engine.dispose()
+    async with connected(pg_url) as conn:
+        row = await conn.execute(
+            text(
+                "SELECT owner_user_id FROM agent_runtime.agent_jobs"
+                " WHERE conversation_id = :conversation_id"
+            ),
+            {"conversation_id": conversation_id},
+        )
+        return str(row.scalar_one())
 
 
 async def test_browser_session_may_only_name_itself(client: httpx.AsyncClient, pg_url: str) -> None:

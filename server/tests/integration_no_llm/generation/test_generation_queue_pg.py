@@ -34,7 +34,7 @@ from tests.helpers.generation import (
     make_job,
     video_request,
 )
-from tests.helpers.pg import IDENTITY_TABLES, truncate_clean
+from tests.helpers.pg import reset_database, truncate_clean
 
 # 缩短调度间隔以验证完整链路，默认间隔由配置测试覆盖。
 SETTINGS = GenerationQueueSettings(
@@ -54,7 +54,7 @@ class QueueFactory(Protocol):
 async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
     created = create_async_engine(migrated_pg)
     async with created.begin() as conn:
-        await truncate_clean(conn, IDENTITY_TABLES, cascade=True)
+        await reset_database(conn)
         # 清理任务及 worker，避免上一用例的失联心跳影响当前恢复判断。
         await truncate_clean(conn, ("procrastinate_jobs", "procrastinate_workers"), cascade=True)
     try:

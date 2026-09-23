@@ -15,9 +15,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from iclip.app.bootstrap import build_app
+from tests.helpers.app import make_runtime_config
 from tests.helpers.pdm import PDM_STYLES_DDL
-from tests.helpers.pg import IDENTITY_TABLES, truncate_clean
-from tests.integration_no_llm.conftest import make_runtime_config
+from tests.helpers.pg import reset_database
 
 _CATALOG_DDL = f"""
 DROP TABLE IF EXISTS pdm_styles CASCADE;
@@ -63,7 +63,7 @@ async def business_engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
     engine = create_async_engine(migrated_pg)
     try:
         async with engine.begin() as conn:
-            await truncate_clean(conn, IDENTITY_TABLES, cascade=True)
+            await reset_database(conn)
             await conn.execute(text("TRUNCATE TABLE iclip.inspiration_videos"))
         yield engine
     finally:

@@ -9,14 +9,11 @@ import httpx
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import create_async_engine
 
+from tests.helpers.app import make_client
+from tests.helpers.auth import register_and_login, set_roles_in_db
+from tests.helpers.pg import connected
 from tests.helpers.tasks import STYLE_NO
-from tests.integration_no_llm.conftest import (
-    make_client,
-    register_and_login,
-    set_roles_in_db,
-)
 
 URL = "/tasks"
 
@@ -83,15 +80,11 @@ async def create(client: httpx.AsyncClient, **body: object) -> httpx.Response:
 async def set_status_directly(pg_url: str, task_id: str, status: str) -> None:
     """绕过 API 更新状态，模拟读取后的并发修改。"""
 
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("UPDATE iclip.tasks SET status = :status WHERE id = CAST(:id AS uuid)"),
-                {"status": status, "id": task_id},
-            )
-    finally:
-        await engine.dispose()
+    async with connected(pg_url) as conn:
+        await conn.execute(
+            text("UPDATE iclip.tasks SET status = :status WHERE id = CAST(:id AS uuid)"),
+            {"status": status, "id": task_id},
+        )
 
 
 async def test_full_lifecycle_over_http(client: httpx.AsyncClient, pg_url: str) -> None:
@@ -148,17 +141,13 @@ async def test_inputs_survive_http_and_jsonb_round_trip(
     created = (await create(client)).json()["task"]
     read_back = (await client.get(f"{URL}/{created['id']}")).json()["task"]
     assert read_back["inputs"] == INPUTS
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.connect() as conn:
-            stored = (
-                await conn.execute(
-                    text("SELECT inputs FROM iclip.tasks WHERE id = CAST(:id AS uuid)"),
-                    {"id": created["id"]},
-                )
-            ).scalar_one()
-    finally:
-        await engine.dispose()
+    async with connected(pg_url) as conn:
+        stored = (
+            await conn.execute(
+                text("SELECT inputs FROM iclip.tasks WHERE id = CAST(:id AS uuid)"),
+                {"id": created["id"]},
+            )
+        ).scalar_one()
     assert stored == INPUTS
 
 
@@ -169,20 +158,16 @@ async def test_timestamps_come_from_the_database_clock(
     await login_as_editor(client, pg_url)
     task = (await create(client)).json()["task"]
 
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.connect() as conn:
-            drift = (
-                await conn.execute(
-                    text(
-                        "SELECT extract(epoch FROM (now() - created_at)) FROM iclip.tasks"
-                        " WHERE id = CAST(:id AS uuid)"
-                    ),
-                    {"id": task["id"]},
-                )
-            ).scalar_one()
-    finally:
-        await engine.dispose()
+    async with connected(pg_url) as conn:
+        drift = (
+            await conn.execute(
+                text(
+                    "SELECT extract(epoch FROM (now() - created_at)) FROM iclip.tasks"
+                    " WHERE id = CAST(:id AS uuid)"
+                ),
+                {"id": task["id"]},
+            )
+        ).scalar_one()
 
     assert 0 <= float(drift) < 60
 
@@ -238,16 +223,12 @@ async def test_constraints_live_on_the_table(
         " VALUES (gen_random_uuid(), 't', :status, 0, :deadline, CAST(:owner AS uuid),"
         " CAST(:inputs AS jsonb), now(), now())"
     )
-    engine = create_async_engine(pg_url)
-    try:
-        with pytest.raises(DBAPIError) as raised:
-            async with engine.begin() as conn:
-                await conn.execute(
-                    statement,
-                    {"status": status, "owner": user_id, "deadline": deadline, "inputs": inputs},
-                )
-    finally:
-        await engine.dispose()
+    with pytest.raises(DBAPIError) as raised:
+        async with connected(pg_url) as conn:
+            await conn.execute(
+                statement,
+                {"status": status, "owner": user_id, "deadline": deadline, "inputs": inputs},
+            )
     assert constraint in str(raised.value)
 
 
@@ -257,15 +238,11 @@ async def test_a_task_outlives_nothing_silently(client: httpx.AsyncClient, pg_ur
     user_id = await login_as_editor(client, pg_url)
     await create(client)
 
-    engine = create_async_engine(pg_url)
-    try:
-        with pytest.raises(DBAPIError) as raised:
-            async with engine.begin() as conn:
-                await conn.execute(
-                    text("DELETE FROM iclip.users WHERE id = CAST(:id AS uuid)"), {"id": user_id}
-                )
-    finally:
-        await engine.dispose()
+    with pytest.raises(DBAPIError) as raised:
+        async with connected(pg_url) as conn:
+            await conn.execute(
+                text("DELETE FROM iclip.users WHERE id = CAST(:id AS uuid)"), {"id": user_id}
+            )
     assert "tasks" in str(raised.value)
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from typing import get_args
 
 from iclip.capabilities.shot_video.ports import (
     ImageChannel,
@@ -11,10 +12,11 @@ from iclip.capabilities.shot_video.ports import (
     ImageRequest,
     InvalidImageRequest,
 )
+from iclip.domains.generation.schemas import IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS
 from iclip.domains.identity.public import Principal
 
-_ASPECT_RATIOS = {"1:1", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"}
-_RESOLUTIONS = {"1k", "2k", "4k"}
+_ASPECT_RATIOS: frozenset[str] = frozenset(get_args(IMAGE_ASPECT_RATIOS))
+_RESOLUTIONS: frozenset[str] = frozenset(get_args(IMAGE_RESOLUTIONS))
 
 
 @dataclass(frozen=True, slots=True)

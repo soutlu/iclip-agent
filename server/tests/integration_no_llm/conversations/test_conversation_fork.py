@@ -23,11 +23,9 @@ from iclip.domains.conversations.infra_sql import SqlConversationRepository
 from iclip.domains.conversations.service import ConversationService
 from iclip.domains.identity.public import Principal
 from iclip.harness.step_store_pg import PgStepStore
-from tests.integration_no_llm.conftest import (
-    make_client,
-    register_and_login,
-    set_roles_in_db,
-)
+from tests.helpers.app import make_client
+from tests.helpers.auth import register_and_login, set_roles_in_db
+from tests.helpers.pg import connected
 
 URL = "/conversations"
 AGENT_ID = "storyboard"
@@ -95,56 +93,47 @@ async def seed_turns(pg_url: str, conversation_id: str, prompts: list[str]) -> l
 async def seed_side_data(pg_url: str, namespace: str) -> None:
     """工作区文件与素材台账各放一条，两者都按命名空间隔离。"""
 
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "INSERT INTO agent_runtime.workspace_files"
-                    " (namespace, path, content, version, created_at, updated_at)"
-                    " VALUES (:ns, 'video_shot.json', :content, 3, now(), now())"
-                ),
-                {"ns": namespace, "content": '{"shots": []}'},
-            )
-            await conn.execute(
-                text(
-                    "INSERT INTO agent_runtime.materials (namespace, url, kind)"
-                    " VALUES (:ns, 'https://example.test/ref.mp4', 'video')"
-                ),
-                {"ns": namespace},
-            )
-    finally:
-        await engine.dispose()
+    async with connected(pg_url) as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO agent_runtime.workspace_files"
+                " (namespace, path, content, version, created_at, updated_at)"
+                " VALUES (:ns, 'video_shot.json', :content, 3, now(), now())"
+            ),
+            {"ns": namespace, "content": '{"shots": []}'},
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO agent_runtime.materials (namespace, url, kind)"
+                " VALUES (:ns, 'https://example.test/ref.mp4', 'video')"
+            ),
+            {"ns": namespace},
+        )
 
 
 async def side_data(pg_url: str, namespace: str) -> tuple[list[str], list[str]]:
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.connect() as conn:
-            paths = list(
-                (
-                    await conn.execute(
-                        text(
-                            "SELECT path FROM agent_runtime.workspace_files"
-                            " WHERE namespace = :ns ORDER BY path"
-                        ),
-                        {"ns": namespace},
-                    )
-                ).scalars()
-            )
-            urls = list(
-                (
-                    await conn.execute(
-                        text(
-                            "SELECT url FROM agent_runtime.materials"
-                            " WHERE namespace = :ns ORDER BY url"
-                        ),
-                        {"ns": namespace},
-                    )
-                ).scalars()
-            )
-    finally:
-        await engine.dispose()
+    async with connected(pg_url) as conn:
+        paths = list(
+            (
+                await conn.execute(
+                    text(
+                        "SELECT path FROM agent_runtime.workspace_files"
+                        " WHERE namespace = :ns ORDER BY path"
+                    ),
+                    {"ns": namespace},
+                )
+            ).scalars()
+        )
+        urls = list(
+            (
+                await conn.execute(
+                    text(
+                        "SELECT url FROM agent_runtime.materials WHERE namespace = :ns ORDER BY url"
+                    ),
+                    {"ns": namespace},
+                )
+            ).scalars()
+        )
     return paths, urls
 
 
@@ -326,25 +315,21 @@ async def test_source_with_an_unfinished_prompt_is_409(
     owner = await login_as(client, pg_url, username="luke")
     source = await open_conversation(client)
     await seed_turns(pg_url, source, ["第一句"])
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "INSERT INTO agent_runtime.agent_jobs"
-                    " (prompt_id, conversation_id, agent_id, owner_user_id, user_name,"
-                    "  content, status, created_at)"
-                    " VALUES (:pid, :cid, :agent, :owner, 'luke', '[]', 'queued', now())"
-                ),
-                {
-                    "pid": f"prm_{uuid.uuid4().hex[:16]}",
-                    "cid": source,
-                    "agent": AGENT_ID,
-                    "owner": owner,
-                },
-            )
-    finally:
-        await engine.dispose()
+    async with connected(pg_url) as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO agent_runtime.agent_jobs"
+                " (prompt_id, conversation_id, agent_id, owner_user_id, user_name,"
+                "  content, status, created_at)"
+                " VALUES (:pid, :cid, :agent, :owner, 'luke', '[]', 'queued', now())"
+            ),
+            {
+                "pid": f"prm_{uuid.uuid4().hex[:16]}",
+                "cid": source,
+                "agent": AGENT_ID,
+                "owner": owner,
+            },
+        )
 
     assert (await fork(client, source)).status_code == 409
 

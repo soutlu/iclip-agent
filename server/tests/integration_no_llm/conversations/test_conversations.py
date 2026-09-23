@@ -19,11 +19,9 @@ from iclip.domains.conversations.infra_sql import SqlConversationRepository
 from iclip.domains.conversations.repository import AuditFilter
 from iclip.domains.conversations.schemas import DEFAULT_TITLE
 from iclip.harness.step_store_pg import PgStepStore
-from tests.integration_no_llm.conftest import (
-    make_client,
-    register_and_login,
-    set_roles_in_db,
-)
+from tests.helpers.app import make_client
+from tests.helpers.auth import register_and_login, set_roles_in_db
+from tests.helpers.pg import connected
 
 URL = "/conversations"
 SEARCH = f"{URL}/search"
@@ -284,44 +282,38 @@ async def test_delete_keeps_the_workspace_for_review(
     doomed = (await create(client, title="要删的")).json()["conversation"]["id"]
     namespace = f"{user_id}/{doomed}"
 
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.begin() as conn:
+    async with connected(pg_url) as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO agent_runtime.workspace_files "
+                "(namespace, path, content, version, created_at, updated_at) "
+                "VALUES (:ns, '分镜.md', '稿子', 1, now(), now())"
+            ),
+            {"ns": namespace},
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO agent_runtime.materials (namespace, url, kind) "
+                "VALUES (:ns, 'https://cdn.test/style.jpg', 'image')"
+            ),
+            {"ns": namespace},
+        )
+
+    assert (await client.delete(f"{URL}/{doomed}")).status_code == 204
+
+    async with connected(pg_url) as conn:
+        files = (
             await conn.execute(
-                text(
-                    "INSERT INTO agent_runtime.workspace_files "
-                    "(namespace, path, content, version, created_at, updated_at) "
-                    "VALUES (:ns, '分镜.md', '稿子', 1, now(), now())"
-                ),
+                text("SELECT count(*) FROM agent_runtime.workspace_files WHERE namespace = :ns"),
                 {"ns": namespace},
             )
+        ).scalar_one()
+        materials = (
             await conn.execute(
-                text(
-                    "INSERT INTO agent_runtime.materials (namespace, url, kind) "
-                    "VALUES (:ns, 'https://cdn.test/style.jpg', 'image')"
-                ),
+                text("SELECT count(*) FROM agent_runtime.materials WHERE namespace = :ns"),
                 {"ns": namespace},
             )
-
-        assert (await client.delete(f"{URL}/{doomed}")).status_code == 204
-
-        async with engine.connect() as conn:
-            files = (
-                await conn.execute(
-                    text(
-                        "SELECT count(*) FROM agent_runtime.workspace_files WHERE namespace = :ns"
-                    ),
-                    {"ns": namespace},
-                )
-            ).scalar_one()
-            materials = (
-                await conn.execute(
-                    text("SELECT count(*) FROM agent_runtime.materials WHERE namespace = :ns"),
-                    {"ns": namespace},
-                )
-            ).scalar_one()
-    finally:
-        await engine.dispose()
+        ).scalar_one()
 
     assert (files, materials) == (1, 1)
 
@@ -388,20 +380,16 @@ async def test_malformed_payload_is_422(client: httpx.AsyncClient, pg_url: str) 
 async def seed_workspace_files(pg_url: str, namespace: str, files: dict[str, str]) -> None:
     """直接插入会话工作区文件。"""
 
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.begin() as conn:
-            for path, content in files.items():
-                await conn.execute(
-                    text(
-                        "INSERT INTO agent_runtime.workspace_files "
-                        "(namespace, path, content, version, created_at, updated_at) "
-                        "VALUES (:ns, :path, :content, 1, now(), now())"
-                    ),
-                    {"ns": namespace, "path": path, "content": content},
-                )
-    finally:
-        await engine.dispose()
+    async with connected(pg_url) as conn:
+        for path, content in files.items():
+            await conn.execute(
+                text(
+                    "INSERT INTO agent_runtime.workspace_files "
+                    "(namespace, path, content, version, created_at, updated_at) "
+                    "VALUES (:ns, :path, :content, 1, now(), now())"
+                ),
+                {"ns": namespace, "path": path, "content": content},
+            )
 
 
 async def test_workspace_files_can_be_listed_and_read(
@@ -666,19 +654,15 @@ async def test_workspace_files_require_login(client: httpx.AsyncClient) -> None:
 
 async def _title_row(pg_url: str, conversation_id: str) -> tuple[str, str]:
 
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.begin() as conn:
-            row = (
-                await conn.execute(
-                    text(
-                        "SELECT title, title_kind FROM iclip.conversations WHERE id = :id"
-                    ).bindparams(id=uuid.UUID(conversation_id))
+    async with connected(pg_url) as conn:
+        row = (
+            await conn.execute(
+                text("SELECT title, title_kind FROM iclip.conversations WHERE id = :id").bindparams(
+                    id=uuid.UUID(conversation_id)
                 )
-            ).one()
-        return str(row.title), str(row.title_kind)
-    finally:
-        await engine.dispose()
+            )
+        ).one()
+    return str(row.title), str(row.title_kind)
 
 
 async def test_generated_title_is_written_once(client: httpx.AsyncClient, pg_url: str) -> None:
