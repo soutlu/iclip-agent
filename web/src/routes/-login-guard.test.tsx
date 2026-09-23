@@ -1,13 +1,11 @@
 import { QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/react-router'
 import { render, screen } from '@testing-library/react'
-import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, it } from 'vitest'
 import { routeTree } from '@/routeTree.gen'
 import { queryClient } from '@/shared/api/query-client'
 import { TranscriptProvider } from '@/shared/transcript/transcript-provider'
-import { addMockConversation, addMockUser, mockAuthUser } from '@/testing/mocks/handlers'
-import { server } from '@/testing/mocks/server'
+import { addMockConversation, addMockUser, loginAs, mockAuthUser } from '@/testing/mocks/handlers'
 import { FakeSocket } from '@/testing/ws'
 
 /** 使用应用路由树与 queryClient 单例，确保 beforeLoad 和 ensureSessionUser 共用身份缓存；侧栏顶层要订全局帧，连接用假 socket。 */
@@ -29,11 +27,6 @@ const renderAt = async (initialPath: string) => {
   return router
 }
 
-const loginAs = (permissions: readonly string[]) =>
-  server.use(
-    http.get('*/api/users/me', () => HttpResponse.json({ user: { ...mockAuthUser, permissions } })),
-  )
-
 // 每例清理单例 queryClient，避免登录缓存污染后续测试。
 afterEach(() => {
   queryClient.clear()
@@ -48,7 +41,7 @@ describe('整页要登录的那几页', () => {
   })
 
   it('已登录时正常进入需求单页', async () => {
-    server.use(http.get('*/api/users/me', () => HttpResponse.json({ user: mockAuthUser })))
+    loginAs(mockAuthUser)
 
     const router = await renderAt('/tasks')
 
@@ -70,14 +63,14 @@ describe('整页要登录的那几页', () => {
       expect(anonymous.state.location.pathname).toBe('/')
 
       queryClient.clear()
-      loginAs(mockAuthUser.permissions)
+      loginAs(mockAuthUser)
       const plain = await renderAt(path)
       expect(plain.state.location.pathname).toBe('/')
     },
   )
 
   it('治理者进全部对话页，看到别人的对话与属主名', async () => {
-    loginAs([...mockAuthUser.permissions, 'users:manage'])
+    loginAs(mockAuthUser, { permissions: [...mockAuthUser.permissions, 'users:manage'] })
     const other = addMockUser('小王')
     addMockConversation('小王的秋季片').ownerUserId = other.id
 
@@ -90,7 +83,7 @@ describe('整页要登录的那几页', () => {
   })
 
   it('治理者进审计页，看到总览', async () => {
-    loginAs([...mockAuthUser.permissions, 'users:manage'])
+    loginAs(mockAuthUser, { permissions: [...mockAuthUser.permissions, 'users:manage'] })
 
     const router = await renderAt('/audit')
 

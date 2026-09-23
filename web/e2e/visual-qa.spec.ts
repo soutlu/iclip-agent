@@ -1,13 +1,12 @@
 import { expect, test } from '@playwright/test'
+import { canvasPng, openConversation } from './helpers'
 import { login } from './login'
 
 // 在 dev:mock 中生成视觉验收截图，输出到忽略入库的 .artifacts/design-qa/。
 const SHOT_DIR = '../.artifacts/design-qa'
 
 test('会话页视觉验收：浅色 / 深色 / 运行中', async ({ page }) => {
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+  await openConversation(page, '夜景延时素材生成')
 
   await page.getByRole('button', { name: '停止' }).waitFor()
   await page.getByLabel('输入消息').fill('顺便把配音也排上')
@@ -106,17 +105,7 @@ test('首页 composer 附件视觉验收：内联 pill 与悬停卡', async ({ p
   await login(page)
   await expect(page.getByRole('heading', { name: 'Cue' })).toBeAttached()
 
-  // 上传前会校验图片尺寸（短边至少 300），画一张够大的。
-  const png = Buffer.from(
-    await page.evaluate(() => {
-      const canvas = document.createElement('canvas')
-      canvas.width = 600
-      canvas.height = 800
-      canvas.getContext('2d')?.fillRect(0, 0, canvas.width, canvas.height)
-      return canvas.toDataURL('image/png').split(',')[1] ?? ''
-    }),
-    'base64',
-  )
+  const png = await canvasPng(page)
   await page
     .locator('input[type="file"]')
     .setInputFiles({ buffer: png, mimeType: 'image/png', name: '夜景参考图.png' })

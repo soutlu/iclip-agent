@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { openConversation } from './helpers'
 import { login } from './login'
 
 // 在真实浏览器中验证拖动宽度跨刷新持久化。
@@ -50,11 +51,7 @@ test('双击侧栏拖柄恢复默认宽', async ({ page }) => {
 })
 
 test('面板拖动受可用空间限制，刷新保留宽度，放不下时切成覆盖模式', async ({ page }) => {
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
-
-  const panel = page.getByRole('complementary', { name: '右侧面板' })
+  const panel = await openConversation(page, '夜景延时素材生成')
   await expect(panel).toBeVisible()
 
   const before = await panel.boundingBox()

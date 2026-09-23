@@ -14,6 +14,7 @@ import type {
 } from '@/shared/api/generated/zod.gen'
 import { mockAuthUser, mockGovernor } from './auth-user'
 import { mockConversations, type MockConversation } from './conversations'
+import { pageBy, type SortKey } from './paging'
 
 type Metrics = z.output<typeof zMetricsOut>
 type Spread = z.output<typeof zSpreadOut>
@@ -293,17 +294,9 @@ const distributionOf = (reports: Report[]) => {
     .map(([attempts, shots]) => ({ attempts, shots }))
 }
 
-const page = <T>(items: T[], query: URLSearchParams, key: (item: T) => string) => {
-  const cursor = query.get('cursor')
-  const limit = Number(query.get('limit') ?? 20)
-  const start = cursor === null ? 0 : items.findIndex((item) => key(item) === cursor) + 1
-  const slice = items.slice(start, start + limit)
-  const last = slice.at(-1)
-  return {
-    items: slice,
-    nextCursor: slice.length === limit && last !== undefined ? key(last) : null,
-  }
-}
+/** 两张明细表都按各自的时刻倒序翻页，翻页规则同合同 §6 审计列表。 */
+const page = <T>(items: readonly T[], query: URLSearchParams, keyOf: (item: T) => SortKey) =>
+  pageBy(items, keyOf, query.get('cursor'), Number(query.get('limit') ?? 20))
 
 export const auditHandlers = [
   http.get('*/api/audit/summary', ({ request }) => {
@@ -359,7 +352,7 @@ export const auditHandlers = [
   http.get('*/api/audit/conversations', ({ request }) => {
     const query = new URL(request.url).searchParams
     return HttpResponse.json(
-      page(reportsFor(query), query, (r) => `${r.deliveredAt}|${r.conversationId}`),
+      page(reportsFor(query), query, (r) => [r.deliveredAt, r.conversationId]),
     )
   }),
 
@@ -370,7 +363,7 @@ export const auditHandlers = [
       (item) => kinds.length === 0 || kinds.includes(item.kind),
     )
     return HttpResponse.json(
-      page(items, query, (a) => `${a.at}|${a.kind}:${a.conversationId ?? ''}:${a.shot ?? ''}`),
+      page(items, query, (a) => [a.at, `${a.kind}:${a.conversationId ?? ''}:${a.shot ?? ''}`]),
     )
   }),
 ]

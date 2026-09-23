@@ -1,7 +1,7 @@
 /// <reference lib="dom" />
 
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { login } from './login'
+import { openConversation } from './helpers'
 
 /** mock 受理后 3 秒出结果；切片、编辑、合成三步串起来要等三轮。 */
 const STEP_TIMEOUT = 15_000
@@ -9,12 +9,8 @@ const SHOT_DIR = '../.artifacts/design-qa/video-editor'
 
 /** 第 2 组那条成片是竖版，第 3 组是横版，预览黑框的黑边只在横版上出现。 */
 const openEditor = async (page: Page, mobile = false, group = 2) => {
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
-  // 紧凑屏右侧面板默认收着，编辑器挂在面板里，得先打开它。
-  if (mobile) await page.getByRole('button', { name: '打开右侧面板' }).click()
-  const panel = page.getByRole('complementary', { name: '右侧面板' })
+  // 编辑器挂在右侧面板里，紧凑屏要先打开面板。
+  const panel = await openConversation(page, '夜景延时素材生成', { mobile })
   await panel.getByRole('button', { name: `第 ${group} 组` }).click()
   await panel.getByRole('button', { name: '生成记录', exact: true }).click()
   const records = panel.getByRole('complementary', { name: '生成记录' })

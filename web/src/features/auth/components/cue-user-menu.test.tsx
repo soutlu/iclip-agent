@@ -1,15 +1,14 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent, { PointerEventsCheckLevel } from '@testing-library/user-event'
-import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
-import { mockAuthUser } from '@/testing/mocks/handlers'
+import { loginAs, mockAuthUser } from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
 import { CueUserMenu } from './cue-user-menu'
 
 /** 已登录用户的头像菜单；后面跟一个页面控件，用来确认焦点不会跑出菜单。 */
 async function renderMenu() {
-  server.use(http.get('*/api/users/me', () => HttpResponse.json({ user: mockAuthUser })))
+  loginAs(mockAuthUser)
   await renderWithProviders(
     <>
       <CueUserMenu />

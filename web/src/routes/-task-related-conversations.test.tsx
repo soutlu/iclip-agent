@@ -6,6 +6,7 @@ import { TasksRoute } from '@/features/tasks'
 import {
   addMockConversation,
   addMockTask,
+  loginAs,
   mockAuthUser,
   mockGovernor,
 } from '@/testing/mocks/handlers'
@@ -15,10 +16,8 @@ import { SERVER_HELLO } from '@/testing/ws'
 import { TaskRelatedConversations } from './-task-related-conversations'
 
 const renderTasks = async (currentUser = mockAuthUser) => {
-  server.use(
-    http.get('*/api/users/me', () => HttpResponse.json({ user: currentUser })),
-    http.get('*/api/generations', () => HttpResponse.json({ items: [] })),
-  )
+  loginAs(currentUser)
+  server.use(http.get('*/api/generations', () => HttpResponse.json({ items: [] })))
   return renderWithProviders(
     <TasksRoute relatedContent={(taskId) => <TaskRelatedConversations taskId={taskId} />} />,
   )

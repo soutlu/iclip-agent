@@ -1,44 +1,15 @@
 /// <reference lib="dom" />
 
 import { expect, test, type Page } from '@playwright/test'
-import { login } from './login'
-
-type ReplicaDocument = {
-  aspect_ratio: string
-  shots: {
-    index: number
-    seconds: number
-    image_urls: string[]
-    prompt: {
-      global_settings: string
-      timeline: { timestamps: [number, number]; prompt: string; image_indexes: number[] }[]
-    }
-  }[]
-}
+import { openConversation, readVideoShots } from './helpers'
 
 const openReplica = async (page: Page, mobile = false) => {
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '乐福鞋 · 完全复刻', exact: true }).click()
-  if (mobile) await page.getByRole('button', { name: '打开右侧面板' }).click()
-  const panel = page.getByRole('complementary', { name: '右侧面板' })
+  const panel = await openConversation(page, '乐福鞋 · 完全复刻', { mobile })
   await expect(panel.getByRole('textbox', { name: '全局设定', exact: true })).toBeVisible()
   return panel
 }
 
-const readReplica = (page: Page) =>
-  page.evaluate(async () => {
-    const conversationId = window.location.pathname.split('/').at(-1)
-    const response = await fetch(
-      `/api/conversations/${conversationId}/workspace/file?path=video_shot.json`,
-    )
-    if (!response.ok) throw new Error(`读取复刻文件失败：${response.status}`)
-    const body = (await response.json()) as { file: { content: string; version: number } }
-    return {
-      document: JSON.parse(body.file.content) as ReplicaDocument,
-      version: body.file.version,
-    }
-  })
+const readReplica = (page: Page) => readVideoShots(page, '读取复刻文件失败')
 
 test('共用文件按路径打开：全局参考图原位展开，只有编辑才保存', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1000 })

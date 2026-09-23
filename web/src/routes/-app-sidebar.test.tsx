@@ -1,22 +1,18 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { http, HttpResponse } from 'msw'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import {
   addMockCollection,
   addMockConversation,
   addMockTask,
+  loginAs,
   mockAuthUser,
   mockCollections,
 } from '@/testing/mocks/handlers'
-import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
 import { AppSidebar } from './-app-sidebar'
 import { LoginPromptProvider } from './-login-prompt'
-
-const loginAsUser = () =>
-  server.use(http.get('*/api/users/me', () => HttpResponse.json({ user: mockAuthUser })))
 
 /** 测试壳持有折叠状态，与应用壳的状态归属一致。 */
 function SidebarHarness() {
@@ -76,7 +72,7 @@ describe('AppSidebar', () => {
   })
 
   it('已登录时点搜索打开搜对话弹窗', async () => {
-    server.use(http.get('*/api/users/me', () => HttpResponse.json({ user: mockAuthUser })))
+    loginAs(mockAuthUser)
     const user = userEvent.setup()
     await renderSidebar()
 
@@ -88,7 +84,7 @@ describe('AppSidebar', () => {
   })
 
   it('已登录时点新建任务回首页', async () => {
-    server.use(http.get('*/api/users/me', () => HttpResponse.json({ user: mockAuthUser })))
+    loginAs(mockAuthUser)
     const user = userEvent.setup()
     const { router } = await renderSidebar(vi.fn(), '/tasks')
 
@@ -103,7 +99,7 @@ describe('AppSidebar', () => {
   it.each(['Meta', 'Control'])(
     '侧栏收起时 %s+K 打开搜索，选中结果跳转并关闭弹窗',
     async (modifier) => {
-      loginAsUser()
+      loginAs(mockAuthUser)
       const conversation = addMockConversation('待找回的广告')
       const user = userEvent.setup()
       const { router } = await renderSidebar()
@@ -131,7 +127,7 @@ describe('AppSidebar', () => {
   )
 
   it.each(['Meta', 'Control'])('%s+Alt+N 在已登录时回首页，不展开已折叠侧栏', async (modifier) => {
-    loginAsUser()
+    loginAs(mockAuthUser)
     const conversation = addMockConversation('当前对话')
     const user = userEvent.setup()
     const { router } = await renderSidebar(vi.fn(), `/c/${conversation.id}`)
@@ -146,16 +142,7 @@ describe('AppSidebar', () => {
   })
 
   it('没有对话读写权限时禁用对应入口，快捷键也不打开搜索或离开当前页', async () => {
-    server.use(
-      http.get('*/api/users/me', () =>
-        HttpResponse.json({
-          user: {
-            ...mockAuthUser,
-            permissions: ['tasks:read'],
-          },
-        }),
-      ),
-    )
+    loginAs(mockAuthUser, { permissions: ['tasks:read'] })
     const user = userEvent.setup()
     const { router } = await renderSidebar(vi.fn(), '/tasks')
     await user.click(screen.getByRole('button', { name: '展开侧边栏' }))
@@ -173,7 +160,7 @@ describe('AppSidebar', () => {
   })
 
   it('只有带 users:manage 的账号看得到「全部对话」「审计」入口，分别去 /conversations 与 /audit', async () => {
-    loginAsUser()
+    loginAs(mockAuthUser)
     const user = userEvent.setup()
     const plain = await renderSidebar()
     await user.click(screen.getByRole('button', { name: '展开侧边栏' }))
@@ -182,13 +169,7 @@ describe('AppSidebar', () => {
     expect(screen.queryByRole('button', { name: '审计' })).not.toBeInTheDocument()
     plain.unmount()
 
-    server.use(
-      http.get('*/api/users/me', () =>
-        HttpResponse.json({
-          user: { ...mockAuthUser, permissions: [...mockAuthUser.permissions, 'users:manage'] },
-        }),
-      ),
-    )
+    loginAs(mockAuthUser, { permissions: [...mockAuthUser.permissions, 'users:manage'] })
     const { router } = await renderSidebar()
     await user.click(screen.getByRole('button', { name: '展开侧边栏' }))
     await screen.findByRole('button', { name: '用户菜单' })
@@ -202,7 +183,7 @@ describe('AppSidebar', () => {
 
 describe('AppSidebar 对话区', () => {
   const openSidebar = async () => {
-    loginAsUser()
+    loginAs(mockAuthUser)
     const user = userEvent.setup()
     await renderSidebar()
     await user.click(screen.getByRole('button', { name: '展开侧边栏' }))

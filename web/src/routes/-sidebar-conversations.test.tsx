@@ -6,6 +6,7 @@ import {
   addMockCollection,
   addMockConversation,
   addMockTask,
+  loginAs,
   mockAuthUser,
 } from '@/testing/mocks/handlers'
 import { useLiveConversations } from '@/features/conversations'
@@ -19,7 +20,7 @@ function LiveFrames() {
   return null
 }
 
-/** 按分钟递增活动时间，验证列表倒序。 */
+/** 按分钟递增建立时间，验证列表倒序。 */
 const seedConversations = (count: number, collectionId: string | null = null) =>
   Array.from({ length: count }, (_, index) => {
     const conversation = addMockConversation(
@@ -45,9 +46,7 @@ const workChanged = (
 })
 
 const render = async (initialPath = '/', permissions = mockAuthUser.permissions) => {
-  server.use(
-    http.get('*/api/users/me', () => HttpResponse.json({ user: { ...mockAuthUser, permissions } })),
-  )
+  loginAs(mockAuthUser, { permissions })
   const user = userEvent.setup()
   const { router, socket } = await renderWithProviders(
     <>

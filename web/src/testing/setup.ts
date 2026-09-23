@@ -7,7 +7,9 @@ import {
   resetMockTasks,
   resetMockUsers,
 } from './mocks/handlers'
+import { resetMockClock } from './mocks/paging'
 import { server } from './mocks/server'
+import { resetMockTranscript } from './mocks/transcript'
 import { resetMockWorkspace } from './mocks/workspace'
 
 // matchMedia 恒为 false，模拟紧凑屏。
@@ -59,9 +61,11 @@ beforeAll(() => {
 afterEach(() => {
   server.resetHandlers()
   server.events.removeAllListeners()
+  resetMockClock()
   resetMockConversations()
   resetMockSession()
   resetMockTasks()
+  resetMockTranscript()
   resetMockUsers()
   resetMockWorkspace()
   cleanup()

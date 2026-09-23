@@ -3,7 +3,13 @@ import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { pasteTextIntoComposer } from '@/testing/editor'
-import { mockAuthUser, mockCollections, mockConversations } from '@/testing/mocks/handlers'
+import {
+  liveMockConversation,
+  loginAs,
+  mockAuthUser,
+  mockCollections,
+  mockConversations,
+} from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
 import { HomePage } from './-home-page'
@@ -18,15 +24,14 @@ const renderHome = async () => {
   return { ...rendered, user: userEvent.setup() }
 }
 
-const authenticate = () =>
-  server.use(http.get('*/api/users/me', () => HttpResponse.json({ user: mockAuthUser })))
+const liveConversations = () => mockConversations.filter((item) => item.deletedAt === null)
 
 const promptReceipt = (promptId: string) =>
   HttpResponse.json({ createdAt: new Date().toISOString(), promptId, status: 'queued' })
 
 describe('首页真实数据流程', () => {
   it('新建合集后立即选中；选择服务端 Agent 并将合集带入首条创作', async () => {
-    authenticate()
+    loginAs(mockAuthUser)
     server.use(
       http.get('*/api/conversations/agents', () =>
         HttpResponse.json({
@@ -59,7 +64,7 @@ describe('首页真实数据流程', () => {
   })
 
   it('首条消息回执失败时保留输入；重试复用同一对话与消息编号', async () => {
-    authenticate()
+    loginAs(mockAuthUser)
     const bodies: { prompt_id: string; content: unknown[] }[] = []
     server.use(
       http.post('*/api/conversations/:conversationId/prompts', async ({ request }) => {
@@ -89,7 +94,7 @@ describe('首页真实数据流程', () => {
   })
 
   it('创建回执失败后用同一对话编号重试，创建成功前不发消息', async () => {
-    authenticate()
+    loginAs(mockAuthUser)
     const ids: string[] = []
     let sends = 0
     server.events.on('request:start', async ({ request }) => {
@@ -126,7 +131,7 @@ describe('首页真实数据流程', () => {
   })
 
   it('Agent 目录读取失败可重试，空目录不会创建对话', async () => {
-    authenticate()
+    loginAs(mockAuthUser)
     server.use(
       http.get(
         '*/api/conversations/agents',
@@ -146,13 +151,13 @@ describe('首页真实数据流程', () => {
   })
 
   it('失败后对话被删除，明确收到 404 后的下一次主动提交使用新编号', async () => {
-    authenticate()
+    loginAs(mockAuthUser)
     const targets: string[] = []
     server.use(
       http.post('*/api/conversations/:conversationId/prompts', async ({ params, request }) => {
         const target = String(params['conversationId'])
         targets.push(target)
-        if (!mockConversations.some((item) => item.id === target)) {
+        if (!liveMockConversation(target)) {
           return HttpResponse.json({ detail: '对话已不存在' }, { status: 404 })
         }
         if (targets.length === 1)
@@ -174,12 +179,13 @@ describe('首页真实数据流程', () => {
     await waitFor(() => expect(targets).toHaveLength(2))
     await waitFor(() => expect(screen.getByRole('button', { name: '发送' })).toBeEnabled())
     expect(router.state.location.pathname).toBe('/')
-    expect(mockConversations).toHaveLength(0)
+    // 删除留下墓碑（合同 §6），只数活着的对话。
+    expect(liveConversations()).toHaveLength(0)
     expect(screen.getByLabelText('输入消息')).toHaveTextContent('保留这份原稿')
     await user.click(screen.getByRole('button', { name: '发送' }))
     await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/c\//))
     expect(targets[1]).toBe(removed.id)
     expect(targets[2]).not.toBe(removed.id)
-    expect(mockConversations).toHaveLength(1)
+    expect(liveConversations()).toHaveLength(1)
   })
 })
