@@ -5,7 +5,11 @@ import { use, useEffect } from 'react'
 import { useUser } from '@/shared/auth'
 import type { SessionUpdate } from '@/shared/transcript/connection'
 import { TranscriptConnectionContext } from '@/shared/transcript/transcript-context'
-import { conversationsQueryKeys, type Conversation } from './conversations.api'
+import {
+  conversationsQueryKeys,
+  refreshConversationLists,
+  type Conversation,
+} from './conversations.api'
 import { findConversationRow, patchConversationRows, type RowPatch } from './conversations.patch'
 
 /**
@@ -39,8 +43,7 @@ export const useLiveConversations = (enabled = true): void => {
     const stop = connection.watchSessions((update) => {
       if (update.kind === 'reconnected') {
         // 全局帧不支持补发；重连后丢弃额外分页并刷新拓扑与全部对话页，恢复一致状态。
-        queryClient.removeQueries({ queryKey: conversationsQueryKeys.moreAll })
-        void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
+        void refreshConversationLists(queryClient, 'sidebar')
         refreshAuditSoon()
         return
       }
@@ -59,8 +62,7 @@ export const useLiveConversations = (enabled = true): void => {
         // 帧上只有单条任务的状态，行上要的是这段对话的视频汇总，算不出来就重拉；图片与切段不上侧栏。
         if (update.jobKind !== 'video') return
         // 与收场重拉同一套：丢掉额外分页，只重拉拓扑与全部对话页，不让每个已展开分页各自再请求一次。
-        queryClient.removeQueries({ queryKey: conversationsQueryKeys.moreAll })
-        void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
+        void refreshConversationLists(queryClient, 'sidebar')
         refreshAuditSoon()
         return
       }
@@ -90,8 +92,7 @@ export const useLiveConversations = (enabled = true): void => {
 
       if (!update.busy && update.lastTurnReason === 'completed') {
         // 运行完成后重拉拓扑以获取 lastRunId，供未读标记比较；额外分页随之清除。
-        queryClient.removeQueries({ queryKey: conversationsQueryKeys.moreAll })
-        void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
+        void refreshConversationLists(queryClient, 'sidebar')
         return
       }
 

@@ -334,14 +334,18 @@ test('认领需求后预览单段文字与图片，创建关联对话并发送�
   )
   await preview.getByRole('button', { name: '确认并开始' }).click()
   const created = await createdResponse
-  expect(created.request().postDataJSON()).toEqual({
+  const createBody = created.request().postDataJSON() as { id: string }
+  // 对话 id 由客户端铸，回执丢了重发也是同一段。
+  expect(createBody).toEqual({
     agentId: 'storyboard',
+    id: expect.any(String),
     taskId: task.id,
     title: task.title,
   })
   const { conversation } = (await created.json()) as {
     conversation: { id: string; taskId: string }
   }
+  expect(conversation.id).toBe(createBody.id)
   expect(conversation.taskId).toBe(task.id)
   const submitted = (await submittedRequest).postDataJSON() as {
     prompt_id: string

@@ -24,9 +24,17 @@ const POLL_MS = 5000
 /** 出片固定的分辨率。视频模型清单只给模型名、不给各家支持的档位，前端做不出下拉，就定一档。 */
 const VIDEO_RESOLUTION = '720p'
 
+const conversationGenerationsKey = (conversationId: string) =>
+  ['generations', 'conversation', conversationId] as const
+
 export const storyboardQueryKeys = {
+  /** 本对话全部生成记录查询的前缀：视频记录、参考帧编辑、视频编辑链都挂在它下面，状态跳转帧到了
+   * 失效它一次就全部重拉。模型清单不在这下面。 */
+  conversation: conversationGenerationsKey,
   /** 本对话全部视频记录；分镜页与需求单面板共用这一份缓存。 */
-  generations: (conversationId: string) => ['generations', { conversationId }] as const,
+  videoJobs: (conversationId: string) =>
+    [...conversationGenerationsKey(conversationId), 'video'] as const,
+  imageModels: ['generations', 'image-models'] as const,
   videoModels: ['generations', 'video-models'] as const,
 }
 
@@ -115,7 +123,7 @@ export const readConversationVideoJobs = (conversationId: string, signal: AbortS
 export const conversationVideoJobsQuery = (conversationId: string) =>
   queryOptions({
     queryFn: ({ signal }) => readConversationVideoJobs(conversationId, signal),
-    queryKey: storyboardQueryKeys.generations(conversationId),
+    queryKey: storyboardQueryKeys.videoJobs(conversationId),
     refetchInterval: ({ state }) => generationsRefetchInterval(state.data ?? []),
   })
 

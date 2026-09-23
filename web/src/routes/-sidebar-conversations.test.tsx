@@ -358,9 +358,15 @@ describe('SidebarConversations', () => {
     },
   )
 
-  it('归属弹窗把对话移进合集后，侧栏跟着变', async () => {
+  it('归属弹窗把对话移进合集后，侧栏跟着变，拓扑只重拉一次', async () => {
     const collection = addMockCollection('夏季亚麻系列')
     const [conversation] = seedConversations(1)
+    let topologyReads = 0
+    server.events.on('request:start', ({ request }) => {
+      if (request.method === 'GET' && new URL(request.url).pathname === '/api/conversations') {
+        topologyReads += 1
+      }
+    })
     const { user } = await render()
     await screen.findByText('第0段')
 
@@ -368,11 +374,14 @@ describe('SidebarConversations', () => {
     await user.click(await screen.findByRole('menuitem', { name: '归属' }))
     const dialog = await screen.findByRole('dialog', { name: '对话归属' })
     await user.selectOptions(within(dialog).getByLabelText('合集'), collection.id)
+    const readsBeforeSave = topologyReads
     await user.click(within(dialog).getByRole('button', { name: '保存' }))
 
     await waitFor(() => expect(conversation?.collectionId).toBe(collection.id))
     expect(await screen.findByRole('button', { name: '任务 (0)' })).toBeVisible()
     expect(await screen.findByRole('button', { name: '夏季亚麻系列 (1)' })).toBeVisible()
+    // 刷新只由归属 mutation 做一遍；路由的保存回调再刷一遍会取消在途重拉、多发一次请求。
+    expect(topologyReads - readsBeforeSave).toBe(1)
   })
 
   it('服务端给对话起了名，侧栏那一行当场跟着改', async () => {

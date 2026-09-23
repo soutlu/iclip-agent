@@ -1,8 +1,11 @@
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
+import { makeGenerationJob } from '@/testing/generation-job'
 import { server } from '@/testing/mocks/server'
+import { generationsRefetchInterval } from '../storyboard.api'
 import {
   compileEditPrompt,
+  imageEditJobsRefetchInterval,
   parseEditPrompt,
   resolveImageOptions,
   submitImageEdit,
@@ -70,6 +73,25 @@ const target: FrameEditTarget = {
   shotIndex: 2,
   frameNumber: 3,
 }
+
+describe('imageEditJobsRefetchInterval', () => {
+  const done = makeGenerationJob({ kind: 'image', status: 'completed' })
+  const running = makeGenerationJob({ kind: 'image', status: 'submitted' })
+
+  it('与生成列表同一口径：已翻开的哪一页里有在跑的都算', () => {
+    const interval = imageEditJobsRefetchInterval({
+      pages: [{ items: [done] }, { items: [running] }],
+    })
+
+    expect(interval).toBe(generationsRefetchInterval([done, running]))
+    expect(interval).not.toBe(false)
+  })
+
+  it('全落定了、或者还没读到就不问', () => {
+    expect(imageEditJobsRefetchInterval({ pages: [{ items: [done] }] })).toBe(false)
+    expect(imageEditJobsRefetchInterval(undefined)).toBe(false)
+  })
+})
 
 describe('submitImageEdit', () => {
   it('坐标里带上这次改的是哪张图，参考图与编译好的正文照发', async () => {

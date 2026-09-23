@@ -3,7 +3,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { CollectionFormDialog, CollectionPicker, useCollections } from '@/features/collections'
 import {
-  conversationsQueryKeys,
+  refreshConversationLists,
   useConversationAgents,
   useStartConversation,
 } from '@/features/conversations'
@@ -159,7 +159,7 @@ export function HomePage() {
         onSaved={(collection) => {
           chooseCollection(collection.id)
           // 侧栏的合集列表来自对话拓扑，新建后让它重拉。
-          void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
+          void refreshConversationLists(queryClient, 'sidebar')
         }}
         open={newCollectionName !== null}
       />

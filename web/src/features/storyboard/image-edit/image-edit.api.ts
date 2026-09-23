@@ -8,13 +8,19 @@ import {
   zImageModelsOut,
 } from '@/shared/api/generated/zod.gen'
 import { frameEditMetadata, metadataFilterParam, storyboardMetadata } from '../generation-metadata'
-import { generationsRefetchInterval, type GenerationJob } from '../storyboard.api'
-import { isRunningStatus } from '../shots'
+import {
+  generationsRefetchInterval,
+  storyboardQueryKeys,
+  type GenerationJob,
+} from '../storyboard.api'
 import type { EditInstruction, FrameEditDraft, FrameEditTarget } from './image-edit-types'
 
-/** 本对话全部参考帧编辑记录的查询前缀；按格的键挂在它下面，失效前缀即失效全部。 */
+/** 按格编辑记录一页取几条；取满一页才可能还有更早的，不满就是翻到底了。 */
+const EDIT_JOBS_PAGE_LIMIT = 20
+
+/** 本对话全部参考帧编辑记录的查询前缀，挂在本对话生成记录的前缀下；按格的键挂在它下面，失效前缀即失效全部。 */
 export const imageEditConversationKey = (conversationId: string) =>
-  ['frame-edits', conversationId] as const
+  [...storyboardQueryKeys.conversation(conversationId), 'frame-edits'] as const
 
 export const imageEditQueryKey = (target: FrameEditTarget) =>
   [
@@ -39,6 +45,11 @@ export const useFrameImageJobs = (conversationId: string) =>
     refetchInterval: ({ state }) => generationsRefetchInterval(state.data?.items ?? []),
   })
 
+/** 按格编辑记录的轮询兜底：已翻开的各页并起来，与生成列表同一口径。 */
+export const imageEditJobsRefetchInterval = (
+  data: { pages: readonly { items: readonly GenerationJob[] }[] } | undefined,
+): number | false => generationsRefetchInterval(data?.pages.flatMap((page) => page.items) ?? [])
+
 export function useImageEditJobs(target: FrameEditTarget) {
   return useInfiniteQuery({
     queryKey: imageEditQueryKey(target),
@@ -48,7 +59,7 @@ export function useImageEditJobs(target: FrameEditTarget) {
         conversationId: target.conversationId,
         kind: 'image',
         metadata: metadataFilterParam(storyboardMetadata(target.shotIndex, target.frameNumber)),
-        limit: '20',
+        limit: `${EDIT_JOBS_PAGE_LIMIT}`,
       })
       if (pageParam !== undefined) params.set('before', pageParam)
       return apiFetch(`/generations?${params}`, zGenerationsPageOut, {
@@ -56,14 +67,12 @@ export function useImageEditJobs(target: FrameEditTarget) {
         fallbackErrorMessage: '读取图片编辑记录失败',
       })
     },
-    getNextPageParam: (page) => (page.items.length >= 20 ? page.items.at(-1)?.id : undefined),
+    getNextPageParam: (page) =>
+      page.items.length >= EDIT_JOBS_PAGE_LIMIT ? page.items.at(-1)?.id : undefined,
     // 编辑器按需打开，页面上的角标可能已经知道任务落定了；打开就重拉，不吃全局 30 秒的新鲜期。
     staleTime: 0,
-    // 状态跳转帧到了由 useLiveGenerations 立刻失效；有任务在跑时仍每 5 秒轮询兜底。
-    refetchInterval: ({ state }) =>
-      state.data?.pages.some((page) => page.items.some((job) => isRunningStatus(job.status)))
-        ? 5000
-        : false,
+    // 状态跳转帧到了由 useLiveGenerations 立刻失效；有任务在跑时仍轮询兜底。
+    refetchInterval: ({ state }) => imageEditJobsRefetchInterval(state.data),
   })
 }
 
@@ -130,7 +139,7 @@ export type ImageModel = ImageModelOut
 /** 接入了哪几家图片模型、各家支持什么档位。可选项与受理层照同一份声明，不在前端复制一份。 */
 export function useImageModels() {
   return useQuery({
-    queryKey: ['generations', 'image-models'] as const,
+    queryKey: storyboardQueryKeys.imageModels,
     queryFn: ({ signal }) =>
       apiFetch('/generations/image-models', zImageModelsOut, {
         signal,
