@@ -57,8 +57,9 @@ from tests.helpers.shot_video import (
 )
 
 USER = uuid.UUID("11111111-1111-1111-1111-111111111111")
+CONVERSATION = "33333333-3333-3333-3333-333333333333"
 VIDEO = "https://cdn.test/ref.mp4"
-NAMESPACE = f"{USER}/thread-1"
+NAMESPACE = f"{USER}/{CONVERSATION}"
 
 DOCUMENT = (
     "## 4、逐镜拉片表\n"
@@ -85,7 +86,7 @@ def make_deps() -> AgentRunDeps:
             audit_label="luke",
             api_key_id=None,
         ),
-        conversation_id="thread-1",
+        conversation_id=CONVERSATION,
         user_name="luke",
     )
 
@@ -410,6 +411,66 @@ async def test_generate_needs_the_extraction_ledger(
     assert generations.submitted == []
 
 
+BROKEN_LEDGERS = {
+    "not-json": "{",
+    "board-without-url": json.dumps(
+        {"extractionVersion": 1, "extractionKey": "k", "boards": [{"board": 1}]}
+    ),
+    "board-zero": json.dumps(
+        {
+            "extractionVersion": 1,
+            "extractionKey": "k",
+            "boards": [{"board": 0, "url": "https://cdn.test/board.jpg"}],
+        }
+    ),
+    "board-as-text": json.dumps(
+        {
+            "extractionVersion": 1,
+            "extractionKey": "k",
+            "boards": [{"board": "1", "url": "https://cdn.test/board.jpg"}],
+        }
+    ),
+}
+"""模型改坏的取帧台账：key 仍然对得上，形状不合。"""
+
+
+@pytest.mark.parametrize("content", list(BROKEN_LEDGERS.values()), ids=list(BROKEN_LEDGERS))
+async def test_a_broken_ledger_counts_as_missing(
+    capability: ShotVideo[object], files: FakeFileStore, content: str
+) -> None:
+    await files.write(NAMESPACE, EXTRACTION_PATH, content)
+
+    assert await capability.extractor.load(files, NAMESPACE, expected_key="k") is None
+
+
+async def test_a_well_formed_ledger_loads_as_a_model(
+    capability: ShotVideo[object], files: FakeFileStore
+) -> None:
+    await files.write(NAMESPACE, EXTRACTION_PATH, ledger())
+
+    loaded = await capability.extractor.load(files, NAMESPACE, expected_key="k")
+
+    assert loaded is not None
+    assert [(board.board, board.url) for board in loaded.boards] == [
+        (1, "https://cdn.test/board.jpg")
+    ]
+    assert await capability.extractor.load(files, NAMESPACE, expected_key="other") is None
+
+
+async def test_generate_treats_a_broken_ledger_as_missing(
+    tools: ShotVideoToolset[object],
+    ctx: RunContext[object],
+    files: FakeFileStore,
+    generations: FakeGenerations,
+) -> None:
+    await files.write(NAMESPACE, EXTRACTION_PATH, BROKEN_LEDGERS["board-without-url"])
+    with pytest.raises(ModelRetry, match="plan_shot_frames"):
+        await tools.generate_shot_frames(
+            ctx, [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
+        )
+    assert generations.submitted == []
+
+
 @pytest.mark.parametrize(
     ("frames", "expected"),
     [
@@ -475,21 +536,24 @@ async def test_generate_tags_the_job_with_the_conversation(
     assert {request.conversation_id for request in generations.submitted} == {conversation_id}
 
 
-async def test_generate_leaves_the_conversation_empty_when_it_is_not_an_id(
+async def test_a_conversation_id_that_is_not_a_uuid_is_corrupt_state(
     tools: ShotVideoToolset[object],
-    ctx: RunContext[object],
     files: FakeFileStore,
     generations: FakeGenerations,
 ) -> None:
+    """入口已把对话 id 规范成 UUID，这里不是 UUID 属于状态损坏，不静默归档成空。"""
 
-    generations.outcomes = [Outcome(status="failed", output_url=None, error_code="REJECTED")]
-    await files.write(NAMESPACE, EXTRACTION_PATH, ledger("S1-1"))
-    with pytest.raises(ToolFailed):
+    ctx = make_context(replace(make_deps(), conversation_id="thread-1"))
+    await files.write(f"{USER}/thread-1", EXTRACTION_PATH, ledger("S1-1"))
+    with pytest.raises(RuntimeError, match="UUID") as failure:
         await tools.generate_shot_frames(
             ctx, [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
         )
+    with pytest.raises(RuntimeError, match="UUID"):
+        await tools.generate_anchor_sheet(ctx, ["一只猫"])
 
-    assert generations.submitted[0].conversation_id is None
+    assert "thread-1" not in str(failure.value)
+    assert generations.submitted == []
 
 
 async def test_generate_reference_urls_must_be_http(

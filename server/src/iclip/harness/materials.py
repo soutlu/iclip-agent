@@ -14,10 +14,10 @@ from iclip.platform.material_ledger.store import MaterialKind, MaterialLedger
 
 
 def require_http(url: str, *, what: str) -> None:
-    """要求素材地址使用 HTTP(S)。"""
+    """要求素材地址使用 HTTP(S)；错误不回显被拒地址。"""
 
     if not url.startswith(("http://", "https://")):
-        raise ModelRetry(f"{what}必须是 http:// 或 https:// 开头；收到的是 {url!r}。")
+        raise ModelRetry(f"{what}必须是 http:// 或 https:// 开头；换成对话或工具结果里给出的地址。")
 
 
 async def require_material(

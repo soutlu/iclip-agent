@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 from collections.abc import Sequence
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Final
+from typing import Annotated, Final
 
 import httpx
+import structlog
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic.alias_generators import to_camel
 from pydantic_ai import ModelRetry
 
 from iclip.capabilities.shot_video import ffmpeg
@@ -40,6 +42,31 @@ EXTRACTION_PATH: Final = "frames/extraction.json"
 EXTRACTION_VERSION: Final = 1
 
 _JPEG: Final = "image/jpeg"
+
+_logger = structlog.stdlib.get_logger(__name__)
+
+
+class LedgerBoard(BaseModel):
+    """台账里的一块预览板：板号从 1 起，对应拆解文档的第几个结构层级。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    board: Annotated[int, Field(strict=True, ge=1)]
+    url: str
+
+
+class ExtractionLedger(BaseModel):
+    """取帧台账 ``frames/extraction.json`` 的结构，磁盘上字段名是 camelCase。
+
+    文件在模型可写的工作区里，读回时按本模型校验。"""
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid", frozen=True
+    )
+
+    extraction_version: int
+    extraction_key: str
+    boards: list[LedgerBoard]
 
 
 class FrameExtractor:
@@ -80,7 +107,7 @@ class FrameExtractor:
         *,
         video_url: str,
         rows: Sequence[Sequence[ShotSpan]],
-    ) -> tuple[dict[str, Any], bool]:
+    ) -> tuple[ExtractionLedger, bool]:
         """读取或重建取帧台账，并返回是否复用；持久化由调用方负责。"""
 
         try:
@@ -107,21 +134,24 @@ class FrameExtractor:
 
     async def load(
         self, files: FileStore, namespace: str, *, expected_key: str | None
-    ) -> dict[str, Any] | None:
-        """读取帧账本；版本不符或（给定时）key 不匹配一律视为不存在。"""
+    ) -> ExtractionLedger | None:
+        """读取取帧台账；形状不合、版本不符或（给定时）key 不匹配一律视为不存在。
+
+        ``expected_key`` 为 None 时只确认工作区里有一份合规的当前版本台账。"""
 
         stored = await files.read(namespace, EXTRACTION_PATH)
         if stored is None:
             return None
         try:
-            document = json.loads(stored.content)
-        except json.JSONDecodeError:
+            document = ExtractionLedger.model_validate_json(stored.content)
+        except ValidationError as exc:
+            _logger.warning(
+                "取帧台账形状不合，按不存在处理", namespace=namespace, errors=exc.error_count()
+            )
             return None
-        if not isinstance(document, dict):
+        if document.extraction_version != EXTRACTION_VERSION:
             return None
-        if document.get("extractionVersion") != EXTRACTION_VERSION:
-            return None
-        if expected_key is not None and document.get("extractionKey") != expected_key:
+        if expected_key is not None and document.extraction_key != expected_key:
             return None
         return document
 
@@ -131,7 +161,7 @@ class FrameExtractor:
         source: Path,
         key: str,
         rows: Sequence[Sequence[ShotSpan]],
-    ) -> dict[str, Any]:
+    ) -> ExtractionLedger:
         """按固定间隔抽帧，按结构分组生成公开预览板与取帧台账。
 
         台账只存算不出来的东西：复用判定用的版本与 key，以及生成时才产生的板子地址。
@@ -144,7 +174,7 @@ class FrameExtractor:
             )
             cell_aspect = await asyncio.to_thread(image_aspect, frames[0])
             sampled = sample_rows(rows, interval_ms=FRAME_INTERVAL_MS)
-            boards: list[dict[str, Any]] = []
+            boards: list[LedgerBoard] = []
             for index, cells in enumerate(sampled, start=1):
                 in_range = [
                     cell for cell in cells if cell.src_ms // FRAME_INTERVAL_MS < len(frames)
@@ -164,12 +194,10 @@ class FrameExtractor:
                     content=image,
                     content_type=_JPEG,
                 )
-                boards.append({"board": index, "url": url})
-        return {
-            "extractionVersion": EXTRACTION_VERSION,
-            "extractionKey": key,
-            "boards": boards,
-        }
+                boards.append(LedgerBoard(board=index, url=url))
+        return ExtractionLedger(
+            extraction_version=EXTRACTION_VERSION, extraction_key=key, boards=boards
+        )
 
 
 def _check_in_range(rows: Sequence[Sequence[ShotSpan]], *, duration_ms: int) -> None:
@@ -194,5 +222,7 @@ def _sha256_file(path: Path) -> str:
 __all__ = [
     "EXTRACTION_PATH",
     "EXTRACTION_VERSION",
+    "ExtractionLedger",
     "FrameExtractor",
+    "LedgerBoard",
 ]
