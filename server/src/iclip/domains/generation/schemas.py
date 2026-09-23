@@ -25,22 +25,21 @@ from pydantic import (
 from pydantic.alias_generators import to_camel
 
 from iclip.common.errors import ValidationFailed
-from iclip.common.urls import is_http_url
-from iclip.domains.generation.shot_prompt import (
-    format_seconds,
-    format_shot_prompt,
+from iclip.common.generation_vocab import GenerationKind, GenerationStatus
+from iclip.common.shot_rules import (
+    MAX_REFERENCE_IMAGES,
+    first_unavailable_image,
     image_indexes_of,
+    timeline_fault,
 )
+from iclip.common.urls import is_http_url
+from iclip.domains.generation.shot_prompt import format_seconds, format_shot_prompt
 
 if TYPE_CHECKING:  # 只为类型：真导入会和 models.py 成环
     from iclip.domains.generation.models import GenerationJob
 
-GenerationKind = Literal["video", "image", "clip"]
-
-GenerationStatus = Literal["pending", "submitting", "submitted", "completed", "failed"]
-"""生成记录的业务状态，取值含义见下面的 ``STATUS_*``。它和这些常量放在这里而不是 models.py：
-``GenerationOut`` 运行时要解析它，本模块的投影要按它判断，而 models.py 反过来导入本模块。"""
-
+# 两套词表写在 common（推送帧也要引），这里照原名导出。状态常量放这里而不是 models.py：
+# GenerationOut 运行时要解析状态词，本模块的投影要按它判断，而 models.py 反过来导入本模块。
 STATUS_PENDING: Final = "pending"
 """已受理，尚未提交给 Provider。"""
 STATUS_SUBMITTING: Final = "submitting"
@@ -88,9 +87,8 @@ IMAGE_RESOLUTIONS = Literal["1k", "2k", "4k"]
 IMAGE_MAX_REFERENCES: Final = 10
 """图像编辑接口的参考图上限。超了在提交之前就拒，不浪费一次付费调用。"""
 MAX_PROMPT_CHARS: Final = 4000
-MAX_REFERENCE_URLS: Final = 30
-"""每类参考素材最多几个地址。与分镜文件一组镜头的帧图上限（capabilities 的
-``MAX_REFERENCE_IMAGES``）取同一个数：文件里存得下的一组，出片就必须发得出去。"""
+MAX_REFERENCE_URLS: Final = MAX_REFERENCE_IMAGES
+"""每类参考素材最多几个地址，取一组镜头的帧图上限：分镜文件里存得下的一组，出片就必须发得出去。"""
 MAX_MODEL_CHARS: Final = 200
 MAX_USER_NAME_CHARS: Final = 200
 MAX_METADATA_CHARS: Final = 2000
@@ -202,19 +200,21 @@ class VideoShotIn(SnakeModel):
         previous_end = 0.0
         for position, item in enumerate(self.timeline, start=1):
             start, end = item.timestamps
-            if end <= start:
-                raise ValueError(
-                    f"第 {position} 镜的 timestamps 为 [{format_seconds(start)}, "
-                    f"{format_seconds(end)}]，结束必须晚于开始"
-                )
-            if position == 1 and start != 0:
-                raise ValueError(f"第一镜从 {format_seconds(start)} 秒开始，必须从 0 开始")
-            if start < previous_end:
-                raise ValueError(
-                    f"第 {position} 镜从 {format_seconds(start)} 秒开始，"
-                    f"早于上一镜的结束 {format_seconds(previous_end)} 秒"
-                )
-            previous_end = end
+            match timeline_fault(position, start, end, previous_end):
+                case "not_after_start":
+                    raise ValueError(
+                        f"第 {position} 镜的 timestamps 为 [{format_seconds(start)}, "
+                        f"{format_seconds(end)}]，结束必须晚于开始"
+                    )
+                case "first_not_at_zero":
+                    raise ValueError(f"第一镜从 {format_seconds(start)} 秒开始，必须从 0 开始")
+                case "overlaps_previous":
+                    raise ValueError(
+                        f"第 {position} 镜从 {format_seconds(start)} 秒开始，"
+                        f"早于上一镜的结束 {format_seconds(previous_end)} 秒"
+                    )
+                case None:
+                    previous_end = end
         return self
 
 
@@ -226,11 +226,11 @@ def _check_image_references(shot: VideoShotIn, available: int) -> None:
         (f"timeline[{index}].prompt", item.prompt) for index, item in enumerate(shot.timeline)
     ]
     for where, text in texts:
-        for number in image_indexes_of(text):
-            if not 1 <= number <= available:
-                raise ValueError(
-                    f"shot.{where} 引用了 @Image{number}，但 reference_image_urls 只有 {available} 张"
-                )
+        number = first_unavailable_image(text, available)
+        if number is not None:
+            raise ValueError(
+                f"shot.{where} 引用了 @Image{number}，但 reference_image_urls 只有 {available} 张"
+            )
 
 
 class VideoGenerationIn(SnakeModel):

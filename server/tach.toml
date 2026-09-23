@@ -101,7 +101,7 @@ depends_on = ["iclip.common", "iclip.domains.identity", "iclip.domains.products"
 
 [[modules]]
 path = "iclip.platform.transcript"
-depends_on = []
+depends_on = ["iclip.common"]
 
 [[modules]]
 path = "iclip.harness"

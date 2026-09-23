@@ -2,6 +2,8 @@
 
 import { z } from 'zod'
 
+import { zGenerationOut } from '@/shared/api/generated/zod.gen'
+
 import { transcriptOpsEventSchema, transcriptResetEventSchema } from './vendor/contract/events'
 import type { TranscriptGrade } from './vendor/granularity/grade'
 
@@ -52,13 +54,15 @@ const workChangedSchema = z.object({
   last_turn_reason: z.enum(['completed', 'failed', 'aborted']).nullable().optional(),
 })
 
-// session_id 位于信封，任务没有来源对话时省略；metadata 是调用方自带的坐标原样带出，为空时服务端整个省略字段。
+// session_id 位于信封，任务没有来源对话时省略；kind 与 status 的词表取生成物的 GenerationOut；metadata 是调用方自带的坐标原样带出，为空时服务端整个省略字段。
 const generationChangedSchema = z.object({
   id: z.string(),
-  kind: z.string(),
-  status: z.string(),
+  kind: zGenerationOut.shape.kind,
+  status: zGenerationOut.shape.status,
   metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 })
+
+type GenerationChange = z.infer<typeof generationChangedSchema>
 
 // session_id 位于信封；版本与写入者从重新读取的文件获取。
 const fsChangedSchema = z.object({
@@ -94,9 +98,9 @@ export type SessionUpdate =
       /** 任务没有来源对话时为 null。 */
       conversationId: string | null
       jobId: string
-      /** 生成种类与业务状态照 GenerationOut 的词汇原样转发。 */
-      jobKind: string
-      status: string
+      /** 生成种类与业务状态，词表同 GenerationOut。 */
+      jobKind: GenerationChange['kind']
+      status: GenerationChange['status']
       /** 调用方自带的坐标，原样转发；由消费方自己解释。 */
       metadata: Record<string, unknown> | null
     }

@@ -6,12 +6,16 @@ from typing import Any, Final, Protocol
 
 import httpx
 
+from iclip.capabilities.video_document import SHOT_TIMECODE_SHAPE
+
 TIMEOUT_SECONDS: Final = 600.0
 """付费视频拆解的总超时；超时无法确认上游执行结果，不自动重试。"""
 
 _USER_TEXT: Final = "请对随附视频做参考片拆解。"
 
-SYSTEM_PROMPT: Final = """# Role & Context
+# 时间码那一条单独拼进来：写法与取帧解析器同一份，正文里的 {原台词} 等大括号不宜整体套 f-string。
+SYSTEM_PROMPT: Final = (
+    """# Role & Context
 你是一名资深短视频导演与商业内容分析师，把参考短视频拆解为“商业目的—结构递进—出场清单—逐镜拉片—全片概述”五层信息，产出一份文档。
 
 # Task
@@ -29,8 +33,9 @@ SYSTEM_PROMPT: Final = """# Role & Context
 4. 视频并非明显带货或广告时，不强行套“转化闭环”；先判断它更偏品牌种草、功能展示、情绪氛围、剧情表达还是内容型短片。
 5. 第 2 节定义多少个结构节点，第 4 节表格就必须严格对应多少行，节点名称完全一致；节点名只使用 2-4 个英文词的功能标签（如 `Gear-Up Hook`、`Terrain Proof`、`Logo Memory Lock`）。结构节点是宏观段落，不是镜头数量；第 4 节必须在每个结构节点内部继续拆出真实镜头。
 6. 禁止任何占位符；对白与旁白自然嵌入动作描述。
-7. `**[MM:SS.mmm-MM:SS.mmm]**` 只用于第 4 节的镜头时间码，分秒各两位、毫秒三位、连接符为半角短横且两侧无空格；其余位置的时间裸写为 `00:00.000`。
-
+"""
+    f"7. `{SHOT_TIMECODE_SHAPE}` 只用于第 4 节的镜头时间码，分秒各两位、毫秒三位、连接符为半角短横且两侧无空格；其余位置的时间裸写为 `00:00.000`。\n"
+    """
 ## 1、商业目的
 四行列表，每行格式 `- **字段名**：结论——证据`，字段固定为：**内容类型**、**目标人群**、**核心主张**、**转化方式**。
 
@@ -94,6 +99,7 @@ SYSTEM_PROMPT: Final = """# Role & Context
 - 专业、克制、可复用
 - 优先输出“对下游创作有用的判断”，不堆砌形容词
 """
+)
 
 
 class ArkVideoUnderstanding:

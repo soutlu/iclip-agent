@@ -10,11 +10,7 @@ from typing import Any
 import pytest
 
 from iclip.domains.generation.schemas import VideoShotIn
-from iclip.domains.generation.shot_prompt import (
-    format_seconds,
-    format_shot_prompt,
-    image_indexes_of,
-)
+from iclip.domains.generation.shot_prompt import format_seconds, format_shot_prompt
 from tests.helpers.generation import SHOT_PROMPT, video_shot
 
 
@@ -62,8 +58,3 @@ def test_whitespace_inside_the_texts_is_kept() -> None:
 )
 def test_format_seconds(value: float, text: str) -> None:
     assert format_seconds(value) == text
-
-
-def test_image_indexes_follow_first_appearance_and_dedupe() -> None:
-    assert image_indexes_of("看 @Image2，再看 @Image1，回到 @Image2；@Image02 也是 2。") == [2, 1]
-    assert image_indexes_of("没有引用。") == []

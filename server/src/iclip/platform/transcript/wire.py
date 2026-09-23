@@ -10,6 +10,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from iclip.common.generation_vocab import GenerationKind, GenerationStatus
 from iclip.platform.transcript.ops import (
     AgentDescriptor,
     EmittableOperation,
@@ -137,11 +138,11 @@ class SessionWorkChanged(_Envelope):
 
 
 class GenerationChangedPayload(_Envelope):
-    """``kind`` 与 ``status`` 是生成域的词，这里只当字符串转发，与列表接口 ``GenerationOut`` 同一套。"""
+    """``kind`` 与 ``status`` 取 common 的生成词表，与列表接口 ``GenerationOut`` 是同一份。"""
 
     id: str
-    kind: str
-    status: str
+    kind: GenerationKind
+    status: GenerationStatus
     metadata: dict[str, Any] | None = None
 
 

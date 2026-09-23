@@ -53,7 +53,7 @@ const MALFORMED = [
   }),
   malformed('event.generation.changed', {
     session_id: 'c9',
-    payload: { id: 7, kind: BODY, status: 'submitted' },
+    payload: { id: 'job-9', kind: BODY, status: 'submitted' },
   }),
   malformed('event.fs.changed', {
     session_id: 'c1',

@@ -1,24 +1,25 @@
-"""镜头组 prompt 表的结构与校验，供交付工具与文件写回共用。"""
+"""镜头组 prompt 表的结构与校验措辞，供交付工具与文件写回共用；与出片请求共用的纯判定在 common/shot_rules.py。"""
 
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Sequence
 from typing import Annotated, Final
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from iclip.common.shot_rules import (
+    MAX_REFERENCE_IMAGES,
+    first_unavailable_image,
+    image_indexes_of,
+    timeline_fault,
+)
 from iclip.common.tool_args import JsonText
 
 SHOTS_PATH: Final = "video_shot.json"
-MAX_REFERENCE_IMAGES: Final = 30
 
 SHOT_MIN_SECONDS: Final = 4
 SHOT_MAX_SECONDS: Final = 30
-
-_IMAGE_REF = re.compile(r"@Image(\d+)")
-"""镜头组 prompt 里指向参考图的记号。"""
 
 
 class ShotDocumentError(ValueError):
@@ -80,7 +81,9 @@ class VideoShotRequest(BaseModel):
         list[str],
         Field(
             max_length=MAX_REFERENCE_IMAGES,
-            description="本组镜头帧地址，@ImageN 即第 N 张；无图传 []，最多 30 张。",
+            description=(
+                f"本组镜头帧地址，@ImageN 即第 N 张；无图传 []，最多 {MAX_REFERENCE_IMAGES} 张。"
+            ),
         ),
     ]
 
@@ -157,38 +160,34 @@ def validate_video_shot_requests(
             if not item.prompt.strip():
                 raise ShotDocumentError(f"{where}的 prompt 为空。")
             start, end = item.timestamps
-            if end <= start:
-                raise ShotDocumentError(
-                    f"{where}的 timestamps 为 [{start}, {end}]；结束时间必须大于开始时间。"
-                )
-            if shot_number == 1 and start != 0:
-                raise ShotDocumentError(
-                    f"{where}从 {start} 秒开始；每个镜头组的第一镜必须从 0 开始。"
-                )
-            if start < previous_end:
-                raise ShotDocumentError(
-                    f"{where}从 {start} 秒开始，早于上一镜的结束时间 {previous_end} 秒；"
-                    "各镜头时间段必须按先后顺序排列且不得重叠。"
-                )
+            match timeline_fault(shot_number, start, end, previous_end):
+                case "not_after_start":
+                    raise ShotDocumentError(
+                        f"{where}的 timestamps 为 [{start}, {end}]；结束时间必须大于开始时间。"
+                    )
+                case "first_not_at_zero":
+                    raise ShotDocumentError(
+                        f"{where}从 {start} 秒开始；每个镜头组的第一镜必须从 0 开始。"
+                    )
+                case "overlaps_previous":
+                    raise ShotDocumentError(
+                        f"{where}从 {start} 秒开始，早于上一镜的结束时间 {previous_end} 秒；"
+                        "各镜头时间段必须按先后顺序排列且不得重叠。"
+                    )
+                case None:
+                    previous_end = end
             _validate_image_refs(
                 item.prompt, where=f"{where}的 prompt", image_count=len(shot.image_urls)
             )
-            previous_end = end
 
 
 def _validate_image_refs(prompt: str, *, where: str, image_count: int) -> None:
-    for number in _IMAGE_REF.findall(prompt):
-        if not 1 <= int(number) <= image_count:
-            raise ShotDocumentError(
-                f"{where} 引用了 @Image{number}，但本组 image_urls 只有 {image_count} 张图片；"
-                "编号必须从 1 开始且不超过图片数。"
-            )
-
-
-def extract_image_indexes(prompt: str) -> list[int]:
-    """按正文首次出现顺序提取图片编号，保留编号语义并去重。"""
-
-    return list(dict.fromkeys(int(number) for number in _IMAGE_REF.findall(prompt)))
+    number = first_unavailable_image(prompt, image_count)
+    if number is not None:
+        raise ShotDocumentError(
+            f"{where} 引用了 @Image{number}，但本组 image_urls 只有 {image_count} 张图片；"
+            "编号必须从 1 开始且不超过图片数。"
+        )
 
 
 def build_video_shots_document(
@@ -209,7 +208,7 @@ def build_video_shots_document(
                         StoredTimelineItem(
                             timestamps=list(item.timestamps),
                             prompt=item.prompt,
-                            image_indexes=extract_image_indexes(item.prompt),
+                            image_indexes=image_indexes_of(item.prompt),
                         )
                         for item in shot.prompt.timeline
                     ],
@@ -250,7 +249,7 @@ def validate_shots_document(content: str) -> VideoShotsDocument:
     validate_video_shot_requests(parsed.shots)
     for shot in parsed.shots:
         for position, item in enumerate(shot.prompt.timeline, start=1):
-            expected = extract_image_indexes(item.prompt)
+            expected = image_indexes_of(item.prompt)
             if item.image_indexes != expected:
                 raise ShotDocumentError(
                     f"镜头组 {shot.index} 的第 {position} 镜 image_indexes 与正文引用不一致；"
@@ -274,7 +273,6 @@ __all__ = [
     "VideoShotRequest",
     "VideoShotsDocument",
     "build_video_shots_document",
-    "extract_image_indexes",
     "parse_aspect",
     "validate_shots_document",
     "validate_video_shot_requests",
