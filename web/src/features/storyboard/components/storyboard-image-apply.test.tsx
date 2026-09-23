@@ -84,20 +84,11 @@ const renderReader = () =>
 describe('图片编辑结果应用', () => {
   beforeEach(() => {
     sessionStorage.clear()
-    vi.stubGlobal(
-      'ResizeObserver',
-      class {
-        observe() {}
-        unobserve() {}
-        disconnect() {}
-      },
-    )
     provideJobs()
   })
   afterEach(() => {
     toast.dismiss()
     vi.restoreAllMocks()
-    vi.unstubAllGlobals()
   })
 
   it('应用 A 保存失败后恢复原图，保留描述并允许直接改选 B 保存', async () => {

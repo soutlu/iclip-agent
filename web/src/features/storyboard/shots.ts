@@ -31,12 +31,11 @@ export const phaseOfStatus = (status: GenerationStatus): GenerationPhase => {
 }
 
 /** 还没到终态的状态，从合同枚举按阶段筛出。 */
-const IN_FLIGHT: ReadonlySet<string> = new Set(
+const IN_FLIGHT: ReadonlySet<GenerationStatus> = new Set(
   zGenerationOut.shape.status.options.filter((status) => {
     const phase = phaseOfStatus(status)
     return phase === 'queued' || phase === 'running'
   }),
 )
 
-// 收 string：出片列表的轮询判定按 `{ status: string }` 结构传进来。
-export const isRunningStatus = (status: string): boolean => IN_FLIGHT.has(status)
+export const isRunningStatus = (status: GenerationStatus): boolean => IN_FLIGHT.has(status)

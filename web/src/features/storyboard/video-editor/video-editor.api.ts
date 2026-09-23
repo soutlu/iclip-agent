@@ -1,8 +1,12 @@
 /** 视频编辑的三次提交与链查询。切与合成走本地裁剪端点，编辑走出片端点。 */
 
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, type QueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/shared/api/client'
-import type { ClipIn, VideoGenerationIn } from '@/shared/api/generated/types.gen'
+import type {
+  ClipIn,
+  GenerationsPageOut,
+  VideoGenerationIn,
+} from '@/shared/api/generated/types.gen'
 import {
   zGenerationEnvelope,
   zGenerationsPageOut,
@@ -39,6 +43,22 @@ export const useVideoEditChain = (conversationId: string, rootJobId: string) =>
     staleTime: 0,
     refetchInterval: ({ state }) => generationsRefetchInterval(state.data?.items ?? []),
   })
+
+/** 刚受理的记录先放进这条链的缓存最前面，再失效本对话全部编辑链，等服务端结果覆盖。 */
+export const seedVideoEditJob = (
+  queryClient: QueryClient,
+  conversationId: string,
+  rootJobId: string,
+  job: GenerationJob,
+) => {
+  queryClient.setQueryData<GenerationsPageOut>(
+    videoEditChainKey(conversationId, rootJobId),
+    (previous) => ({
+      items: [job, ...(previous?.items ?? []).filter((item) => item.id !== job.id)],
+    }),
+  )
+  void queryClient.invalidateQueries({ queryKey: videoEditConversationKey(conversationId) })
+}
 
 /** 编辑时请求里要多带的东西：正文前缀，或并进 `provider_options` 的键值。 */
 export type EditTrigger = {

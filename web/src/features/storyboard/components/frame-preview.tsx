@@ -2,6 +2,7 @@
 
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { errorMessageOf } from '@/shared/api/client'
+import { MEDIA_IMAGE_ACCEPT } from '@/shared/api/media-upload'
 import { Icon } from '@/shared/icons'
 import { IconButton } from '@/shared/ui/button'
 import { useFileDropTarget } from '@/shared/ui/file-drop'
@@ -9,7 +10,6 @@ import { StatusBadge } from '@/shared/ui/status-badge'
 import { toast } from '@/shared/ui/toast'
 import { frameBadgeStatus, frameBadgeText, type FrameBadge } from '../frame-status'
 import { aspectRatioStyle } from '../shots'
-import { FRAME_IMAGE_ACCEPT } from '../storyboard.api'
 
 type FramePreviewProps = {
   aspectRatio: string
@@ -175,7 +175,7 @@ export function FramePreview({
               title="替换图片"
             />
             <input
-              accept={FRAME_IMAGE_ACCEPT}
+              accept={MEDIA_IMAGE_ACCEPT}
               aria-label="选择替换图片"
               className="hidden"
               disabled={disabled || uploading}

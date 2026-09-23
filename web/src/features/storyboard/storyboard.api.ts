@@ -1,7 +1,6 @@
 import { queryOptions, useQuery } from '@tanstack/react-query'
 import { type z } from 'zod'
 import { ApiError, apiFetch } from '@/shared/api/client'
-import { MEDIA_IMAGE_ACCEPT, uploadMediaFile } from '@/shared/api/media-upload'
 import { drainPages } from '@/shared/api/paging'
 import type { VideoGenerationIn, VideoShotIn } from '@/shared/api/generated/types.gen'
 import {
@@ -93,8 +92,9 @@ export const submitVideoGeneration = async (input: VideoGenerationInput): Promis
 }
 
 /** 状态跳转帧到了由 useLiveGenerations 立刻失效；存在运行任务时仍每 5 秒轮询兜底，全部结束后停止。 */
-export const generationsRefetchInterval = (items: readonly { status: string }[]): number | false =>
-  items.some((item) => isRunningStatus(item.status)) ? POLL_MS : false
+export const generationsRefetchInterval = (
+  items: readonly { status: GenerationJob['status'] }[],
+): number | false => (items.some((item) => isRunningStatus(item.status)) ? POLL_MS : false)
 
 const VIDEO_JOBS_ERROR = '读取视频记录失败'
 
@@ -129,8 +129,3 @@ export const conversationVideoJobsQuery = (conversationId: string) =>
 
 export const useShotGenerations = (conversationId: string) =>
   useQuery(conversationVideoJobsQuery(conversationId))
-
-export const FRAME_IMAGE_ACCEPT = MEDIA_IMAGE_ACCEPT
-
-/** 上传并确认本地图片，返回可用于分镜引用的地址。 */
-export const uploadFrameImage = (file: File): Promise<string> => uploadMediaFile(file, 'image')

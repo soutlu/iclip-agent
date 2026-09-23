@@ -102,13 +102,6 @@ function drawPoint(canvas: HTMLElement) {
 describe('图片编辑器', () => {
   beforeEach(() => {
     vi.stubGlobal(
-      'ResizeObserver',
-      class {
-        observe() {}
-        disconnect() {}
-      },
-    )
-    vi.stubGlobal(
       'createImageBitmap',
       vi.fn().mockResolvedValue({ close: vi.fn(), height: 1200, width: 800 }),
     )

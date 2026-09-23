@@ -1,8 +1,8 @@
 /** 一组分镜的内容选择、预览与编辑；全局设定和时间线共用图片操作。 */
 import { useEffect, useEffectEvent, useRef, useState, type CSSProperties } from 'react'
 import { errorMessageOf, UserFacingError } from '@/shared/api/client'
+import { uploadMediaFile } from '@/shared/api/media-upload'
 import { Icon } from '@/shared/icons'
-import { copyText } from '@/shared/lib/clipboard'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import type { LightboxMedia } from '@/shared/ui/media-lightbox'
@@ -14,9 +14,11 @@ import {
   updateContentPrompt,
   insertContentReference,
   appendContentImage,
+  contentLabel,
+  resolveShotSelection,
 } from '../shot-content'
 import { aspectRatioStyle, MAX_REFERENCE_IMAGES } from '../shots'
-import { uploadFrameImage } from '../storyboard.api'
+import { copyWithToast } from './copy-with-toast'
 import { FrameAssignmentPicker } from './frame-assignment-picker'
 import { FramePreview } from './frame-preview'
 import { PromptEditor, type PromptEditorHandle } from './prompt-editor'
@@ -58,9 +60,10 @@ export function ReaderPage({
   shot,
 }: ReaderPageProps) {
   const contents = shotContents(shot)
-  const content = contents.find((item) => item.id === requestedContent) ?? contents[0]
-  const frameNumber =
-    frame !== undefined && content.frameNumbers.includes(frame) ? frame : content.frameNumbers[0]
+  const { content, frame: frameNumber } = resolveShotSelection(contents, {
+    content: requestedContent,
+    frame,
+  })
   const url = frameNumber === undefined ? undefined : shot.image_urls[frameNumber - 1]
   const currentFrameIndex = content.frameNumbers.indexOf(frameNumber ?? -1)
   const [width = 0, height = 0] = aspect_ratio.split(':').map(Number)
@@ -134,7 +137,7 @@ export function ReaderPage({
     setUploadTarget(targetKey)
     setPickerTarget(null)
     try {
-      const newUrl = await uploadFrameImage(file)
+      const newUrl = await uploadMediaFile(file, 'image')
       if (revision !== uploadRevisionRef.current) return
       const insertion = editorRef.current?.getInsertion()
       const updated = updateTarget((current) =>
@@ -155,10 +158,10 @@ export function ReaderPage({
       : contents.filter((item) => item.frameNumbers.includes(frameNumber))
   const sharedCaption =
     sharing.length > 1
-      ? `@Image${frameNumber} · ${sharing.map((item) => (item.timelineIndex === undefined ? item.title : `镜头 ${item.timelineIndex + 1}`)).join('、')} 共用`
+      ? `@Image${frameNumber} · ${sharing.map(contentLabel).join('、')} 共用`
       : undefined
   const editorLabel =
-    content.timelineIndex === undefined ? content.title : `镜头 ${content.timelineIndex + 1} 的描述`
+    content.timelineIndex === undefined ? content.title : `${contentLabel(content)} 的描述`
 
   return (
     <section
@@ -206,7 +209,7 @@ export function ReaderPage({
                 onPreview({ kind: 'image', name: `镜头组 ${shot.index} 第 ${frameNumber} 帧`, url })
               }
               onReplace={(newUrl) => onReplaceFrame(frameNumber, url, newUrl)}
-              onUpload={uploadFrameImage}
+              onUpload={(file) => uploadMediaFile(file, 'image')}
               onUploadingChange={setReplacing}
             />
           )}
@@ -227,11 +230,7 @@ export function ReaderPage({
                   label={content.kind === 'global' ? '复制全局设定' : '复制镜头正文'}
                   name="copy"
                   size="sm"
-                  onClick={() =>
-                    void copyText(content.prompt ?? '')
-                      .then(() => toast('已复制'))
-                      .catch(() => toast.error('复制失败'))
-                  }
+                  onClick={() => void copyWithToast(content.prompt ?? '', '已复制')}
                 />
               )}
             </div>

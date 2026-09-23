@@ -7,7 +7,7 @@ import { videoSnapshotUrl } from '@/shared/lib/media-url'
 import { Button, IconButton } from '@/shared/ui/button'
 import { MediaLightbox } from '@/shared/ui/media-lightbox'
 import { StatusBadge } from '@/shared/ui/status-badge'
-import { readStoryboardMetadata } from '../generation-metadata'
+import { isShotVideo } from '../generation-metadata'
 import type { Shot } from '../shot-document'
 import { phaseOfStatus } from '../shots'
 import { historyShotOf, type GenerationJob } from '../storyboard.api'
@@ -26,11 +26,9 @@ const modelOf = (job: GenerationJob): string | undefined => {
   return trimmed === '' ? undefined : trimmed
 }
 
-const newestFirst = (left: GenerationJob, right: GenerationJob) =>
-  right.createdAt.localeCompare(left.createdAt)
-
 type GenerationRecordsProps = {
   shotIndex: number
+  /** 本对话的出片记录，按服务端给的顺序（新的在前）原样列。 */
   jobs: readonly GenerationJob[]
   /** 每条出片被成功编辑过几次；编辑结果自己不进这张列表。 */
   editCounts?: ReadonlyMap<string, number> | undefined
@@ -47,9 +45,7 @@ export function GenerationRecords({
   onEditVideo,
   shotIndex,
 }: GenerationRecordsProps) {
-  const listed = jobs
-    .filter((job) => job.kind === 'video' && readStoryboardMetadata(job)?.shot === shotIndex)
-    .sort(newestFirst)
+  const listed = jobs.filter((job) => isShotVideo(job, shotIndex))
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

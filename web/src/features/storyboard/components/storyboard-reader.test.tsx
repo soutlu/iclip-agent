@@ -202,14 +202,6 @@ const navigationOf = (page: HTMLElement) =>
 describe('StoryboardReader', () => {
   beforeEach(() => {
     vi.stubGlobal('createImageBitmap', async () => ({ close: () => {}, height: 800, width: 600 }))
-    vi.stubGlobal(
-      'ResizeObserver',
-      class {
-        observe() {}
-        unobserve() {}
-        disconnect() {}
-      },
-    )
   })
   afterEach(() => {
     toast.dismiss()

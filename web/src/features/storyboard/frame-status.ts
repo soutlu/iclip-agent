@@ -27,15 +27,12 @@ export const frameJobKey = (shotIndex: number, frameNumber: number) => `${shotIn
 export const isAppliedResult = (job: GenerationJob, currentUrl: string): boolean =>
   job.outputUrl !== null && job.outputUrl === currentUrl
 
-const newestFirst = (left: GenerationJob, right: GenerationJob) =>
-  right.createdAt.localeCompare(left.createdAt)
-
-/** 每格最新一条图片任务。视频任务、坐标里没帧号的都落不到格上，跳过。 */
+/** 每格最新一条图片任务：列表按服务端给的顺序（新的在前），每格取第一条。视频任务、坐标里没帧号的都落不到格上，跳过。 */
 export const latestFrameJobs = (
   jobs: readonly GenerationJob[],
 ): ReadonlyMap<string, GenerationJob> => {
   const latest = new Map<string, GenerationJob>()
-  for (const job of [...jobs].sort(newestFirst)) {
+  for (const job of jobs) {
     const at = readStoryboardMetadata(job)
     if (job.kind !== 'image' || at === undefined || at.frame === undefined) continue
     const key = frameJobKey(at.shot, at.frame)

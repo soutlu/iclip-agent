@@ -3,6 +3,8 @@ import {
   decodeContentId,
   encodeContentId,
   insertContentReference,
+  resolveShotSelection,
+  shotContents,
   type ShotContentRef,
 } from './shot-content'
 import { describe, expect, it } from 'vitest'
@@ -218,6 +220,22 @@ describe('structured editing', () => {
       `镜头组 1\n${exported}\n\n镜头组 2\n${exported}`,
     )
   })
+
+  // 与服务端 test_format_seconds 同一组样例：保留到毫秒，整秒不带小数点。
+  it.each([
+    [0, 4, '[0–4秒｜镜头1]'],
+    [3.5, 8.25, '[3.5–8.25秒｜镜头1]'],
+    [1.0004, 2.0006, '[1–2.001秒｜镜头1]'],
+  ])('起止秒 %d–%d 取整到毫秒并去掉末尾的零', (start, end, heading) => {
+    const timed: Shot = {
+      ...shot,
+      prompt: {
+        ...shot.prompt,
+        timeline: [{ timestamps: [start, end], prompt: '一。', image_indexes: [] }],
+      },
+    }
+    expect(formatShotPrompt(timed).split('\n')).toContain(`${heading} 一。`)
+  })
 })
 
 describe('shotName', () => {
@@ -253,5 +271,21 @@ describe('内容 id 编解码', () => {
 
   it.each(['', 'scene:0', 'scene:01', 'scene:x', 'Global', 'scene:1 '])('拒绝 %j', (id) => {
     expect(decodeContentId(id)).toBeUndefined()
+  })
+})
+
+describe('resolveShotSelection', () => {
+  // 全局设定不引用图片；镜头 1 引用 @Image2、@Image1；镜头 3 没有图。
+  it.each([
+    ['scene:1', 1, 'scene:1', 1],
+    ['scene:1', undefined, 'scene:1', 2],
+    ['scene:1', 3, 'scene:1', 2],
+    ['scene:9', 1, 'global', undefined],
+    [undefined, 1, 'global', undefined],
+    ['scene:3', undefined, 'scene:3', undefined],
+  ])('内容 %s、帧 %s 落到 %s 的第 %s 帧', (content, frame, contentId, frameNumber) => {
+    const selection = resolveShotSelection(shotContents(shot), { content, frame })
+    expect(selection.content.id).toBe(contentId)
+    expect(selection.frame).toBe(frameNumber)
   })
 })
