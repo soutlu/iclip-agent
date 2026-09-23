@@ -23,11 +23,11 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelResponse,
     PartStartEvent,
-    RetryPromptPart,
     TextPart,
     TextPartDelta,
     ThinkingPart,
     ThinkingPartDelta,
+    ToolReturnPart,
     UserPromptPart,
 )
 from pydantic_ai.run import AgentRunResultEvent
@@ -36,14 +36,18 @@ from pydantic_ai.ui import UIEventStream
 from pydantic_ai_harness.compaction import estimate_context_tokens
 
 from iclip.harness.context_compaction import compaction_only
-from iclip.harness.transcript.from_messages import ORPHAN_TOOL_ERROR, step_usage, turn_usage
+from iclip.harness.transcript.from_messages import (
+    ORPHAN_TOOL_ERROR,
+    settle_tool_return,
+    step_usage,
+    turn_usage,
+)
 from iclip.harness.transcript.prompt_media import plain_text, prompt_content
 from iclip.platform.transcript.display import ToolDisplayRegistry
 from iclip.platform.transcript.ops import (
     APPROVAL_ID_PREFIX,
     COMPACTION_NOTICE,
     MAIN_AGENT_ID,
-    TOOL_STATE_BY_OUTCOME,
     AgentRef,
     AppendOp,
     EmittableOperation,
@@ -416,26 +420,22 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     async def handle_function_tool_result(
         self, event: FunctionToolResultEvent
     ) -> AsyncIterator[OpsBatch]:
-        """仅回填本轮已登记的工具卡，续跑使用原卡；忽略新消息触发的旧轮次前沿修复结果。"""
+        """仅回填本轮已登记的工具卡，续跑使用原卡；忽略新消息触发的旧轮次前沿修复结果。
+
+        运行出错或被停时基类替没返回的调用补的收尾也忽略：它不进历史，留给轮次收尾按孤儿卡处理。
+        """
 
         part = event.part
         opened = self._tool_cards.get(part.tool_call_id)
         if opened is None:
             return
+        if part.tool_call_id in self._pending_tool_calls:
+            # 基类的 _pending_tool_calls（pydantic_ai 2.39 UIEventStream）在分发真实结果前已弹出该调用，
+            # 只有异常收尾时补的返回到这里还挂着；升级框架时要复核这一点。
+            return
         self._settled_calls.add(part.tool_call_id)
-        if isinstance(part, RetryPromptPart):
-            outcome = None
-            state, output, metadata, error = "error", None, None, str(part.content)
-        elif part.outcome == "interrupted":
-            # 框架补的中断返回不进快照，历史只能按孤儿卡收尾；实时也用同一句，两条路才一致。
-            outcome = part.outcome
-            state, output, metadata, error = "error", None, None, ORPHAN_TOOL_ERROR
-        else:
-            outcome = part.outcome
-            state = TOOL_STATE_BY_OUTCOME.get(part.outcome, "error")
-            output = part.content
-            metadata = part.metadata
-            error = None if state == "done" else str(part.content)
+        state, output, metadata, error = settle_tool_return(part)
+        stopped = isinstance(part, ToolReturnPart) and part.outcome == "interrupted"
         ops: list[EmittableOperation] = [
             FrameUpsertOp(
                 turn_id=self.turn_id,
@@ -455,17 +455,11 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             settled = task.model_copy(
                 update={
                     # interrupted 是「运行被停了」，与历史从子运行事件推出的 killed 对上。
-                    "state": (
-                        "completed"
-                        if state == "done"
-                        else "killed"
-                        if outcome == "interrupted"
-                        else "failed"
-                    ),
+                    "state": "completed" if state == "done" else "killed" if stopped else "failed",
                     "ended_at": _now(),
-                    "result_summary": str(part.content) if state == "done" else None,
+                    "result_summary": str(output) if state == "done" else None,
                     # 被停的任务没有错误文本，历史侧从子运行事件也推不出一句来。
-                    "error": None if state == "done" or outcome == "interrupted" else error,
+                    "error": None if state == "done" or stopped else error,
                 }
             )
             self._subagent_tasks[part.tool_call_id] = settled
@@ -622,19 +616,23 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         return ops
 
     def _repaired_card_ops(self) -> list[EmittableOperation]:
-        """处理框架补充 interrupted 返回但未发送事件的调用，统一原卡的状态与错误文案。"""
+        """处理框架补充 interrupted 返回但未发送事件的调用，按历史里那条返回收尾原卡。"""
 
         ops: list[EmittableOperation] = []
         for tool_call_id in self.repaired_calls:
             card = self._tool_cards.get(tool_call_id)
             if card is None:
                 continue
+            state, output, metadata, error = settle_tool_return(
+                ToolReturnPart(
+                    tool_name=card.name,
+                    content=INTERRUPTED_TOOL_RETURN_CONTENT,
+                    tool_call_id=tool_call_id,
+                    outcome="interrupted",
+                )
+            )
             settled = card.model_copy(
-                update={
-                    "state": "error",
-                    "output": INTERRUPTED_TOOL_RETURN_CONTENT,
-                    "error": INTERRUPTED_TOOL_RETURN_CONTENT,
-                }
+                update={"state": state, "output": output, "metadata": metadata, "error": error}
             )
             self._tool_cards[tool_call_id] = settled
             self._settled_calls.add(tool_call_id)

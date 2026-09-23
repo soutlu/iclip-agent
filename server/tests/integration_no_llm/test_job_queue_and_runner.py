@@ -106,7 +106,7 @@ def _records(
 
 
 def _skeleton(turns: tuple[TranscriptTurn, ...]) -> list[Any]:
-    """比较结构、id、正文、工具状态与轮错误，忽略时间戳。"""
+    """比较结构、id、正文、工具卡的状态、返回与错误，以及轮错误，忽略时间戳。"""
 
     return [
         (
@@ -125,6 +125,8 @@ def _skeleton(turns: tuple[TranscriptTurn, ...]) -> list[Any]:
                             frame.kind,
                             getattr(frame, "text", None),
                             getattr(frame, "state", None),
+                            getattr(frame, "output", None),
+                            getattr(frame, "error", None),
                         )
                         for frame in step.frames
                     ],
@@ -378,12 +380,13 @@ async def test_a_run_interrupted_mid_tool_cycle_is_repaired_by_the_official_path
     # 修复返回在两条路上都按孤儿卡收尾，不透出框架的英文文案。
     assert (cards["call_2"].state, cards["call_2"].error) == ("error", ORPHAN_TOOL_ERROR)
 
-    # 框架补偿返回不发事件，实时投影需显式结束对应工具卡。
+    # 框架补偿返回不发事件，实时投影需显式结束对应工具卡，文案与历史同一句。
     replayed = replay(store, conversation_id)
     live = {card.tool_call_id: card for card in tool_cards(replayed)}
-    assert (live["call_2"].state, live["call_2"].error) == (
+    assert (live["call_2"].state, live["call_2"].output, live["call_2"].error) == (
         "error",
-        INTERRUPTED_TOOL_RETURN_CONTENT,
+        None,
+        ORPHAN_TOOL_ERROR,
     )
     assert _skeleton(replayed) == _skeleton(derived)
 
@@ -1666,6 +1669,8 @@ async def test_a_conversation_waiting_for_approval_takes_no_steering_and_queues_
 
     replayed = replay(store, conversation_id)
     assert replayed[0].state == "cancelled"
+    # 撤回审批的轮头与历史一样，终态就带耗时。
+    assert replayed[0].duration_ms is not None
     assert [card.state for card in tool_cards(replayed[:1])] == ["error"]
     assert store.pending_interactions(conversation_id, MAIN_AGENT_ID) == ()
 

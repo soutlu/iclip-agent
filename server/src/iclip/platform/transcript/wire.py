@@ -106,10 +106,17 @@ class SessionMetaUpdated(_Envelope):
     payload: SessionMetaPayload
 
 
+PendingInteraction = Literal["none", "approval", "question"]
+"""最高优先级的待处理事项。"""
+
+LastTurnReason = Literal["completed", "failed", "aborted"]
+"""最近完成轮次的结果。"""
+
+
 class SessionWorkPayload(_Envelope):
     busy: bool
-    pending_interaction: Literal["none", "approval", "question"]
-    last_turn_reason: Literal["completed", "failed", "aborted"] | None = None
+    pending_interaction: PendingInteraction
+    last_turn_reason: LastTurnReason | None = None
 
 
 class SessionWorkChanged(_Envelope):
@@ -403,9 +410,11 @@ __all__ = [
     "FsChanged",
     "GenerationChanged",
     "GenerationChangedPayload",
+    "LastTurnReason",
     "OpsBatchOut",
     "OpsCatchup",
     "OpsPayload",
+    "PendingInteraction",
     "Ping",
     "PingPayload",
     "Pong",
