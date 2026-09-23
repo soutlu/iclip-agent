@@ -191,7 +191,14 @@ describe('已确认身份变化时的业务缓存', () => {
 
     await logout(user)
 
-    await waitFor(() => expect(screen.getByRole('menuitem', { name: '退出登录' })).toBeEnabled())
+    await waitFor(() =>
+      expect(screen.getByRole('menuitem', { name: '退出登录' })).not.toHaveAttribute(
+        'aria-disabled',
+        'true',
+      ),
+    )
+    // 菜单是模态的，开着时页面其余部分对辅助技术隐藏；关上再看页面。
+    await user.keyboard('{Escape}')
     expect(screen.getByRole('button', { name: '用户菜单' })).toHaveAttribute('title', '账号甲')
     expect(screen.getByRole('link', { name: '账号甲的对话' })).toBeVisible()
     expect(accounts.sidebarReads).toEqual([accountA.id])

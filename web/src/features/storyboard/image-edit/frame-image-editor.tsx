@@ -91,6 +91,7 @@ export function FrameImageEditor({
     'idle',
   )
   const [operationError, setOperationError] = useState<string | null>(null)
+  // 从外部整份换掉画布标注时加一：画布换 key 重挂，撤销栈随之清空。
   const [canvasRevision, setCanvasRevision] = useState(0)
   // 用户确认过的当前帧，应用时拿它当替换凭据。
   //
@@ -430,7 +431,13 @@ export function FrameImageEditor({
               ) : null}
               {drafts.error !== null ? (
                 <InlineAlert
-                  action={{ label: '重新开始', onClick: drafts.reset }}
+                  action={{
+                    label: '重新开始',
+                    onClick: () => {
+                      drafts.reset()
+                      setCanvasRevision((value) => value + 1)
+                    },
+                  }}
                   message={drafts.error}
                 />
               ) : null}

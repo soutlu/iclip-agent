@@ -3,14 +3,17 @@ import { mintUuid } from '@/shared/lib/uuid'
 import { Button, IconButton } from '@/shared/ui/button'
 import { MediaFallback } from '@/shared/ui/media-fallback'
 import { toast } from '@/shared/ui/toast'
+import { MAX_ANNOTATIONS } from '../generation-limits'
 import {
   annotationHandles,
   annotationVisual,
   imagePoint,
   isUsableAnnotation,
   moveAnnotation,
+  placeAnnotationToolbar,
   resizeAnnotation,
 } from './annotation-geometry'
+import { TOO_MANY_ANNOTATIONS } from './image-edit-draft'
 import type { AnnotationKind, AnnotationPoint, ImageAnnotation } from './image-edit-types'
 
 type AnnotationCanvasProps = {
@@ -58,17 +61,11 @@ export function AnnotationCanvas({
   const [nextNumber, setNextNumber] = useState(
     () => Math.max(0, ...annotations.map((annotation) => annotation.number)) + 1,
   )
+  // 撤销栈只属于这次挂载：外部换掉整份标注（恢复输入、重新开始、换底图）时由父组件换 key 重挂。
   const [history, setHistory] = useState({
-    present: annotations,
     past: [] as ImageAnnotation[][],
     future: [] as ImageAnnotation[][],
   })
-  // An externally restored draft starts a new history; local commits keep their own stack.
-  if (annotations !== history.present) {
-    setHistory({ present: annotations, past: [], future: [] })
-    setGesture(null)
-    setNextNumber(Math.max(nextNumber, ...annotations.map((annotation) => annotation.number + 1)))
-  }
   const blocked = disabled || !size.width || imageFailed
   useEffect(() => {
     const element = viewportRef.current
@@ -86,7 +83,7 @@ export function AnnotationCanvas({
   const unitsPerPixel = 1 / displayScale
 
   function commit(next: ImageAnnotation[]) {
-    setHistory({ present: next, past: [...history.past, annotations].slice(-100), future: [] })
+    setHistory({ past: [...history.past, annotations].slice(-100), future: [] })
     onChange(next)
   }
 
@@ -94,7 +91,6 @@ export function AnnotationCanvas({
     const previous = history.past.at(-1)
     if (blocked || !previous || gesture) return
     setHistory({
-      present: previous,
       past: history.past.slice(0, -1),
       future: [annotations, ...history.future],
     })
@@ -106,7 +102,6 @@ export function AnnotationCanvas({
     const next = history.future[0]
     if (blocked || !next || gesture) return
     setHistory({
-      present: next,
       past: [...history.past, annotations],
       future: history.future.slice(1),
     })
@@ -161,8 +156,8 @@ export function AnnotationCanvas({
         onSelect(null)
         return
       }
-      if (annotations.length >= 50) {
-        toast.error('每张图片最多添加 50 个标注')
+      if (annotations.length >= MAX_ANNOTATIONS) {
+        toast.error(TOO_MANY_ANNOTATIONS)
         return
       }
       original = {
@@ -285,66 +280,16 @@ export function AnnotationCanvas({
         )
 
   const selectedAnnotation = visible.find((annotation) => annotation.id === selectedId)
-  const selectedGeometry = selectedAnnotation
-    ? annotationVisual(selectedAnnotation, size, unitsPerPixel)
-    : null
-  const imageLeft = (viewport.width - size.width * displayScale) / 2
-  const imageTop = (viewport.height - size.height * displayScale) / 2
-  const toolbarWidth = Math.min(240, Math.max(0, viewport.width - 16))
-  const toolbarLeft = selectedGeometry
-    ? Math.max(
-        8,
-        Math.min(
-          viewport.width - toolbarWidth - 8,
-          imageLeft + selectedGeometry.label.x * displayScale - toolbarWidth / 2,
+  const toolbar = selectedAnnotation
+    ? placeAnnotationToolbar({
+        viewport,
+        image: { ...size, scale: displayScale },
+        selected: annotationVisual(selectedAnnotation, size, unitsPerPixel),
+        labels: visible.map(
+          (annotation) => annotationVisual(annotation, size, unitsPerPixel).label,
         ),
-      )
-    : 8
-  const annotationTop = selectedGeometry
-    ? imageTop +
-      Math.min(selectedGeometry.top, selectedGeometry.label.y - selectedGeometry.label.height / 2) *
-        displayScale
-    : 0
-  const annotationBottom = selectedGeometry
-    ? imageTop +
-      Math.max(
-        selectedGeometry.top + selectedGeometry.height,
-        selectedGeometry.label.y + selectedGeometry.label.height / 2,
-      ) *
-        displayScale
-    : 0
-  let toolbarTop =
-    annotationTop >= 64
-      ? annotationTop - 56
-      : Math.max(8, Math.min(viewport.height - 52, annotationBottom + 12))
-  // 操作条避开其它编号，密集标注也能直接找到并切换选中对象。
-  if (selectedAnnotation) {
-    const labels = visible
-      .map((annotation) => {
-        const { label } = annotationVisual(annotation, size, unitsPerPixel)
-        return {
-          left: imageLeft + (label.x - label.width / 2) * displayScale,
-          right: imageLeft + (label.x + label.width / 2) * displayScale,
-          top: imageTop + (label.y - label.height / 2) * displayScale,
-          bottom: imageTop + (label.y + label.height / 2) * displayScale,
-        }
       })
-      .filter(
-        (label) => label.right + 8 > toolbarLeft && label.left - 8 < toolbarLeft + toolbarWidth,
-      )
-    for (const label of labels.toSorted((a, b) => b.top - a.top)) {
-      if (toolbarTop < label.bottom + 8 && toolbarTop + 52 > label.top - 8)
-        toolbarTop = label.top - 60
-    }
-    if (toolbarTop < 8) {
-      toolbarTop = annotationBottom + 12
-      for (const label of labels.toSorted((a, b) => a.top - b.top)) {
-        if (toolbarTop < label.bottom + 8 && toolbarTop + 52 > label.top - 8)
-          toolbarTop = label.bottom + 8
-      }
-      toolbarTop = Math.max(8, Math.min(viewport.height - 52, toolbarTop))
-    }
-  }
+    : null
 
   return (
     <div className="image-edit-canvas" role="group" aria-label="图片标注编辑器">
@@ -446,12 +391,12 @@ export function AnnotationCanvas({
             ))}
           </svg>
         )}
-        {selectedAnnotation && !blocked && !gesture && (
+        {selectedAnnotation && toolbar && !blocked && !gesture && (
           <div
             className="image-edit-annotation-actions"
             role="toolbar"
             aria-label={`标注 ${selectedAnnotation.number} 操作`}
-            style={{ left: toolbarLeft, top: toolbarTop, width: toolbarWidth }}
+            style={{ left: toolbar.left, top: toolbar.top, width: toolbar.width }}
           >
             <span className="min-w-0 flex-1 truncate text-body text-on-surface">
               标注 {selectedAnnotation.number} · {TOOL_NAMES[selectedAnnotation.kind]}

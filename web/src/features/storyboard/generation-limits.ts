@@ -2,3 +2,6 @@
 
 /** 一次编辑（图片或视频）提交给模型的参考图上限，两个编辑器的提示、禁用与终校共用。 */
 export const MAX_EDIT_REFERENCES = 10
+
+/** 图片编辑时每张底图上的标注上限，画布拦截新增、草稿终校与本地草稿读取共用。 */
+export const MAX_ANNOTATIONS = 50
