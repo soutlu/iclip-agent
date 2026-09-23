@@ -14,8 +14,11 @@ Productor 的后端与 Web 前端。产品定位、业务术语和不变量见 [
 │   └── agents/         # Agent 声明、spec、提示词与技能
 ├── web/                # Vite + React SPA
 ├── contract/           # 后端导出的 OpenAPI 与跨端约定
+├── deploy/             # 单机 compose 与环境样例
 ├── docs/               # 领域、架构、测试与工具规范
+├── design/             # 视觉素材源包
 ├── design-system.html  # 全局视觉规范与 token
+├── scripts/            # 文档核对等仓库脚本
 ├── Makefile            # 根目录命令入口
 └── AGENTS.md           # 开发约定
 ```
@@ -24,7 +27,7 @@ Productor 的后端与 Web 前端。产品定位、业务术语和不变量见 [
 
 ### 1. 准备依赖
 
-需要 Python 3.13、uv、Node.js ≥ 22.18、pnpm，以及可连接的 PostgreSQL。仓内默认 Agent 启用了镜头素材能力，PATH 中还需有 `ffmpeg` 和 `ffprobe`。依赖版本以 [server/pyproject.toml](server/pyproject.toml)、[web/package.json](web/package.json) 与各自 lockfile 为准。
+需要 Python、uv、Node.js、pnpm，以及可连接的 PostgreSQL；版本以 [server/pyproject.toml](server/pyproject.toml)、[web/package.json](web/package.json) 与各自 lockfile 为准。Agent 挂载 `shot_video` 或启用视频裁剪拼接时，PATH 中还需有 `ffmpeg` 和 `ffprobe`。
 
 ```bash
 make setup
@@ -34,9 +37,7 @@ make setup
 
 在仓库根目录创建 `.env`。必需变量及各能力的启用条件见 [配置模型](server/src/iclip/config/models.py) 与 [后端装配说明](docs/architecture.md#2-配置与装配)；启动时会列出缺失的必需变量名。数据库地址必须指向开发库，密钥不入库。
 
-模型表、agent 与 skill 不进仓库：把一份 `server/configs/`（`config.yaml`）与 `server/agents/`（`agents.yaml`、各 agent 目录、`skills/`）放到本机对应位置，两个目录已在 .gitignore。`agents.yaml` 声明启用的 Agent。默认 `storyboard` 挂载 `workspace`、`video` 与 `shot_video`，需要视频理解、媒体生成与对象存储；仅运行基础对话时，可移除这条 Agent 声明及 `config.yaml` 的 `video`、`shot_video` 段，另声明一条不挂这些能力的 Agent。首页 Agent 菜单显示声明里的 `name`，没写就显示 ID。改这两个目录里的文件保存即生效，不用重启。
-
-只需视频拆解与 prompt 交付时，可为 Agent 只挂载 `workspace` 和 `video`；启用条件见[能力装配](docs/architecture.md#2-配置与装配)。
+模型表、agent 与 skill 不进仓库：把一份 `server/configs/`（`config.yaml`）与 `server/agents/`（`agents.yaml`、各 agent 目录、`skills/`）放到本机对应位置，两个目录已在 .gitignore。`agents.yaml` 声明启用的 Agent。默认 `storyboard` 挂载 `workspace`、`video` 与 `shot_video`，需要视频理解、媒体生成与对象存储；仅运行基础对话时，可移除这条 Agent 声明及 `config.yaml` 的 `video`、`shot_video` 段，另声明一条不挂这些能力的 Agent。改这两个目录里的文件保存即生效，见[改配置](#改配置)。
 
 ### 3. 迁移并启动
 
@@ -87,7 +88,7 @@ curl http://localhost/api/healthz
 
 ### 改配置
 
-模型、agent、skill 与其参考资料只存在于服务器的 `configs/`、`agents/`，不进仓库、不随镜像发版。直接改文件保存：后端监听这两个目录，约 1.5 秒后完整装配一遍并整体替换，正在跑的运行不受影响；写错则拒绝并沿用旧配置，原因在 `docker compose logs server` 与 `/healthz` 的 `config` 段。手动触发一次：`docker compose kill -s HUP server`。
+模型、agent、skill 与其参考资料只存在于服务器的 `configs/`、`agents/`，不进仓库、不随镜像发版。直接改文件保存即生效，机制见[配置与装配](docs/architecture.md#2-配置与装配)；写错时原因在 `docker compose logs server` 与 `/healthz` 的 `config` 段。手动触发一次：`docker compose kill -s HUP server`。
 
 要重启的只有两种情况：改了 `models` 与 agents 以外的配置段（`/healthz` 会标 `needs_restart`），或 `.env` 加了新变量（比如新模型用新的 key 变量）。两种都执行 `docker compose up -d`，`restart` 不重读 `.env`。
 

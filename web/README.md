@@ -22,9 +22,10 @@ HOST=127.0.0.1 PORT=3015 VITE_BACKEND_PROXY_TARGET=http://127.0.0.1:7789 pnpm de
 | ------------------------------------- | ----------------------------------------------------------------------------------------- |
 | `src/app/`                            | Provider、router、主题与工作台注册装配                                                    |
 | `src/routes/`                         | 文件路由与应用壳                                                                          |
-| `src/features/`                       | 登录、首页、合集、会话、需求单与分镜业务模块                                              |
+| `src/features/`                       | 登录、首页、合集、会话、需求单、审计、工作区文件与分镜业务模块                            |
 | `src/shared/api/`                     | REST 客户端与后端合同生成物                                                               |
 | `src/shared/auth/`                    | 会话与权限能力                                                                            |
+| `src/shared/shell/`                   | 壳向页面公布的布局状态（ShellChromeContext）                                              |
 | `src/shared/icons/`、`src/shared/ui/` | 图标与共用 UI 组件                                                                        |
 | `src/shared/transcript/`              | 对话协议、订阅与投影；vendor 维护要求见[目录说明](src/shared/transcript/vendor/README.md) |
 | `src/shared/workbench/`               | 产物面板宿主、布局与选择状态                                                              |
@@ -32,6 +33,7 @@ HOST=127.0.0.1 PORT=3015 VITE_BACKEND_PROXY_TARGET=http://127.0.0.1:7789 pnpm de
 | `src/testing/`、`e2e/`                | 测试基建、MSW 与浏览器用例                                                                |
 | `vite/`、`scripts/`                   | 构建助手与开发、检查命令                                                                  |
 | `public/`                             | 静态资源                                                                                  |
+| `../design/cue-mmt-mascot/`           | 首页吉祥物素材源包与重建方式见[目录说明](../design/cue-mmt-mascot/README.md)              |
 
 ## 分镜工作台
 

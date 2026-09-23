@@ -13,8 +13,8 @@
 | `domains/` | 业务用例、领域模型、HTTP 入口及存储适配；不依赖 Agent 引擎 |
 | `harness/` | 通用 Agent 装配、运行驱动、消息持久化、上下文压缩与 transcript 投影；不解释业务身份和业务规则 |
 | `capabilities/` | 面向模型的类型化工具，连接 Agent 引擎与业务能力 |
-| `platform/` | 共用技术协议及适配器：存储、素材台账、HTTP 错误映射、翻页、transcript 类型 |
-| `common/` | 领域错误分类 |
+| `platform/` | 共用技术协议及适配器：数据库与行归属、对象存储、工作区文件存储、素材台账、ffmpeg 媒体处理、HTTP 错误映射、翻页、transcript 类型 |
+| `common/` | 领域错误分类与工具入参的 JSON 文本归一化 |
 | `config/` | 配置声明、环境变量定义与启动期解析 |
 | `app/` | 组合根及跨模块适配 |
 | `main.py` / `asgi.py` | CLI / ASGI 入口 |
@@ -46,7 +46,7 @@ skill 与 capability 都按 Agent 显式挂载，子代理不继承主代理的�
 
 `video` 提供参考视频拆解（`video_parser`）与镜头组 prompt 表交付（`write_video_shots`），依赖 `workspace`；由 `video` 配置段与 `VIDEO_UNDERSTANDING_*` 环境变量启用，不需要媒体生成、对象存储和 ffmpeg。`shot_video` 提供取帧与出图，依赖 `workspace` 与 `video`；由 `shot_video` 配置段启用，另需媒体生成、对象存储和 ffmpeg，三者是否齐由 `ResolvedSettings.shot_tools_enabled` 一处判定，能力表只在它成立时收到 `shot_video`。启动期的 ffmpeg 检查另按 `ResolvedSettings.ffmpeg_required` 执行：取帧与出图要用它，媒体生成带的视频裁剪拼接也要用它，两者任一启用就必须有。`video_shot.json` 的形状与前端约定见 [contract/conventions.md](../contract/conventions.md#6-对话-conversations)。
 
-能力包之间不 import，共用件放 `capabilities/` 下不带工具的模块：[shot_document.py](../server/src/iclip/capabilities/shot_document.py) 持有镜头组表的结构与校验规则，供 `video` 的交付工具与对话域的文件写回共用；[video_understanding.py](../server/src/iclip/capabilities/video_understanding.py) 持有视频拆解协议与方舟适配器；[video_document.py](../server/src/iclip/capabilities/video_document.py) 只回答拆解文档在工作区的路径，`shot_video` 靠它定位 `video` 写下的文档。划分标准：模型看得见的东西（工具名、docstring、参数 schema、验证器措辞、display 表、指令）留在各自包内，换 agent 就可以不同；模型看不见、换 agent 也不允许有差异的机制下沉到 `harness/` 或这类共用模块，不在包之间复制：素材台账校验在 [harness/materials.py](../server/src/iclip/harness/materials.py)，工作区写入与配额、版本错误的翻译在 [harness/files.py](../server/src/iclip/harness/files.py)。
+[shot_document.py](../server/src/iclip/capabilities/shot_document.py) 持有镜头组表的结构与校验规则，供 `video` 的交付工具与对话域的文件写回共用；[video_understanding.py](../server/src/iclip/capabilities/video_understanding.py) 持有视频拆解协议与方舟适配器；[video_document.py](../server/src/iclip/capabilities/video_document.py) 只回答拆解文档在工作区的路径，`shot_video` 靠它定位 `video` 写下的文档。划分标准：模型看得见的东西（工具名、docstring、参数 schema、验证器措辞、display 表、指令）留在各自包内，换 agent 就可以不同；模型看不见、换 agent 也不允许有差异的机制下沉到 `harness/` 或这类共用模块，不在包之间复制：素材台账校验在 [harness/materials.py](../server/src/iclip/harness/materials.py)，工作区写入与配额、版本错误的翻译在 [harness/files.py](../server/src/iclip/harness/files.py)。
 
 模型适配集中在 [harness/models.py](../server/src/iclip/harness/models.py)，同名模型复用实例。provider 选择交给官方 `infer_model`；`api: responses` 使用本仓的 Responses 子类。模型参数转换不进入业务模块或工具。
 
@@ -54,7 +54,7 @@ lifespan 启动运行驱动与已启用的生成队列；关停时先停止后�
 
 ## 3. 身份与模块协作
 
-HTTP 与 WebSocket 由 `PrincipalMiddleware` 统一解析身份。中间件只解析，授权由入口与业务用例执行；WebSocket 入口另行校验 Origin，订阅时校验对话可见性。钥匙替人办事不在中间件里：建对话、建需求单、发消息、提交生成四个写入口拿到请求体后各调一次 [identity/acting.py](../server/src/iclip/domains/identity/acting.py) 的 `ActAs`，持 `users:act_as` 的 key 带 `user_name` 时就在这一步把主体换成那个人，下游照常只消费主体。全局帧（标题、活动、生成任务）与文件变更帧发给属主的连接和持 `users:manage` 的治理者连接，范围在握手时按主体权限定下。SSO callback 完成验证、账号关联与本地 cookie 签发；配置 PMS 时同步用户资料，失败即终止登录。后续普通请求不再调用 SSO/PMS。
+HTTP 与 WebSocket 由 `PrincipalMiddleware` 统一解析身份。中间件只解析，授权由入口与业务用例执行；WebSocket 入口另行校验 Origin，订阅时校验对话可见性。钥匙替人办事不在中间件里：建对话、建需求单、发消息、提交生成四个写入口拿到请求体后各调一次 [identity/acting.py](../server/src/iclip/domains/identity/acting.py) 的 `ActAs`，持 `users:act_as` 的 key 带 `user_name` 时就在这一步把主体换成那个人，下游照常只消费主体。帧的投递范围见 [conventions §5](../contract/conventions.md#5-agent-对话-transcript)。SSO callback 完成验证、账号关联与本地 cookie 签发；配置 PMS 时同步用户资料，失败即终止登录。后续普通请求不再调用 SSO/PMS。
 
 运行通过 `AgentRunDeps` 向工具传递可信主体与对话 ID，业务含义和权限约束见 [CONTEXT.md](CONTEXT.md)。harness 只传递 deps，不解包业务字段；工具所需服务由组合根闭包注入，不放进 deps。客户端 state 不作为运行身份或服务来源。
 

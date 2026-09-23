@@ -41,7 +41,7 @@
 
 - 按角色、可访问名或必要的 `data-testid` 定位，不依赖样式类；不把 className、style 或哈希类名作为行为断言。
 - 不写读取 Provider / Hook 内部状态再投射成 DOM 的探针组件。测试所需浏览器边界使用现有测试适配器或 `vi.stubGlobal`。
-- HTTP 使用 MSW，不手写 `fetch` stub；`toHaveBeenCalled*` 只用于剪贴板、`window.open` 等真实系统边界。
+- HTTP 使用 MSW，不手写 `fetch` stub。组件对外的回调 prop 可以用 `toHaveBeenCalledWith` / `toHaveBeenCalledTimes` 断言入参与次数；不对内部模块、Hook 或同仓函数做 spy；`toHaveBeenCalled*` 另用于剪贴板、`window.open` 等真实系统边界。
 - 不快照 prompt 或自然语言措辞；通过可访问名定位控件与断言业务结果即可，文案本身是明确合同的情况除外。
 
 同仓模块 mock 等语法限制由 [ESLint](../eslint.config.js) 检查。
