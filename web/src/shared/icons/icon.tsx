@@ -208,7 +208,7 @@ const ICONS = {
 
 export type IconName = keyof typeof ICONS
 
-export type IconSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl'
+type IconSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl'
 
 // CSS token 覆盖 SVG 尺寸属性，统一使用五档图标尺寸。
 const SIZE_CLASS: Record<IconSize, string> = {

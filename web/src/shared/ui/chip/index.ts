@@ -1,1 +1,1 @@
-export { AssistChip, ChipGroup, FilterChip } from './chip'
+export { ChipGroup, FilterChip } from './chip'
