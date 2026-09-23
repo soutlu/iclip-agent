@@ -41,11 +41,10 @@ import { useStableValue } from './use-stable-value'
 import {
   editableModels,
   pickEditModel,
+  seedVideoEditJob,
   submitMasterClip,
   submitReferenceClip,
   useVideoEditChain,
-  videoEditChainKey,
-  videoEditConversationKey,
 } from './video-editor.api'
 
 const DEFAULT_RANGE_SECONDS = 4
@@ -229,15 +228,8 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
   const shownEdit =
     selected?.kind === 'pending' ? selected.edit : (pending.find(isActive) ?? pending.at(-1))
 
-  const seedJob = (job: GenerationJob) => {
-    queryClient.setQueryData<{ items: GenerationJob[] }>(
-      videoEditChainKey(conversationId, root.id),
-      (previous) => ({
-        items: [job, ...(previous?.items ?? []).filter((item) => item.id !== job.id)],
-      }),
-    )
-    void queryClient.invalidateQueries({ queryKey: videoEditConversationKey(conversationId) })
-  }
+  const seedJob = (job: GenerationJob) =>
+    seedVideoEditJob(queryClient, conversationId, root.id, job)
 
   // 第二步：参考片段切好了，把片段交给模型。
   useAutoSubmitEdits({

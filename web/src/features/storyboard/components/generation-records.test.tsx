@@ -21,12 +21,13 @@ const cardWith = (text: string): HTMLElement => {
   return card
 }
 
+// 与接口一样新的在前。
 const jobs: GenerationJob[] = [
   job({
-    createdAt: new Date(2026, 8, 1, 10, 4).toISOString(),
-    id: 'a',
-    outputUrl: 'take-1.mp4',
-    request: { prompt: '第一版：走向镜头。', model: 'wan3.0-video' },
+    createdAt: new Date(2026, 8, 1, 12, 20).toISOString(),
+    id: 'c',
+    request: { prompt: '第三版：脚步放慢。', model: 'moyu-seedance-2-5' },
+    status: 'submitted',
   }),
   job({
     createdAt: new Date(2026, 8, 1, 11, 40).toISOString(),
@@ -37,10 +38,10 @@ const jobs: GenerationJob[] = [
     status: 'failed',
   }),
   job({
-    createdAt: new Date(2026, 8, 1, 12, 20).toISOString(),
-    id: 'c',
-    request: { prompt: '第三版：脚步放慢。', model: 'moyu-seedance-2-5' },
-    status: 'submitted',
+    createdAt: new Date(2026, 8, 1, 10, 4).toISOString(),
+    id: 'a',
+    outputUrl: 'take-1.mp4',
+    request: { prompt: '第一版：走向镜头。', model: 'wan3.0-video' },
   }),
   job({
     id: 'other-shot',
@@ -71,15 +72,6 @@ const renderRecords = async () => {
 
 beforeEach(() => {
   vi.stubGlobal('scrollTo', () => {})
-  // 下载菜单是 Radix 弹层，定位时要量尺寸；jsdom 没有 ResizeObserver。
-  vi.stubGlobal(
-    'ResizeObserver',
-    class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    },
-  )
 })
 
 afterEach(() => {
@@ -89,7 +81,7 @@ afterEach(() => {
 })
 
 describe('GenerationRecords', () => {
-  it('只列本组视频，排除图片和其它组，按时间倒序', async () => {
+  it('只列本组视频，排除图片和其它组，保持接口给的新旧顺序', async () => {
     await renderRecords()
 
     expect(screen.getByRole('heading', { name: '当前镜头组 · 视频' })).toBeVisible()

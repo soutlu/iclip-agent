@@ -1,6 +1,15 @@
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import {
+  useInfiniteQuery,
+  useQuery,
+  type InfiniteData,
+  type QueryClient,
+} from '@tanstack/react-query'
 import { apiFetch } from '@/shared/api/client'
-import type { ImageGenerationIn, ImageModelOut } from '@/shared/api/generated/types.gen'
+import type {
+  GenerationsPageOut,
+  ImageGenerationIn,
+  ImageModelOut,
+} from '@/shared/api/generated/types.gen'
 import {
   zGenerationEnvelope,
   zGenerationsPageOut,
@@ -74,6 +83,27 @@ export function useImageEditJobs(target: FrameEditTarget) {
     // 状态跳转帧到了由 useLiveGenerations 立刻失效；有任务在跑时仍轮询兜底。
     refetchInterval: ({ state }) => imageEditJobsRefetchInterval(state.data),
   })
+}
+
+/** 刚受理的任务先放进这一格已翻开的第一页最前面，再失效本对话前缀：分镜页帧上的角标也读它，新任务立刻冒出来。 */
+export const seedImageEditJob = (
+  queryClient: QueryClient,
+  target: FrameEditTarget,
+  job: GenerationJob,
+) => {
+  queryClient.setQueryData<InfiniteData<GenerationsPageOut>>(
+    imageEditQueryKey(target),
+    (previous) => {
+      if (previous === undefined) return { pages: [{ items: [job] }], pageParams: [undefined] }
+      return {
+        ...previous,
+        pages: previous.pages.map((page, index) =>
+          index === 0 ? { items: [job, ...page.items.filter((item) => item.id !== job.id)] } : page,
+        ),
+      }
+    },
+  )
+  void queryClient.invalidateQueries({ queryKey: imageEditConversationKey(target.conversationId) })
 }
 
 /** 提交过的那一批图片，用来把历史记录装回编辑器。 */
@@ -197,8 +227,9 @@ export function resolveImageOptions(
 const RESOLUTIONS: readonly string[] = zImageGenerationIn.shape.resolution.unwrap().unwrap().options
 const CHANNELS: readonly string[] = zImageGenerationIn.shape.channel.unwrap().unwrap().options
 
-const isResolution = (value: string): value is ImageResolution => RESOLUTIONS.includes(value)
-const isChannel = (value: string): value is ImageChannel => CHANNELS.includes(value)
+/** 按合同枚举收窄：模型清单与下拉给的都是字符串。 */
+export const isResolution = (value: string): value is ImageResolution => RESOLUTIONS.includes(value)
+export const isChannel = (value: string): value is ImageChannel => CHANNELS.includes(value)
 
 export async function submitImageEdit(
   target: FrameEditTarget,

@@ -30,12 +30,12 @@ const shot: Shot = {
 }
 
 describe('latestFrameJobs', () => {
-  it('每格取最新一条，不依赖服务端给的顺序', () => {
+  it('列表按服务端倒序给，每格取第一条', () => {
     const older = job({ id: 'older', createdAt: '2026-09-07T10:00:00Z' })
     const newer = job({ id: 'newer', createdAt: '2026-09-07T11:00:00Z' })
     const other = job({ id: 'other', metadata: at(2, 2) })
 
-    const latest = latestFrameJobs([older, other, newer])
+    const latest = latestFrameJobs([other, newer, older])
 
     expect(latest.get('1:1')?.id).toBe('newer')
     expect(latest.get('2:2')?.id).toBe('other')

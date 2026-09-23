@@ -2,6 +2,7 @@
 
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { z } from 'zod'
 import { errorMessageOf } from '@/shared/api/client'
 import { ASPECT_RATIOS } from '@/shared/lib/aspect-ratio'
 import { cn } from '@/shared/lib/utils'
@@ -17,7 +18,7 @@ import {
 } from '@/shared/workbench'
 import { parseShotsDocument, validateShot } from '../shot-document'
 import { frameBadges, latestFrameJobs } from '../frame-status'
-import { readStoryboardMetadata } from '../generation-metadata'
+import { isShotVideo, readStoryboardMetadata } from '../generation-metadata'
 import { useFrameImageJobs } from '../image-edit/image-edit.api'
 import { isRunningStatus, SHOTS_PATH } from '../shots'
 import { useShotGenerations } from '../storyboard.api'
@@ -34,14 +35,19 @@ import { PromptReading } from './prompt-reading'
 import { ReaderImageEdit, type FrameEditSession } from './reader-image-edit'
 import { ReaderOverlay } from './reader-overlay'
 import { ReaderPage } from './reader-page'
-import { shotContents } from '../shot-content'
+import {
+  contentLabel,
+  resolveShotSelection,
+  shotContents,
+  type readerSheetSchema,
+} from '../shot-content'
 import { ShotOverview } from './shot-overview'
 import { VideoGenerationButton } from './video-generation-button'
 
 type ReaderSearch = {
   content?: string | undefined
   frame?: number | undefined
-  sheet?: 'all' | 'prompt' | 'records' | undefined
+  sheet?: z.infer<typeof readerSheetSchema> | undefined
   shot?: number | undefined
   /** 视频编辑器开在哪条出片记录上；换组就关掉。 */
   video?: string | undefined
@@ -110,18 +116,17 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
 
   const { clear: clearSelection, set: setSelection } = useWorkbenchSelection()
   const currentShot = shots[position - 1]
-  const activeContents = currentShot === undefined ? [] : shotContents(currentShot)
-  const activeContent =
-    activeContents.find((item) => item.id === search.content) ?? activeContents[0]
-  const selectedFrame =
-    search.frame !== undefined && activeContent?.frameNumbers.includes(search.frame)
-      ? search.frame
-      : activeContent?.frameNumbers[0]
-  const selectedContentId = activeContent?.id
-  const selectedContentLabel =
-    activeContent?.timelineIndex === undefined
-      ? activeContent?.title
-      : `镜头 ${activeContent.timelineIndex + 1}`
+  const selection =
+    currentShot === undefined
+      ? undefined
+      : resolveShotSelection(shotContents(currentShot), {
+          content: search.content,
+          frame: search.frame,
+        })
+  // 下面的副作用只认原始值：内容对象每次渲染都重建，放进依赖会让选区每帧重设。
+  const selectedFrame = selection?.frame
+  const selectedContentId = selection?.content.id
+  const selectedContentLabel = selection === undefined ? undefined : contentLabel(selection.content)
   useEffect(() => {
     if (selectedContentId === undefined) clearSelection()
     else {
@@ -191,10 +196,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
   const videoEditRoot =
     search.video === undefined ? undefined : jobs.find((job) => job.id === search.video)
   const activeCount = jobs.filter(
-    (job) =>
-      job.kind === 'video' &&
-      readStoryboardMetadata(job)?.shot === shot.index &&
-      isRunningStatus(job.status),
+    (job) => isShotVideo(job, shot.index) && isRunningStatus(job.status),
   ).length
   // 出片发的是描述的当前版本；还在存或没存下就先别发，免得发出去的和文件里的不一样。
   // 原因不另写一句：左边的保存状态已经在说。只读时整页的编辑与生成入口一起收起。
@@ -206,8 +208,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
     draft.state.kind === 'conflict' ||
     video.options.model === undefined ||
     draft.state.kind === 'saving' ||
-    draft.state.kind === 'error' ||
-    video.submitting.includes(shot.index)
+    draft.state.kind === 'error'
   // 改过之后原因就过期了，等下一次出片再说；存盘状态那一格有自己的提示，不重复说。
   const submitError = draft.hasUnsavedChanges ? undefined : video.errorOf(shot.index)
   // 选中的模型做不了这份分镜的画幅：只提醒，不拦——真拒还是由上游拒。
@@ -314,7 +315,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
             models={video.models}
             onChange={video.setOptions}
             onGenerate={() => void generate()}
-            submitting={gate.preparing || video.submitting.includes(shot.index)}
+            submitting={gate.preparing}
             unavailable={video.modelsUnavailable ? '视频模型读不到' : undefined}
             value={video.options}
           />

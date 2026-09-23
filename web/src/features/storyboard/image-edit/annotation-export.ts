@@ -1,7 +1,8 @@
+import { UserFacingError } from '@/shared/api/client'
 import { annotationVisual } from './annotation-geometry'
 import type { ImageAnnotation } from './image-edit-types'
 
-/** Render only after the user explicitly requests an annotated input image. */
+/** Render only after the user explicitly requests an annotated input image. Failures throw UserFacingError. */
 export async function exportAnnotatedImage(
   url: string,
   annotations: ImageAnnotation[],
@@ -10,16 +11,17 @@ export async function exportAnnotatedImage(
     const element = new Image()
     element.crossOrigin = 'anonymous'
     element.onload = () => resolve(element)
-    element.onerror = () => reject(new Error('原图无法读取，请检查图片地址是否支持跨域访问'))
+    element.onerror = () =>
+      reject(new UserFacingError('原图无法读取，请检查图片地址是否支持跨域访问'))
     element.src = url
   })
-  if (!image.naturalWidth || !image.naturalHeight) throw new Error('原图尺寸无效')
+  if (!image.naturalWidth || !image.naturalHeight) throw new UserFacingError('原图尺寸无效')
   const scale = Math.min(1, 6000 / image.naturalWidth, 6000 / image.naturalHeight)
   const canvas = document.createElement('canvas')
   canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
   canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
   const context = canvas.getContext('2d')
-  if (!context) throw new Error('当前浏览器不支持导出标注图片')
+  if (!context) throw new UserFacingError('当前浏览器不支持导出标注图片')
   context.drawImage(image, 0, 0, canvas.width, canvas.height)
   // Resolve semantic colors through a real element because CSS variables may refer to other tokens.
   const colorProbe = document.createElement('span')
@@ -123,12 +125,13 @@ export async function exportAnnotatedImage(
     try {
       canvas.toBlob((result) => {
         if (result) resolve(result)
-        else reject(new Error('标注图片导出失败'))
+        else reject(new UserFacingError('标注图片导出失败'))
       }, 'image/png')
     } catch {
-      reject(new Error('原图不允许跨域导出，请上传原图后重试'))
+      reject(new UserFacingError('原图不允许跨域导出，请上传原图后重试'))
     }
   })
-  if (blob.size > 16 * 1024 * 1024) throw new Error('标注图片超过 16 MB，请使用更小的原图')
+  if (blob.size > 16 * 1024 * 1024)
+    throw new UserFacingError('标注图片超过 16 MB，请使用更小的原图')
   return new File([blob], 'annotated-frame.png', { type: blob.type })
 }

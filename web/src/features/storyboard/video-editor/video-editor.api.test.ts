@@ -1,5 +1,41 @@
+import { QueryClient } from '@tanstack/react-query'
 import { describe, expect, it } from 'vitest'
-import { editTriggerOf, editableModels, pickEditModel } from './video-editor.api'
+import { makeGenerationJob } from '@/testing/generation-job'
+import {
+  editTriggerOf,
+  editableModels,
+  pickEditModel,
+  seedVideoEditJob,
+  videoEditChainKey,
+} from './video-editor.api'
+
+describe('seedVideoEditJob', () => {
+  const conversationId = 'ff2c1c0e-6c4f-4f0e-9a2b-0f2f3a4b5c6d'
+  const chainKey = videoEditChainKey(conversationId, 'root-job')
+  const clip = makeGenerationJob({ kind: 'clip', status: 'pending' })
+
+  it('这条链还没读过就只有这一条', () => {
+    const queryClient = new QueryClient()
+
+    seedVideoEditJob(queryClient, conversationId, 'root-job', clip)
+
+    expect(queryClient.getQueryData(chainKey)).toEqual({ items: [clip] })
+  })
+
+  it('放进这条链最前面、同一条替换不重复，并失效本对话全部编辑链', () => {
+    const queryClient = new QueryClient()
+    const earlier = makeGenerationJob({ kind: 'clip' })
+    const otherChain = videoEditChainKey(conversationId, 'other-root')
+    queryClient.setQueryData(chainKey, { items: [clip, earlier] })
+    queryClient.setQueryData(otherChain, { items: [] })
+    const accepted = { ...clip, status: 'submitted' as const }
+
+    seedVideoEditJob(queryClient, conversationId, 'root-job', accepted)
+
+    expect(queryClient.getQueryData(chainKey)).toEqual({ items: [accepted, earlier] })
+    expect(queryClient.getQueryState(otherChain)?.isInvalidated).toBe(true)
+  })
+})
 
 describe('编辑器用哪个模型', () => {
   const models = ['moyu-seedance-2-5', 'wan3.0-video']

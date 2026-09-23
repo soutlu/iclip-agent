@@ -1,7 +1,7 @@
 import { useRef } from 'react'
+import { MEDIA_IMAGE_ACCEPT } from '@/shared/api/media-upload'
 import { Button } from '@/shared/ui/button'
 import { DialogBody, DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
-import { FRAME_IMAGE_ACCEPT } from '../storyboard.api'
 
 type FrameAssignmentPickerProps = {
   open: boolean
@@ -42,7 +42,7 @@ export function FrameAssignmentPicker({
               </Button>
               <input
                 disabled={disabled || !canUpload}
-                accept={FRAME_IMAGE_ACCEPT}
+                accept={MEDIA_IMAGE_ACCEPT}
                 aria-label="选择要上传的图片"
                 className="hidden"
                 onChange={(event) => {

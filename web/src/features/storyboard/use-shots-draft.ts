@@ -310,8 +310,8 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
   const applyFrame = useCallback(
     async (index: number, frame: number, previousUrl: string, url: string) => {
       const book = ledgerRef.current
-      if (book.inFlight !== null) throw new Error('当前修改正在保存，请稍后重试')
-      if (book.latest !== null) throw new Error('分镜存在版本冲突，请先处理冲突')
+      if (book.inFlight !== null) throw new UserFacingError('当前修改正在保存，请稍后重试')
+      if (book.latest !== null) throw new UserFacingError('分镜存在版本冲突，请先处理冲突')
       const current = book.edited ?? book.base?.document
       const target = current === undefined ? undefined : shotOf(current, index)
       const replaced = target?.image_urls[frame - 1] !== url
@@ -350,7 +350,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
               : previous,
           )
         }
-        throw new Error('图片尚未保存，请处理保存错误或冲突后重试')
+        throw new UserFacingError('图片尚未保存，请处理保存错误或冲突后重试')
       }
     },
     [replaceFrame, saveNow],

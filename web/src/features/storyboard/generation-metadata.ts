@@ -2,6 +2,7 @@
  * 服务端只认其中的 `shot`（审计按它数镜），其余键只有本页读写。 */
 
 import { z } from 'zod'
+import type { GenerationOut } from '@/shared/api/generated/types.gen'
 
 const storyboardMetadataSchema = z.object({
   shot: z.int().positive(),
@@ -33,6 +34,12 @@ export const readStoryboardMetadata = (job: {
   const parsed = storyboardMetadataSchema.safeParse(job.metadata)
   return parsed.success ? parsed.data : undefined
 }
+
+/** 这条记录是这一组的出片：视频、坐标落在这一组上。编辑结果不带坐标，不算。 */
+export const isShotVideo = (
+  job: Pick<GenerationOut, 'kind' | 'metadata'>,
+  shotIndex: number,
+): boolean => job.kind === 'video' && readStoryboardMetadata(job)?.shot === shotIndex
 
 /** 视频编辑链的坐标。三条记录（参考片段、编辑结果、成片）共用同一组键，靠 `editId` 串成一次编辑；
  * 它们属于哪条出片不在便签上，在记录的 `rootJobId` 里，链查询也按它筛。

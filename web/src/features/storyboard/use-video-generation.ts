@@ -1,10 +1,11 @@
-/** 只在提交请求期间防止重复点击；202 后由任务列表轮询进度，同组可继续生成新版本。
+/** 出片的模型选项、提交与失败原因。防重复点击归调用方的出片闸门（useGenerationGate）；202 后由
+ * 任务列表轮询进度，同组可继续生成新版本。
  *
  * 出片失败的原因留在这里按镜头组记着，由工作台渲染在出片按钮旁边：全局 toast 弹在视口
  * 底部、压着聊天输入区，离按下的按钮太远。 */
 
 import { useQueryClient } from '@tanstack/react-query'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { errorMessageOf } from '@/shared/api/client'
 import type { Shot } from './shot-document'
 import { storyboardQueryKeys, submitVideoGeneration, useVideoModels } from './storyboard.api'
@@ -13,8 +14,6 @@ import { DEFAULT_GENERATE_AUDIO, type VideoGenerationOptions } from './video-gen
 export const useVideoGeneration = (conversationId: string) => {
   const queryClient = useQueryClient()
   const models = useVideoModels()
-  const [submitting, setSubmitting] = useState<readonly number[]>([])
-  const submittingRef = useRef(new Set<number>())
   // 只留最近一次失败：提示挨着出片按钮，同时只看得见当前这一组。
   const [failure, setFailure] = useState<{ index: number; message: string } | undefined>(undefined)
   const [wanted, setWanted] = useState<VideoGenerationOptions>({
@@ -28,10 +27,7 @@ export const useVideoGeneration = (conversationId: string) => {
   const options: VideoGenerationOptions = { generateAudio: wanted.generateAudio, model }
 
   const submit = async (shot: Shot, aspectRatio: string) => {
-    if (model === undefined || submittingRef.current.has(shot.index)) return
-    // 同一次渲染内的重复触发也只发一次请求，不等待按钮状态重绘。
-    submittingRef.current.add(shot.index)
-    setSubmitting((current) => [...current, shot.index])
+    if (model === undefined) return
     setFailure(undefined)
     try {
       await submitVideoGeneration({
@@ -46,9 +42,6 @@ export const useVideoGeneration = (conversationId: string) => {
       })
     } catch (error) {
       setFailure({ index: shot.index, message: errorMessageOf(error, '视频提交失败') })
-    } finally {
-      submittingRef.current.delete(shot.index)
-      setSubmitting((current) => current.filter((index) => index !== shot.index))
     }
   }
 
@@ -62,6 +55,5 @@ export const useVideoGeneration = (conversationId: string) => {
     reportError: (index: number, message: string) => setFailure({ index, message }),
     setOptions: setWanted,
     submit,
-    submitting,
   }
 }
