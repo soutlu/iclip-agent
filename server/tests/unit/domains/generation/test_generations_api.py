@@ -139,6 +139,15 @@ def only_job(repo: InMemoryGenerationRepository) -> GenerationJob:
     return job
 
 
+def test_openapi_publishes_generation_kind_and_status_as_enums() -> None:
+    """前端从合同派生类型与状态词，合同里只剩字符串就只能手写平行词表。"""
+
+    app = build_test_app(InMemoryGenerationRepository(), granted=None)
+    fields = app.openapi()["components"]["schemas"]["GenerationOut"]["properties"]
+    assert fields["kind"]["enum"] == ["video", "image", "clip"]
+    assert fields["status"]["enum"] == ["pending", "submitting", "submitted", "completed", "failed"]
+
+
 # --- 视频提交 ------------------------------------------------------------------
 
 

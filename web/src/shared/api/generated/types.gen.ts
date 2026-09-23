@@ -1071,7 +1071,7 @@ export type GenerationOut = {
   /**
    * Kind
    */
-  kind: string
+  kind: 'video' | 'image' | 'clip'
   /**
    * Metadata
    */
@@ -1095,7 +1095,7 @@ export type GenerationOut = {
   /**
    * Status
    */
-  status: string
+  status: 'pending' | 'submitting' | 'submitted' | 'completed' | 'failed'
   /**
    * Taskid
    */
@@ -2021,7 +2021,7 @@ export type TaskOut = {
   /**
    * Status
    */
-  status: string
+  status: 'draft' | 'published' | 'confirmed' | 'withdrawn'
   /**
    * Title
    */
@@ -4772,7 +4772,7 @@ export type ListGenerationsGenerationsGetData = {
     /**
      * Kind
      */
-    kind?: 'image' | 'video' | 'clip' | null
+    kind?: 'video' | 'image' | 'clip' | null
     /**
      * Rootjobid
      *

@@ -7,7 +7,12 @@ import uuid
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
-from iclip.domains.generation.models import GenerationJob, GenerationStatus, InFlightPhase
+from iclip.domains.generation.models import (
+    GenerationJob,
+    GenerationKind,
+    GenerationStatus,
+    InFlightPhase,
+)
 
 
 class GenerationRepository(Protocol):
@@ -27,7 +32,7 @@ class GenerationRepository(Protocol):
         owner: uuid.UUID | None,
         limit: int,
         conversation_id: uuid.UUID | None = None,
-        kind: str | None = None,
+        kind: GenerationKind | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
         root_job_id: uuid.UUID | None = None,
@@ -117,7 +122,7 @@ class GenerationRepository(Protocol):
         ...
 
     async def in_flight_by_conversation(
-        self, conversation_ids: Sequence[uuid.UUID], *, kind: str
+        self, conversation_ids: Sequence[uuid.UUID], *, kind: GenerationKind
     ) -> Mapping[uuid.UUID, InFlightPhase]:
         """这些对话下还没跑完的某类任务各到哪一步；一条都没有的对话不在结果里。不按属主过滤，
         调用方给的对话本来就是它能看的。"""

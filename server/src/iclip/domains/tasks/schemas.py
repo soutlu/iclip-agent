@@ -24,6 +24,10 @@ MAX_PRODUCTS: Final = 20
 MIN_DURATION_SECONDS: Final = 3
 MAX_DURATION_SECONDS: Final = 50
 
+TaskStatus = Literal["draft", "published", "confirmed", "withdrawn"]
+"""需求单状态，取值含义见 models.py 的 ``STATUS_*``。放在这里是因为 ``TaskOut`` 运行时要
+解析它，models.py 反过来导入。"""
+
 TaskRatio = Literal["1:1", "3:4", "4:3", "9:16", "16:9", "21:9"]
 """需求方期望的画幅。这是需求单上的一句要求，不是某家生成接口的参数——所以它在这里
 自己定义一份，不去引用生成域的取值表（两者本来就可以各自演进）。"""
@@ -171,7 +175,7 @@ class TaskCreateIn(TaskIn):
 class TaskOut(CamelModel):
     id: uuid.UUID
     title: str
-    status: str
+    status: TaskStatus
     priority: int
     deadline: datetime | None
     creator_user_id: uuid.UUID
@@ -230,6 +234,7 @@ __all__ = [
     "TaskProduct",
     "TaskRatio",
     "TaskReferenceImages",
+    "TaskStatus",
     "TaskVideoSpec",
     "TasksPageOut",
     "inputs_from_payload",

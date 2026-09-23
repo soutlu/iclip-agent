@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import TypeAdapter, ValidationError
@@ -16,6 +16,7 @@ from iclip.common.errors import ValidationFailed
 from iclip.domains.generation.schemas import (
     ClipIn,
     GenerationEnvelope,
+    GenerationKind,
     GenerationsPageOut,
     ImageGenerationIn,
     ImageModelOut,
@@ -97,7 +98,7 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
         limit: Annotated[int, Query(ge=1, le=MAX_LIST_LIMIT)] = DEFAULT_LIST_LIMIT,
         conversation_id: Annotated[uuid.UUID | None, Query(alias="conversationId")] = None,
         task_id: Annotated[uuid.UUID | None, Query(alias="taskId")] = None,
-        kind: Literal["image", "video", "clip"] | None = None,
+        kind: GenerationKind | None = None,
         root_job_id: Annotated[
             uuid.UUID | None,
             Query(alias="rootJobId", description="只列这条出片名下的衍生记录（视频编辑链）"),

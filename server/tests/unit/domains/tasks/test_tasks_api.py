@@ -87,6 +87,14 @@ def body_of(task: object, **overrides: object) -> dict[str, object]:
     return payload
 
 
+def test_openapi_publishes_task_status_as_enum() -> None:
+    """前端从合同派生状态词，合同里只剩字符串就只能手写平行词表。"""
+
+    app = build_test_app(InMemoryTaskRepository(), granted=None)
+    status = app.openapi()["components"]["schemas"]["TaskOut"]["properties"]["status"]
+    assert status["enum"] == ["draft", "published", "confirmed", "withdrawn"]
+
+
 async def test_creating_lands_a_draft_owned_by_the_caller() -> None:
 
     repo = InMemoryTaskRepository()

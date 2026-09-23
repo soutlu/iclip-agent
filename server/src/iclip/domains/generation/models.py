@@ -7,9 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final, Literal
 
-from iclip.domains.generation.schemas import GenerationKind, GenerationRequest
+from iclip.domains.generation.schemas import GenerationKind, GenerationRequest, GenerationStatus
 
-GenerationStatus = Literal["pending", "submitting", "submitted", "completed", "failed"]
 STATUS_PENDING: Final = "pending"
 """已受理，尚未提交给 Provider。"""
 STATUS_SUBMITTING: Final = "submitting"

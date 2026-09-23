@@ -7,11 +7,9 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Final, Literal
+from typing import Final
 
-from iclip.domains.tasks.schemas import TaskInputs
-
-TaskStatus = Literal["draft", "published", "confirmed", "withdrawn"]
+from iclip.domains.tasks.schemas import TaskInputs, TaskStatus
 
 STATUS_DRAFT: Final = "draft"
 STATUS_PUBLISHED: Final = "published"
@@ -21,7 +19,7 @@ STATUS_WITHDRAWN: Final = "withdrawn"
 """撤回是终态，禁止修改和删除。"""
 
 ACTIVE_STATUSES: Final = frozenset({STATUS_PUBLISHED, STATUS_CONFIRMED})
-"""允许开工的需求单状态。"""
+"""已下发、未撤回：认领与撤回只在这两个状态上走得通。"""
 
 TASK_STATUSES: Final = (STATUS_DRAFT, STATUS_PUBLISHED, STATUS_CONFIRMED, STATUS_WITHDRAWN)
 

@@ -61,7 +61,7 @@ describe('frameBadges', () => {
   it.each([
     ['pending', 'queued'],
     ['submitted', 'running'],
-  ])('%s 的任务在帧上显示 %s，看过也照样显示', (status, kind) => {
+  ] as const)('%s 的任务在帧上显示 %s，看过也照样显示', (status, kind) => {
     const item = job({ status, outputUrl: null })
     expect(badgesOf(item).get(1)).toEqual({ kind })
     expect(badgesOf(item, [item.id]).get(1)).toEqual({ kind })

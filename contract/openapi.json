@@ -1954,6 +1954,11 @@
             "type": "string"
           },
           "kind": {
+            "enum": [
+              "video",
+              "image",
+              "clip"
+            ],
             "title": "Kind",
             "type": "string"
           },
@@ -1998,6 +2003,13 @@
             "title": "Rootjobid"
           },
           "status": {
+            "enum": [
+              "pending",
+              "submitting",
+              "submitted",
+              "completed",
+              "failed"
+            ],
             "title": "Status",
             "type": "string"
           },
@@ -3794,6 +3806,12 @@
             "type": "integer"
           },
           "status": {
+            "enum": [
+              "draft",
+              "published",
+              "confirmed",
+              "withdrawn"
+            ],
             "title": "Status",
             "type": "string"
           },
@@ -8893,8 +8911,8 @@
               "anyOf": [
                 {
                   "enum": [
-                    "image",
                     "video",
+                    "image",
                     "clip"
                   ],
                   "type": "string"
