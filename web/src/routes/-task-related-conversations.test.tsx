@@ -1,7 +1,7 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TasksRoute } from '@/features/tasks'
 import {
   addMockConversation,
@@ -11,6 +11,7 @@ import {
 } from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
+import { SERVER_HELLO } from '@/testing/ws'
 import { TaskRelatedConversations } from './-task-related-conversations'
 
 const renderTasks = async (currentUser = mockAuthUser) => {
@@ -165,5 +166,82 @@ describe('需求单关联对话与视频', () => {
       expect(within(panel).queryByRole('heading', { name: other.title })).not.toBeInTheDocument()
       expect(within(panel).getByText('仅我的对话')).toBeVisible()
     }
+  })
+})
+
+describe('需求单关联对话按全局帧重拉', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const videoFrame = (conversationId: string, kind: 'video' | 'image' = 'video') => ({
+    type: 'event.generation.changed',
+    session_id: conversationId,
+    payload: { id: crypto.randomUUID(), kind, status: 'pending', metadata: { shot: 1 } },
+  })
+
+  /** 打开一张挂着一段空闲对话的需求单，并记下关联对话列表被读了几次。 */
+  const openWithConversation = async (currentUser = mockAuthUser) => {
+    const task = addMockTask('空闲时被提交出片的需求单')
+    const conversation = addMockConversation('空闲的创作尝试', undefined, mockAuthUser.id)
+    conversation.taskId = task.id
+    const listPath =
+      currentUser === mockGovernor ? '/api/conversations/audit' : '/api/conversations/by-task/'
+    const reads = { count: 0 }
+    server.events.on('request:start', ({ request }) => {
+      if (new URL(request.url).pathname.startsWith(listPath)) reads.count += 1
+    })
+    const user = userEvent.setup()
+    const { socket } = await renderTasks(currentUser)
+    const dialog = await openTask(user, task.title)
+    const row = await within(dialog).findByRole('region', { name: conversation.title })
+    expect(reads.count).toBe(1)
+    return { conversation, reads, row, socket }
+  }
+
+  /** 留出一次真实请求往返的时间，否则「没重拉」是空断言。 */
+  const roundTrip = () => act(() => new Promise((resolve) => setTimeout(resolve, 50)))
+
+  it.each([
+    ['属主', mockAuthUser],
+    ['治理者看别人的对话', mockGovernor],
+  ])('%s：列表里对话的出片帧重拉列表，行上出现出片角标', async (_role, currentUser) => {
+    const { conversation, reads, row, socket } = await openWithConversation(currentUser)
+    expect(within(row).queryByText('排队中')).not.toBeInTheDocument()
+    conversation.activity.videoGeneration = 'queued'
+
+    act(() => socket.deliver(videoFrame(conversation.id)))
+
+    expect(await within(row).findByText('排队中')).toBeVisible()
+    expect(reads.count).toBe(2)
+  })
+
+  it('不在列表里的对话、列表里对话的图片帧都不重拉', async () => {
+    const { conversation, reads, row, socket } = await openWithConversation()
+
+    act(() => socket.deliver(videoFrame(crypto.randomUUID())))
+    act(() => socket.deliver(videoFrame(conversation.id, 'image')))
+    await roundTrip()
+    expect(reads.count).toBe(1)
+
+    conversation.activity.videoGeneration = 'queued'
+    act(() => socket.deliver(videoFrame(conversation.id)))
+    expect(await within(row).findByText('排队中')).toBeVisible()
+    expect(reads.count).toBe(2)
+  })
+
+  it('重连后重拉列表', async () => {
+    const { reads, socket } = await openWithConversation()
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    socket.onclose?.()
+    // 退避重连排在定时器上，推过去才会重新握手。
+    act(() => {
+      vi.advanceTimersByTime(2000)
+    })
+    vi.useRealTimers()
+    act(() => socket.deliver(SERVER_HELLO))
+
+    await waitFor(() => expect(reads.count).toBe(2))
   })
 })

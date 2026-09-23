@@ -64,10 +64,14 @@ export const taskConversationsRefetchInterval = (
     ? POLL_MS
     : false
 
-/** 面板挂载期间刷新关联关系与运行状态；不同读取权限不共享查询结果。 */
+/** 需求单关联对话的查询键；不同读取权限不共享查询结果。 */
+export const taskConversationsQueryKey = (taskId: string, canAudit: boolean) =>
+  [...conversationsQueryKeys.all, 'task', taskId, canAudit ? 'audit' : 'own'] as const
+
+/** 面板挂载期间刷新关联关系与运行状态。 */
 export const useTaskConversations = (taskId: string, canAudit: boolean) =>
   useQuery({
-    queryKey: [...conversationsQueryKeys.all, 'task', taskId, canAudit ? 'audit' : 'own'],
+    queryKey: taskConversationsQueryKey(taskId, canAudit),
     queryFn: ({ signal }) => fetchTaskConversations(taskId, canAudit, signal),
     refetchInterval: ({ state }) => taskConversationsRefetchInterval(state.data),
   })

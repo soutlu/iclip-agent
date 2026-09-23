@@ -7,6 +7,7 @@ export type {
 export { DEFAULT_AUDIT_FILTERS, useAuditConversations, type AuditFilters } from './audit.api'
 export { useLiveConversations } from './conversations.live'
 export { useTaskConversations } from './task-conversations.api'
+export { useLiveTaskConversations } from './task-conversations.live'
 export { useRecordOpenedConversation } from './conversations.unread'
 export { conversationStatus } from './conversation-status'
 export {

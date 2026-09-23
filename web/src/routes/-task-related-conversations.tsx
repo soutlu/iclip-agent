@@ -2,6 +2,7 @@ import { Link } from '@tanstack/react-router'
 import { useRef } from 'react'
 import {
   conversationStatus,
+  useLiveTaskConversations,
   useTaskConversations,
   type Conversation,
 } from '@/features/conversations'
@@ -40,6 +41,7 @@ function RelatedConversations({
   canReadVideos: boolean
 }) {
   const query = useTaskConversations(taskId, canAudit)
+  useLiveTaskConversations(taskId, canAudit)
   const playingVideoRef = useRef<HTMLVideoElement | null>(null)
   return (
     <>
