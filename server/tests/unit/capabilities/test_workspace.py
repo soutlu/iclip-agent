@@ -27,6 +27,7 @@ from structlog.testing import capture_logs
 from iclip.capabilities.workspace.capability import (
     CAPABILITY_ID,
     FULL_RESOLUTION_MAX_BYTES,
+    MAX_READ_CHARS,
     CropRegion,
     Workspace,
     WorkspaceToolset,
@@ -291,6 +292,47 @@ async def test_read_past_the_end_is_retryable(
     await tools.write_file(ctx, "短稿.md", "只有一行")
     with pytest.raises(ModelRetry, match="只有 1 行"):
         await tools.read_file(ctx, "短稿.md", offset=99)
+
+
+async def test_read_stops_at_a_whole_line_once_the_char_limit_is_reached(
+    tools: WorkspaceToolset[object], ctx: RunContext[object]
+) -> None:
+    """行数没到上限也按字符封顶：停在整行处，提示下一次的 offset。"""
+
+    line = "x" * 20_000
+    await tools.write_file(ctx, "宽稿.md", "\n".join([line] * 5))
+
+    page = await tools.read_file(ctx, "宽稿.md")
+
+    body = text(page)
+    assert len(body) <= MAX_READ_CHARS
+    assert f"     2\t{line}\n" in body
+    assert "     3\t" not in body
+    assert body.endswith("还有 3 行没读，用 offset=3 接着读]")
+    assert page.metadata == {"path": "宽稿.md", "lines": 2, "truncated": True}
+    assert text(await tools.read_file(ctx, "宽稿.md", offset=3)).startswith(f"     3\t{line}\n")
+
+
+async def test_read_cuts_a_single_line_over_the_char_limit_and_says_so(
+    tools: WorkspaceToolset[object], ctx: RunContext[object]
+) -> None:
+    """一行紧凑 JSON 也不能整行塞进上下文；提示单独成行，不被前端当成带行号的正文。"""
+
+    await tools.write_file(ctx, "面板.json", "y" * 80_000 + "\n第二行")
+
+    page = await tools.read_file(ctx, "面板.json")
+
+    body = text(page)
+    assert len(body) <= MAX_READ_CHARS
+    first, *notes = body.split("\n")
+    kept = len(first) - len("     1\t")
+    assert first == "     1\t" + "y" * kept
+    assert 0 < kept < 80_000
+    assert [note[0] for note in notes] == ["[", "["]
+    assert "第 1 行有 80000 字符" in notes[0]
+    assert f"只给了前 {kept} 个" in notes[0]
+    assert "用 offset=2 接着读" in notes[1]
+    assert page.metadata == {"path": "面板.json", "lines": 1, "truncated": True}
 
 
 async def test_edit_replaces_a_unique_match(

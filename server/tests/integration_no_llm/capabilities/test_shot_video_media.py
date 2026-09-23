@@ -60,7 +60,8 @@ OSS_IMAGE_URL = "https://bucket.oss-cn-hangzhou.aliyuncs.com/style.jpg"
 BIG_GRID_URL = "https://cdn.test/grid-4k.png"
 VIDEO_URL = "https://cdn.test/clip.mp4"
 USER = uuid.UUID("22222222-2222-2222-2222-222222222222")
-NAMESPACE = f"{USER}/thread-1"
+CONVERSATION = "44444444-4444-4444-4444-444444444444"
+NAMESPACE = f"{USER}/{CONVERSATION}"
 
 DOCUMENT = (
     "| 结构层级 | Storyline |\n"
@@ -192,7 +193,7 @@ def make_context(*, said: str = _USER_SENT) -> RunContext[object]:
             audit_label="luke",
             api_key_id=None,
         ),
-        conversation_id="thread-1",
+        conversation_id=CONVERSATION,
         user_name="luke",
     )
     return RunContext[object](
@@ -332,6 +333,34 @@ async def test_plan_reuses_the_ledger_instead_of_extracting_again(
     assert len(objects.written) == 1
     # 复用时也需登记预览板地址，保证后续工具可引用。
     assert materials.urls(NAMESPACE) == {model_facing(again)["boards"][0]["url"]}
+
+
+async def test_plan_refuses_a_reused_ledger_whose_board_is_out_of_range(
+    media: dict[str, bytes],
+) -> None:
+    """key 对得上但板号被改到层级之外：给出可执行的修复，不抛 IndexError，也不登记地址。"""
+
+    objects = FakeObjects()
+    files = FakeFileStore()
+    materials = FakeMaterialLedger()
+    await files.write(NAMESPACE, video_doc_path(VIDEO_URL), DOCUMENT)
+    client = make_client(media)
+    try:
+        tools = make_tools(client, objects, files, ledger=materials)
+        await tools.plan_shot_frames(make_context(), VIDEO_URL)
+        stored = await files.read(NAMESPACE, EXTRACTION_PATH)
+        assert stored is not None
+        tampered = json.loads(stored.content)
+        tampered["boards"] = [{"board": 9, "url": "https://cdn.test/elsewhere.jpg"}]
+        await files.write(NAMESPACE, EXTRACTION_PATH, json.dumps(tampered))
+        with pytest.raises(ModelRetry, match="delete_file") as raised:
+            await tools.plan_shot_frames(make_context(), VIDEO_URL)
+    finally:
+        await client.aclose()
+
+    assert "板 9" in str(raised.value)
+    assert len(objects.written) == 1
+    assert "https://cdn.test/elsewhere.jpg" not in materials.urls(NAMESPACE)
 
 
 async def test_plan_refuses_timecodes_beyond_the_clip(media: dict[str, bytes]) -> None:

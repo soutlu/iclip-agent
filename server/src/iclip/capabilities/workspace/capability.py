@@ -61,6 +61,12 @@ CAPABILITY_ID: Final = "workspace"
 """能力与工具集共用的稳定 id，用于识别 for_run 克隆及 durable execution 工具集。"""
 
 MAX_READ_LINES: Final = 400
+MAX_READ_CHARS: Final = 50_000
+"""read_file 单次返回的字符上限，含行号与末尾提示。"""
+
+_READ_NOTE_RESERVE: Final = 200
+"""从 MAX_READ_CHARS 里给末尾提示留出的字符数，正文只用余下的部分。"""
+
 MAX_SEARCH_RESULTS: Final = 50
 
 FULL_RESOLUTION_MAX_BYTES: Final = 10 * 1024 * 1024
@@ -201,6 +207,28 @@ def _diff_counts(old_text: str, new_text: str) -> tuple[int, int]:
     return added, removed
 
 
+def _numbered_rows(
+    window: Sequence[str], *, first: int, budget: int
+) -> tuple[list[str], int | None]:
+    """给窗口里的行加行号，累计字符（含换行）放不下下一整行就停。
+
+    首行单独就超出 ``budget`` 时截成前段，第二项返回这一行保留的字符数；否则为 None。
+    """
+
+    rows: list[str] = []
+    used = 0
+    for number, line in enumerate(window, start=first):
+        row = f"{number:>6}\t{line}"
+        cost = len(row) + (1 if rows else 0)
+        if used + cost > budget:
+            if rows:
+                return rows, None
+            return [row[:budget]], budget - (len(row) - len(line))
+        rows.append(row)
+        used += cost
+    return rows, None
+
+
 def _bytes_label(size_bytes: int) -> str:
 
     mib = 1024 * 1024
@@ -280,10 +308,14 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
     ) -> ToolReturn[str]:
         """读一个工作区文件，返回带行号的内容。
 
+        一次最多 400 行、50,000 字符（含行号），先到哪个上限就停在那一整行之前，末尾注明还剩
+        几行和下一次的 ``offset``。单独一行就放不进 50,000 字符时只返回这一行的前段并注明，这一行
+        其余部分本工具读不到。
+
         Args:
             path: 文件路径，如 ``分镜/第一集.md``。
             offset: 从第几行开始读，1 起算。
-            limit: 最多读多少行。
+            limit: 最多读多少行，超过 400 按 400。
         """
 
         key = _checked(path)
@@ -298,13 +330,25 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         window = lines[offset - 1 : offset - 1 + capped]
         if not window:
             raise ModelRetry(f"{key!r} 只有 {len(lines)} 行，读不到第 {offset} 行。")
-        numbered = "\n".join(f"{offset + index:>6}\t{line}" for index, line in enumerate(window))
-        remaining = len(lines) - (offset - 1 + len(window))
+        rows, kept = _numbered_rows(
+            window, first=offset, budget=MAX_READ_CHARS - _READ_NOTE_RESERVE
+        )
+        notes: list[str] = []
+        if kept is not None:
+            notes.append(
+                f"[第 {offset} 行有 {len(window[0])} 字符，放不进单次 {MAX_READ_CHARS:,} 字符的返回上限，"
+                f"只给了前 {kept} 个；这一行其余部分 read_file 读不到]"
+            )
+        read_to = offset - 1 + len(rows)
+        remaining = len(lines) - read_to
         if remaining > 0:
-            numbered += f"\n[还有 {remaining} 行没读，接着从第 {offset + len(window)} 行读]"
+            reason = f"单次最多 {MAX_READ_CHARS:,} 字符，" if len(rows) < len(window) else ""
+            notes.append(f"[{reason}还有 {remaining} 行没读，用 offset={read_to + 1} 接着读]")
         return ToolReturn(
-            return_value=numbered,
-            metadata=file_content(key, lines=len(window), truncated=remaining > 0),
+            return_value="\n".join([*rows, *notes]),
+            metadata=file_content(
+                key, lines=len(rows), truncated=remaining > 0 or kept is not None
+            ),
         )
 
     async def write_file(
@@ -566,6 +610,7 @@ def workspace_capability(
 __all__ = [
     "CAPABILITY_ID",
     "FULL_RESOLUTION_MAX_BYTES",
+    "MAX_READ_CHARS",
     "MAX_READ_LINES",
     "MAX_SEARCH_RESULTS",
     "CropRegion",

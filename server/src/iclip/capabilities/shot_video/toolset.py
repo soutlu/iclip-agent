@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import uuid
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Annotated, Any
@@ -94,15 +93,23 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
                 files,
                 namespace,
                 EXTRACTION_PATH,
-                json.dumps(document, ensure_ascii=False, indent=2),
+                document.model_dump_json(by_alias=True, indent=2),
             )
 
-        boards = document["boards"]
-        await self._record_images(namespace, [board["url"] for board in boards])
+        boards = document.boards
+        # 板号由台账模型保证从 1 起；复用的台账可能被改过，超出层级数时先拒再登记地址。
+        stray = sorted({board.board for board in boards if board.board > len(rows)})
+        if stray:
+            raise ModelRetry(
+                f"取帧台账 {EXTRACTION_PATH} 里的板 {', '.join(map(str, stray))} 超出拆解文档的 "
+                f"{len(rows)} 个结构层级。用 delete_file 删掉 {EXTRACTION_PATH} 后重新调用 "
+                "plan_shot_frames。"
+            )
+        await self._record_images(namespace, [board.url for board in boards])
         # 台账只存板号与地址；板上有哪几个镜头按 rows 现算。命中复用时 rows 与建账时
         # 逐字相同（它是 extractionKey 的组成部分），两条路算出来一样。
         shots_of = {
-            board["board"]: sorted({shot.shot_id for shot in rows[board["board"] - 1]})
+            board.board: sorted({shot.shot_id for shot in rows[board.board - 1]})
             for board in boards
         }
         message = (
@@ -114,9 +121,9 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
                 "message": message,
                 "boards": [
                     {
-                        "board": board["board"],
-                        "shots": shots_of[board["board"]],
-                        "url": board["url"],
+                        "board": board.board,
+                        "shots": shots_of[board.board],
+                        "url": board.url,
                     }
                     for board in boards
                 ],
@@ -124,8 +131,8 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             metadata=media_grid(
                 (
                     (
-                        board["url"],
-                        f"板 {board['board']} · {','.join(map(str, shots_of[board['board']]))}",
+                        board.url,
+                        f"板 {board.board} · {','.join(map(str, shots_of[board.board]))}",
                     )
                     for board in boards
                 ),
@@ -143,6 +150,8 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
     ) -> ToolReturn[dict[str, Any]]:
         """按逐帧 visual_prompt 生成镜头帧，返回每帧的图片地址。
 
+        工作区里还没有取帧台账时被拒，先对参考视频调用 plan_shot_frames。
+
         Args:
             frames: 逐格请求，1-4 条。
             reference_images: 参考图地址，顺序即 @Image1..N；逐字取自工具结果或对话。
@@ -152,8 +161,8 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
 
         files, namespace = self._workspace(ctx)
         principal = _principal(ctx)
-        document = await self._cap.extractor.load(files, namespace, expected_key=None)
-        if document is None:
+        # 出图不用台账内容，只要求先取过帧。
+        if await self._cap.extractor.load(files, namespace, expected_key=None) is None:
             raise ModelRetry("取帧账本不存在或版本不兼容，先调用 plan_shot_frames。")
         cell_ids, prompts = resolve_requests(frames)
         references = tuple(reference_images)
@@ -267,8 +276,8 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
     ) -> None:
         """出图收的参考图地址。
 
-        ``frames`` 与画幅的规则要先读工作区里的账本，不是纯参数规则，留在工具体里；这几个参数在
-        这里照收不看——参数表必须与工具逐字一致。
+        参数表必须与工具逐字一致；``frames``、``global_reference``、``target_aspect`` 在这里
+        照收不看，它们不是素材来源规则，由工具体在提交出图前校验，帧号不要求属于取帧台账。
         """
 
         _ = (frames, global_reference, target_aspect)
@@ -300,21 +309,18 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         return self._cap.space.store, self._cap.space.resolve(ctx)
 
 
-def _conversation_id(ctx: RunContext[AgentDepsT]) -> str | None:
+def _conversation_id(ctx: RunContext[AgentDepsT]) -> str:
     """这次运行跑在哪段对话里，出图记录按它归档。
 
-    值是客户端给的（见 ``AgentRunDeps``），所以形状不对就当作没有——归档少一条好过让
-    一次已经算得出图的调用死在一个 id 上。
+    入口已把对话 id 规范成 UUID；这里不是 UUID 说明运行状态损坏，直接抛 RuntimeError。
     """
 
-    deps = ctx.deps
-    if not isinstance(deps, AgentRunDeps):
-        return None
+    conversation_id = _deps(ctx).conversation_id
     try:
-        uuid.UUID(deps.conversation_id)
-    except ValueError:
-        return None
-    return deps.conversation_id
+        uuid.UUID(conversation_id)
+    except ValueError as exc:
+        raise RuntimeError("这次运行的对话 id 不是 UUID——运行状态已损坏。") from exc
+    return conversation_id
 
 
 def _principal(ctx: RunContext[AgentDepsT]) -> Principal:
