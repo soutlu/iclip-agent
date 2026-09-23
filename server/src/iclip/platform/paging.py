@@ -17,8 +17,9 @@ DEFAULT_LIST_LIMIT: Final = 20
 
 _SEPARATOR: Final = "|"
 
-_BAD_CURSOR: Final = "cursor 不是一个有效的翻页位置"
-"""解析失败一律给这一句：调用方只需要知道这个游标不能用，分不清哪一段坏了没有意义。"""
+BAD_CURSOR: Final = "cursor 不是一个有效的翻页位置"
+"""解析失败一律给这一句：调用方只需要知道这个游标不能用，分不清哪一段坏了没有意义。
+各域校验自己的尾键形状时也用这一句。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,7 +35,7 @@ class Cursor:
         try:
             return uuid.UUID(self.key)
         except ValueError as exc:
-            raise ValidationFailed(_BAD_CURSOR) from exc
+            raise ValidationFailed(BAD_CURSOR) from exc
 
 
 def encode_cursor(at: datetime, key: object) -> str:
@@ -48,11 +49,11 @@ def decode_cursor(raw: str) -> Cursor:
 
     stamp, separator, key = raw.partition(_SEPARATOR)
     if not separator or not stamp or not key:
-        raise ValidationFailed(_BAD_CURSOR)
+        raise ValidationFailed(BAD_CURSOR)
     try:
         at = datetime.fromisoformat(stamp)
     except ValueError as exc:
-        raise ValidationFailed(_BAD_CURSOR) from exc
+        raise ValidationFailed(BAD_CURSOR) from exc
     return Cursor(at=at, key=key)
 
 
@@ -64,6 +65,7 @@ def check_limit(limit: int) -> None:
 
 
 __all__ = [
+    "BAD_CURSOR",
     "DEFAULT_LIST_LIMIT",
     "MAX_LIST_LIMIT",
     "Cursor",

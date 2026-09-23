@@ -6,7 +6,7 @@ import inspect
 import json
 import uuid
 from dataclasses import replace
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 from pydantic_ai import Agent, ModelRetry, ToolFailed
@@ -36,6 +36,7 @@ from iclip.capabilities.shot_video.generation import (
     GRID_RESOLUTION,
     IMAGE_MODEL,
 )
+from iclip.capabilities.shot_video.ports import ImageChannel
 from iclip.capabilities.shot_video.toolset import ShotVideoToolset
 from iclip.capabilities.video.capability import Video
 from iclip.capabilities.video_document import video_doc_path
@@ -71,6 +72,8 @@ DOCUMENT = (
 # 替身无网络或子进程操作，缩短轮询间隔以减少测试等待。
 FAST = GenerationPolicy(
     poll_interval_seconds=0.001,
+    dev_attempts=2,
+    pro_attempts=1,
     backoff_seconds=0.001,
     backoff_factor=1.0,
     total_timeout_seconds=5.0,
@@ -676,9 +679,7 @@ async def test_generate_stays_on_dev_when_pro_is_off(
         paths=MEDIA_PATHS,
         client=None,  # type: ignore[arg-type]
         image_models=frozenset({IMAGE_MODEL}),
-        policy=GenerationPolicy(
-            poll_interval_seconds=0.001, dev_attempts=2, pro_attempts=0, backoff_seconds=0.001
-        ),
+        policy=replace(FAST, dev_attempts=2, pro_attempts=0),
     ).get_toolset()
     assert isinstance(toolset, ShotVideoToolset)
     result = await submit_once(toolset, ctx, files)
@@ -719,13 +720,7 @@ async def test_generate_timeout_is_a_brief_failure_and_logs_the_record(
         paths=MEDIA_PATHS,
         client=None,  # type: ignore[arg-type]
         image_models=frozenset({IMAGE_MODEL}),
-        policy=GenerationPolicy(
-            poll_interval_seconds=0.001,
-            dev_attempts=1,
-            pro_attempts=1,
-            backoff_seconds=0.001,
-            total_timeout_seconds=0.02,
-        ),
+        policy=replace(FAST, dev_attempts=1, pro_attempts=1, total_timeout_seconds=0.02),
     ).get_toolset()
     assert isinstance(toolset, ShotVideoToolset)
     with capture_logs() as logs:
@@ -828,4 +823,4 @@ def test_the_pinned_image_model_can_do_what_the_frame_tools_ask_for() -> None:
     assert spec is not None, f"{IMAGE_MODEL} 没有对应的适配器"
     assert GRID_RESOLUTION in spec.resolutions
     assert ANCHOR_ASPECT in spec.aspect_ratios
-    assert set(GenerationPolicy().channels()) <= set(spec.channels)
+    assert set(get_args(ImageChannel)) <= set(spec.channels)

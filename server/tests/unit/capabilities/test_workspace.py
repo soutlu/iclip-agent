@@ -34,7 +34,11 @@ from iclip.capabilities.workspace.capability import (
     workspace_capability,
 )
 from iclip.capabilities.workspace.ports import ImageInfo, MediaProbeFailed
-from iclip.capabilities.workspace.scope import workspace_namespace
+from iclip.capabilities.workspace.scope import (
+    namespace_for,
+    parse_namespace,
+    workspace_namespace,
+)
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal
 from iclip.platform.file_store.store import (
@@ -224,6 +228,36 @@ def test_scope_goes_through_normalization() -> None:
     dirty = FileSpace(store=FakeFileStore(), namespace=lambda _ctx: f"{USER}//{THREAD}")
     capability = workspace_capability(space=dirty, probe=FakeProbe(), ledger=FakeMaterialLedger())
     assert capability.resolve_scope(make_context(make_deps())) == NS
+
+
+@pytest.mark.parametrize("conversation_id", ["cafe" + chr(0x0301), "/thread-1", THREAD])
+def test_namespace_for_matches_what_the_tools_resolve(conversation_id: str) -> None:
+    """组合根直接用 namespace_for 读写，工具经 FileSpace.resolve；两边须落到同一个命名空间。"""
+
+    space = FileSpace(store=FakeFileStore(), namespace=workspace_namespace)
+    resolved = space.resolve(make_context(make_deps(conversation_id=conversation_id)))
+    assert namespace_for(USER, conversation_id) == resolved
+
+
+def test_namespace_for_rejects_a_conversation_id_that_is_not_a_path_segment() -> None:
+    with pytest.raises(InvalidPath):
+        namespace_for(USER, "thread-1/")
+
+
+def test_parse_namespace_reverses_namespace_for() -> None:
+    conversation_id = uuid.uuid4()
+    assert parse_namespace(namespace_for(USER, str(conversation_id))) == (USER, conversation_id)
+
+
+@pytest.mark.parametrize(
+    "namespace",
+    [NS, str(USER), f"{USER}/{OTHER_USER}/extra", f"luke/{OTHER_USER}", ""],
+)
+def test_parse_namespace_refuses_what_namespace_for_would_not_build_for_a_conversation(
+    namespace: str,
+) -> None:
+    with pytest.raises(ValueError, match="不是「属主/对话 id」形式"):
+        parse_namespace(namespace)
 
 
 async def test_for_run_resolves_scope_before_any_tool_is_touched(

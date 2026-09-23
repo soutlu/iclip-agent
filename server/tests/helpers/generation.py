@@ -30,7 +30,7 @@ from iclip.domains.generation.schemas import (
     ImageGenerationIn,
     VideoGenerationIn,
 )
-from iclip.platform.object_store.oss import StoredObject
+from iclip.platform.object_store.store import StoredObject
 
 FAKE_VIDEO_PROVIDER = "video_fake"
 FAKE_IMAGE_PROVIDER = "image_fake"

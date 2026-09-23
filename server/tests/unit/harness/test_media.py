@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from iclip.harness.media import cropped_image_url, resized_image_url
+from iclip.harness.media import cropped_image_url, image_info_url, resized_image_url
 
 OSS = "https://bucket.oss-cn-hangzhou.aliyuncs.com/style.jpg"
 
@@ -35,7 +35,13 @@ def test_crop_then_resize_cascades_in_that_order() -> None:
 def test_an_address_that_cannot_carry_the_parameter_is_refused(url: str) -> None:
     """不支持处理参数的地址应立即拒绝，避免将失败延迟到模型供应商。"""
 
-    with pytest.raises(ValueError, match="缩放参数"):
+    with pytest.raises(ValueError, match="处理参数"):
         cropped_image_url(url, x=0, y=0, width=10, height=10, max_edge=None)
-    with pytest.raises(ValueError, match="缩放参数"):
+    with pytest.raises(ValueError, match="处理参数"):
         resized_image_url(url, max_edge=1024)
+    with pytest.raises(ValueError, match="处理参数"):
+        image_info_url(url)
+
+
+def test_image_info_is_asked_through_the_oss_process_parameter() -> None:
+    assert image_info_url(OSS) == f"{OSS}?x-oss-process=image/info"

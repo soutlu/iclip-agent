@@ -14,18 +14,6 @@ from urllib.parse import urlsplit
 
 MediaKind = Literal["image", "video", "audio", "file"]
 
-_KIND_BY_WIRE_TYPE: Final[Mapping[str, MediaKind]] = {
-    "image": "image",
-    "audio": "audio",
-    "video": "video",
-    "document": "file",
-}
-_WIRE_TYPE_BY_KIND: Final[Mapping[MediaKind, str]] = {
-    "image": "image",
-    "audio": "audio",
-    "video": "video",
-    "file": "document",
-}
 _LABEL_BY_KIND: Final[Mapping[MediaKind, str]] = {
     "image": "图片",
     "video": "视频",
@@ -141,14 +129,21 @@ def cropped_image_url(
     return f"{url}?x-oss-process={process}"
 
 
+def image_info_url(url: str) -> str:
+    """添加 OSS 图片信息查询参数；无法处理时抛错。"""
+
+    _require_oss_processable(url, what="查不了图片信息")
+    return f"{url}?x-oss-process=image/info"
+
+
 def _require_oss_processable(url: str, *, what: str) -> None:
     """校验 OSS 域名且 URL 不含已有 query，确保可追加处理参数。"""
 
     parsed = urlsplit(url)
     if not (parsed.hostname or "").endswith(".aliyuncs.com"):
-        raise ValueError(f"这个域名不支持缩放参数，{what}: {url!r}")
+        raise ValueError(f"这个域名不支持 OSS 处理参数，{what}: {url!r}")
     if parsed.query:
-        raise ValueError(f"地址已经带了 query，没法再挂缩放参数: {url!r}")
+        raise ValueError(f"地址已经带了 query，没法再挂 OSS 处理参数: {url!r}")
 
 
 def _is_http_url(value: str) -> bool:
@@ -160,6 +155,7 @@ __all__ = [
     "MediaKind",
     "MediaTag",
     "cropped_image_url",
+    "image_info_url",
     "is_media_tag_close",
     "media_kind_label",
     "media_tag",

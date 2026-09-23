@@ -112,7 +112,7 @@ def shot_video_capability(
     paths: ShotVideoPaths,
     client: httpx.AsyncClient,
     image_models: frozenset[str],
-    policy: GenerationPolicy | None = None,
+    policy: GenerationPolicy,
 ) -> ShotVideo[Any]:
     """装配取帧与出图服务。缺少出图要用的模型即拒绝装配。"""
 
@@ -131,7 +131,7 @@ def shot_video_capability(
             generations=generations,
             objects=objects,
             client=client,
-            policy=policy if policy is not None else GenerationPolicy(),
+            policy=policy,
         ),
     )
 

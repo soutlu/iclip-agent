@@ -339,6 +339,26 @@ async def test_a_non_json_body_is_a_probe_failure() -> None:
         await oss(handler).image_info(IMAGE_URL)
 
 
+@pytest.mark.parametrize(
+    "url", ["https://cdn.test/style.jpg", f"{IMAGE_URL}?Expires=1&Signature=abc"]
+)
+async def test_an_address_that_cannot_carry_the_info_parameter_is_refused_unasked(
+    url: str,
+) -> None:
+    """非 OSS 域名与已带 query 的地址走 harness.media 的同一道守卫，不发请求、不回显地址。"""
+
+    asked: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append(str(request.url))
+        return httpx.Response(200, json=INFO_BODY)
+
+    with pytest.raises(MediaProbeFailed, match="OSS 处理参数") as caught:
+        await oss(handler).image_info(url)
+    assert url not in str(caught.value)
+    assert asked == []
+
+
 async def test_a_network_failure_is_a_probe_failure() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused")
