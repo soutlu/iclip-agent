@@ -13,6 +13,7 @@ import {
   zConversationsPageOut,
   zImageContent,
   zPrompt,
+  zReadSidebarConversationsGetQuery,
   zSidebarOut,
   zTextContent,
   zVideoContent,
@@ -36,8 +37,14 @@ const conversationEnvelopeSchema = zConversationEnvelope.transform(
 
 const SEARCH_LIMIT = 50
 
-/** 侧栏与全部对话页共用：``open`` / ``done`` 看属主标没标收尾，``running`` 是此刻在跑的那几段。 */
-export type ConversationListState = 'all' | 'open' | 'done' | 'running'
+/** 侧栏与全部对话页共用：``open`` / ``done`` 看属主标没标收尾，``running`` 是此刻在跑的那几段。
+ *
+ * 取合同查询参数的枚举，路由解析地址栏也用这一份，合同加档位时两边一起变。 */
+export const conversationListStateSchema = zReadSidebarConversationsGetQuery.shape.state
+  .unwrap()
+  .unwrap()
+
+export type ConversationListState = z.output<typeof conversationListStateSchema>
 
 const MORE_KEY = ['conversations', 'more'] as const
 const AUDIT_KEY = ['conversations', 'audit'] as const

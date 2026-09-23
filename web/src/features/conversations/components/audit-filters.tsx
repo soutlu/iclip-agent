@@ -2,7 +2,8 @@ import { dateRangeLabel } from '@/shared/lib/date-range'
 import { ChipGroup, FilterChip } from '@/shared/ui/chip'
 import { DateRangeFilter, FilterBarRoot, PickerFilter, useFilterBar } from '@/shared/ui/filter-bar'
 import type { PickerSource } from '@/shared/ui/search-picker'
-import type { AuditFilters } from '../audit.api'
+import { auditDeletedSchema, type AuditFilters } from '../audit.api'
+import { conversationListStateSchema } from '../conversations.api'
 
 type AuditFiltersBarProps = {
   filters: AuditFilters
@@ -15,19 +16,20 @@ type AuditFiltersBarProps = {
 }
 
 // 治理者既要看谁手上还没收尾，也要看此刻谁在跑，所以这里比侧栏多一档「进行中」。
-const STATUS_OPTIONS = [
-  { value: 'all', label: '全部' },
-  { value: 'open', label: '未完成' },
-  { value: 'done', label: '已完成' },
-  { value: 'running', label: '进行中' },
-] as const
+// 两张文案表的键由合同枚举约束，chip 按声明顺序排。
+const STATUS_LABELS = {
+  all: '全部',
+  open: '未完成',
+  done: '已完成',
+  running: '进行中',
+} satisfies Record<AuditFilters['state'], string>
 
 /** 「不限」而不是再写一个「全部」，两组 chip 挨着时不混。 */
-const DELETED_OPTIONS = [
-  { value: 'live', label: '未删除' },
-  { value: 'deleted', label: '已删除' },
-  { value: 'all', label: '不限' },
-] as const
+const DELETED_LABELS = {
+  live: '未删除',
+  deleted: '已删除',
+  all: '不限',
+} satisfies Record<AuditFilters['deleted'], string>
 
 const CHIP_CLASS =
   'h-9 border-transparent bg-surface-container-low px-4 text-body data-[state=on]:bg-primary data-[state=on]:text-on-primary'
@@ -98,15 +100,15 @@ function ConversationFilters({ filters, onChange, users, tasks, totals }: AuditF
         aria-label="对话状态"
         className="gap-1"
         onValueChange={(value) => {
-          const option = STATUS_OPTIONS.find((option) => option.value === value)
-          if (option) apply({ state: option.value })
+          const state = conversationListStateSchema.safeParse(value)
+          if (state.success) apply({ state: state.data })
         }}
         type="single"
         value={filters.state}
       >
-        {STATUS_OPTIONS.map((option) => (
-          <FilterChip className={CHIP_CLASS} key={option.value} value={option.value}>
-            {option.label}
+        {Object.entries(STATUS_LABELS).map(([value, label]) => (
+          <FilterChip className={CHIP_CLASS} key={value} value={value}>
+            {label}
           </FilterChip>
         ))}
       </ChipGroup>
@@ -115,15 +117,15 @@ function ConversationFilters({ filters, onChange, users, tasks, totals }: AuditF
         aria-label="删除状态"
         className="gap-1"
         onValueChange={(value) => {
-          const option = DELETED_OPTIONS.find((option) => option.value === value)
-          if (option) apply({ deleted: option.value })
+          const deleted = auditDeletedSchema.safeParse(value)
+          if (deleted.success) apply({ deleted: deleted.data })
         }}
         type="single"
         value={filters.deleted}
       >
-        {DELETED_OPTIONS.map((option) => (
-          <FilterChip className={CHIP_CLASS} key={option.value} value={option.value}>
-            {option.label}
+        {Object.entries(DELETED_LABELS).map(([value, label]) => (
+          <FilterChip className={CHIP_CLASS} key={value} value={value}>
+            {label}
           </FilterChip>
         ))}
       </ChipGroup>

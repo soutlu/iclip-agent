@@ -8,7 +8,7 @@ describe('phaseOfStatus', () => {
     ['submitted', 'running'],
     ['completed', 'completed'],
     ['failed', 'failed'],
-  ])('%s 给人看是 %s', (status, phase) => {
+  ] as const)('%s 给人看是 %s', (status, phase) => {
     expect(phaseOfStatus(status)).toBe(phase)
   })
 })

@@ -15,13 +15,16 @@ const STEP_STATES: Record<StepState, string> = {
   failed: '失败',
 }
 
-/** 本地加工的处境换成文案：`queued` 是还在本系统排队，其余是后端报的加工阶段。 */
-const CUTTING_TITLES: Partial<Record<string, string>> = {
+/** 本地加工的处境：`queued` 是还在本系统排队，其余是后端报的加工阶段。 */
+type ClipProgress = 'queued' | NonNullable<GenerationJob['clipStage']>
+
+/** 处境换成文案；参考片段边读边切，没有 `fetching` 这一档。 */
+const CUTTING_TITLES: Partial<Record<ClipProgress, string>> = {
   queued: '等待切片',
   processing: '正在截取参考片段',
   uploading: '正在上传参考片段',
 }
-const COMPOSING_TITLES: Partial<Record<string, string>> = {
+const COMPOSING_TITLES: Record<ClipProgress, string> = {
   queued: '等待合成',
   fetching: '正在取素材',
   processing: '正在编码成片',
@@ -29,8 +32,11 @@ const COMPOSING_TITLES: Partial<Record<string, string>> = {
 }
 
 /** 排队中还没人动它，阶段词要到提交中才有；读不到就让调用方回落。 */
-const titleOf = (job: GenerationJob | undefined, titles: Partial<Record<string, string>>) =>
-  titles[job?.status === 'pending' ? 'queued' : (job?.clipStage ?? '')]
+const titleOf = (job: GenerationJob | undefined, titles: Partial<Record<ClipProgress, string>>) => {
+  if (job === undefined) return undefined
+  const progress = job.status === 'pending' ? 'queued' : job.clipStage
+  return progress === null ? undefined : titles[progress]
+}
 
 function describeProgress(edit: PendingEdit) {
   switch (edit.stage) {

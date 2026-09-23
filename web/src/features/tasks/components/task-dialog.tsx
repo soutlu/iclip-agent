@@ -23,21 +23,16 @@ import {
   type Task,
 } from '../tasks.api'
 import { buildTaskCreationDraft, type TaskCreationDraft } from '../task-creation'
+import {
+  canEditTaskField,
+  canManageDraft,
+  creationBlockReason,
+  type TaskField,
+} from '../task-permissions'
 import { TaskCreationPreview } from './task-creation-preview'
 import { TaskStatusTag } from './task-status-tag'
 import { TaskFormFields } from './task-form-fields'
 import { emptyTaskForm, taskFormOf, type TaskFormState } from './task-form-state'
-
-/** 发布后的创作参数及管理字段，对齐后端冻结规则。 */
-const PLANNER_EDITABLE = new Set([
-  'title',
-  'deadline',
-  'creative_requirement',
-  'duration_seconds',
-  'aspect_ratio',
-  'resolution',
-  'references',
-])
 
 type TaskDialogProps = {
   relatedContent?: ((taskId: string) => ReactNode) | undefined
@@ -83,16 +78,6 @@ export function TaskDialog({
     queryFn: () => getTask(taskId ?? ''),
     queryKey: tasksQueryKeys.detail(taskId ?? ''),
   })
-  const creationBlockReason = (latestTask: Task | undefined): string | null => {
-    if (!currentUser || !hasPermission(currentUser, PERMISSION.agentRun))
-      return '当前账号没有启动创作权限'
-    if (!latestTask) return '无法读取需求单，请返回后重试'
-    if (latestTask.status === 'withdrawn') return '需求单已撤回，无法开始创作'
-    if (latestTask.status !== 'confirmed') return '需求单尚未认领，无法开始创作'
-    if (!latestTask.assigneeUserIds.includes(currentUser.id))
-      return '你尚未认领这张需求单，无法开始创作'
-    return null
-  }
   const startCreation = async () => {
     if (!onStartCreation || !creationDraft || sendingRef.current) return
     sendingRef.current = true
@@ -100,7 +85,7 @@ export function TaskDialog({
     setStartError(null)
     try {
       const latest = await refetch({ throwOnError: true })
-      const blocked = creationBlockReason(latest.data)
+      const blocked = creationBlockReason(currentUser, latest.data)
       if (blocked) {
         setStartError(blocked)
         return
@@ -157,7 +142,7 @@ export function TaskDialog({
                 <TaskCreationPreview
                   draft={creationDraft}
                   error={startError}
-                  blockedReason={creationBlockReason(task)}
+                  blockedReason={creationBlockReason(currentUser, task)}
                   sending={sending}
                   onBack={() => {
                     setCreationDraft(null)
@@ -273,27 +258,12 @@ function TaskDialogForm({ onOpenChange, onPreview, task }: TaskDialogFormProps) 
   })
 
   const canWrite = hasPermission(user, PERMISSION.tasksWrite)
-  const canEditDraft = Boolean(
-    user && (user.id === task?.creatorUserId || hasPermission(user, PERMISSION.usersManage)),
-  )
   const claimed = Boolean(task && user && task.assigneeUserIds.includes(user.id))
-  const canStartCreation = Boolean(
-    onPreview &&
-    task?.status === 'confirmed' &&
-    claimed &&
-    hasPermission(user, PERMISSION.agentRun),
-  )
+  const canStartCreation = onPreview !== undefined && creationBlockReason(user, task) === null
   const draft = task ? buildTaskCreationDraft(task) : null
 
-  const editable = (field: string): boolean => {
-    if (isCreate) return canWrite
-    if (!task || !canWrite) return false
-    if (task.status === 'withdrawn') return false
-    // 款号及其顺序在创建时定下，之后只能改每款的名称、属性和图片。
-    if (field === 'style_no' || field === 'products') return false
-    if (task.status === 'draft') return canEditDraft
-    return PLANNER_EDITABLE.has(field)
-  }
+  const editable = (field: TaskField): boolean =>
+    isCreate ? canWrite : canEditTaskField(user, task, field)
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -348,7 +318,7 @@ function TaskDialogForm({ onOpenChange, onPreview, task }: TaskDialogFormProps) 
       {(isCreate || (task && (canWrite || canStartCreation))) && (
         <DialogFooter>
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            {task?.status === 'draft' && canEditDraft && (
+            {task?.status === 'draft' && canManageDraft(user, task) && (
               <Button
                 loading={actionMutation.isPending}
                 disabled={busy || uploading || hasUnsavedChanges}
@@ -358,7 +328,7 @@ function TaskDialogForm({ onOpenChange, onPreview, task }: TaskDialogFormProps) 
                 发布
               </Button>
             )}
-            {task?.status === 'draft' && canEditDraft && hasUnsavedChanges && (
+            {task?.status === 'draft' && canManageDraft(user, task) && hasUnsavedChanges && (
               <span className="text-caption text-on-surface-variant">先保存修改，再发布</span>
             )}
             {canWrite &&
@@ -393,7 +363,7 @@ function TaskDialogForm({ onOpenChange, onPreview, task }: TaskDialogFormProps) 
                 取消
               </Button>
             )}
-            {(isCreate || (canWrite && task?.status !== 'withdrawn')) && (
+            {(isCreate || editable('title')) && (
               <Button
                 className="min-w-[74px]"
                 disabled={uploading || busy || !editable('title')}

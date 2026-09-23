@@ -2,14 +2,14 @@ import { cva } from 'class-variance-authority'
 import { Tag } from '@/shared/ui/tag'
 import type { Task } from '../tasks.api'
 
-const STATUS_LABEL: Record<string, string> = {
+const STATUS_LABEL: Record<Task['status'], string> = {
   confirmed: '进行中',
   draft: '草稿',
   published: '待认领',
   withdrawn: '已撤回',
 }
 
-const STATUS_VARIANT: Record<string, 'soft' | 'running' | 'success' | 'error'> = {
+const STATUS_VARIANT: Record<Task['status'], 'soft' | 'running' | 'success' | 'error'> = {
   confirmed: 'success',
   draft: 'soft',
   published: 'running',
@@ -35,8 +35,8 @@ export function TaskStatusTag({
   appearance?: 'tag' | 'dot'
   status: Task['status']
 }) {
-  const label = STATUS_LABEL[status] ?? status
-  const variant = STATUS_VARIANT[status] ?? 'soft'
+  const label = STATUS_LABEL[status]
+  const variant = STATUS_VARIANT[status]
 
   if (appearance === 'dot') {
     return (

@@ -4,6 +4,7 @@ import { ASPECT_RATIOS } from '@/shared/lib/aspect-ratio'
 import { IconButton } from '@/shared/ui/button'
 import { Input, Textarea } from '@/shared/ui/field'
 import type { Task } from '../tasks.api'
+import type { TaskField } from '../task-permissions'
 import { PLATFORM_OPTIONS, VIDEO_TYPE_OPTIONS, CONTENT_TYPE_OPTIONS } from '../task-video-options'
 import { TaskMediaField } from './task-media-field'
 import { TaskSpecPicker } from './task-spec-picker'
@@ -43,7 +44,7 @@ const REFERENCE_FIELDS = [
 ] as const
 
 type TaskFormFieldsProps = {
-  editable: (field: string) => boolean
+  editable: (field: TaskField) => boolean
   form: TaskFormState
   onChange: Dispatch<SetStateAction<TaskFormState>>
   onUploadingChange: (field: string, busy: boolean) => void

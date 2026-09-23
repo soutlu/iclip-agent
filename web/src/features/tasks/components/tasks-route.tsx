@@ -5,6 +5,7 @@ import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/field'
 import { ListEmpty, ListError, ListPending, LoadMoreFooter } from '@/shared/ui/list-state'
 import type { TaskCreationDraft } from '../task-creation'
+import { canEditTaskField } from '../task-permissions'
 import { useTasksPages, type Task } from '../tasks.api'
 import { RenameTaskDialog } from './rename-task-dialog'
 import { TaskCard } from './task-card'
@@ -41,12 +42,10 @@ export function TasksRoute({ onStartCreation, relatedContent }: TasksRouteProps 
   const searching = keyword.trim().length > 0
   const visibleMine = searching || myTasksExpanded ? mine : mine.slice(0, 3)
 
-  // 重命名需要 tasks:write，且撤回后的需求单不可编辑。
   const canWrite = hasPermission(user, PERMISSION.tasksWrite)
+  // 重命名与详情弹窗改标题同一条规则。
   const renameProps = (task: Task) =>
-    canWrite && task.status !== 'withdrawn'
-      ? { onRename: () => setRename({ open: true, task }) }
-      : {}
+    canEditTaskField(user, task, 'title') ? { onRename: () => setRename({ open: true, task }) } : {}
 
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
