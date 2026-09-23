@@ -32,7 +32,7 @@ from iclip.harness.skills import skill_display_table
 from iclip.platform.file_store.store import FileSpace, FileStore
 from iclip.platform.material_ledger.store import MaterialLedger
 from iclip.platform.object_store.layout import MEDIA_PATHS
-from iclip.platform.object_store.oss import ObjectStoreUnavailable, PublicObjectStore
+from iclip.platform.object_store.store import ObjectStoreUnavailable, PublicObjectStore
 from iclip.platform.transcript.display import ToolDisplayRegistry, ToolDisplaySource
 
 CapabilityTable = Mapping[str, AgentCapabilities]

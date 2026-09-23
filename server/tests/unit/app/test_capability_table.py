@@ -35,7 +35,7 @@ from iclip.domains.generation.models import GenerationJob
 from iclip.domains.generation.schemas import ImageGenerationIn
 from iclip.domains.generation.service import GenerationService
 from iclip.domains.identity.public import Principal
-from iclip.platform.object_store.oss import ObjectStoreUnavailable
+from iclip.platform.object_store.store import ObjectStoreUnavailable
 from tests.helpers.file_store import FakeFileStore
 from tests.helpers.generation import make_job
 from tests.helpers.material_ledger import FakeMaterialLedger

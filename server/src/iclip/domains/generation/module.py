@@ -12,17 +12,13 @@ import procrastinate
 
 from iclip.domains.generation.api import create_generations_router
 from iclip.domains.generation.clip import FfmpegClipProvider, ReportClipStage
+from iclip.domains.generation.image_upstream import (
+    GatewayImageModel,
+    GatewayImageProvider,
+    GatewayImageSettings,
+)
 from iclip.domains.generation.models import STATUS_SUBMITTING
-from iclip.domains.generation.nano_banana import (
-    PROVIDER_NAME as NANO_BANANA_PRO,
-)
-from iclip.domains.generation.nano_banana import (
-    SPEC as NANO_BANANA_PRO_SPEC,
-)
-from iclip.domains.generation.nano_banana import (
-    NanoBananaImageProvider,
-    NanoBananaSettings,
-)
+from iclip.domains.generation.nano_banana import NANO_BANANA_PRO
 from iclip.domains.generation.provider import GenerationProvider, ImageModelSpec
 from iclip.domains.generation.queue import (
     GenerationQueue,
@@ -31,23 +27,14 @@ from iclip.domains.generation.queue import (
 )
 from iclip.domains.generation.repository import GenerationRepository
 from iclip.domains.generation.schemas import ClipStage
-from iclip.domains.generation.seedream import (
-    PROVIDER_NAME as SEEDREAM_V5_PRO,
-)
-from iclip.domains.generation.seedream import (
-    SPEC as SEEDREAM_V5_PRO_SPEC,
-)
-from iclip.domains.generation.seedream import (
-    SeedreamImageProvider,
-    SeedreamSettings,
-)
+from iclip.domains.generation.seedream import SEEDREAM_V5_PRO
 from iclip.domains.generation.service import ClearCompletion, GenerationService
 from iclip.domains.generation.video import (
     HttpVideoProvider,
     VideoProviderSettings,
 )
 from iclip.domains.identity.public import ActAs
-from iclip.platform.object_store.oss import PublicObjectStore
+from iclip.platform.object_store.store import PublicObjectStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,11 +132,15 @@ def build_generation_module(
     )
 
 
-IMAGE_MODEL_SPECS: Final[Mapping[str, ImageModelSpec]] = {
-    NANO_BANANA_PRO: NANO_BANANA_PRO_SPEC,
-    SEEDREAM_V5_PRO: SEEDREAM_V5_PRO_SPEC,
+_IMAGE_MODELS: Final[Mapping[str, GatewayImageModel]] = {
+    model.name: model for model in (NANO_BANANA_PRO, SEEDREAM_V5_PRO)
 }
-"""有适配器的那几家图片模型及其能力声明。加一家＝这里一行，加一支 _image_provider 分支。"""
+"""有适配器的那几家图片模型，适配器与能力声明都从这张表出。加一家＝这里加一项。"""
+
+IMAGE_MODEL_SPECS: Final[Mapping[str, ImageModelSpec]] = {
+    name: model.spec for name, model in _IMAGE_MODELS.items()
+}
+"""各家图片模型的能力声明。"""
 
 
 def _clip_stage_reporter(repo: GenerationRepository) -> ReportClipStage:
@@ -168,28 +159,24 @@ def _clip_stage_reporter(repo: GenerationRepository) -> ReportClipStage:
 
 
 def _image_provider(
-    model: ImageModelConfig,
+    config: ImageModelConfig,
     *,
     env: str,
     object_store: PublicObjectStore,
     transport: httpx.AsyncBaseTransport | None,
 ) -> GenerationProvider:
-    """按声明的名字建这家的适配器；名字没有对应实现就在装配期报错。"""
+    """按声明的名字查表建这家的适配器；名字没有对应实现就在装配期报错。"""
 
-    if model.name == NANO_BANANA_PRO:
-        return NanoBananaImageProvider(
-            NanoBananaSettings(api_base=model.api_base, env=env),
-            object_store=object_store,
-            transport=transport,
+    model = _IMAGE_MODELS.get(config.name)
+    if model is None:
+        raise RuntimeError(
+            f"没有 {config.name} 这家图片模型的适配器（现有：{'、'.join(_IMAGE_MODELS)}）"
         )
-    if model.name == SEEDREAM_V5_PRO:
-        return SeedreamImageProvider(
-            SeedreamSettings(api_base=model.api_base, env=env),
-            object_store=object_store,
-            transport=transport,
-        )
-    raise RuntimeError(
-        f"没有 {model.name} 这家图片模型的适配器（现有：{'、'.join(IMAGE_MODEL_SPECS)}）"
+    return GatewayImageProvider(
+        model,
+        GatewayImageSettings(api_base=config.api_base, env=env),
+        object_store=object_store,
+        transport=transport,
     )
 
 

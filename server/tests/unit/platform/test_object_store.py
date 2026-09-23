@@ -9,11 +9,11 @@ import iclip.platform.object_store.oss as oss_module
 from iclip.platform.object_store.layout import OSS_ROOT
 from iclip.platform.object_store.oss import (
     RETRY_ATTEMPTS,
-    ObjectStoreUnavailable,
     OssObjectStore,
     OssSettings,
     validate_public_url_base,
 )
+from iclip.platform.object_store.store import ObjectStoreUnavailable
 
 SETTINGS = OssSettings(
     bucket="iclip",

@@ -103,10 +103,9 @@ from iclip.platform.material_ledger.pg import PgMaterialLedger
 from iclip.platform.object_store.oss import (
     OssObjectStore,
     OssSettings,
-    PublicBucket,
-    PublicObjectStore,
     validate_public_url_base,
 )
+from iclip.platform.object_store.store import PublicBucket, PublicObjectStore
 
 _logger = structlog.stdlib.get_logger(__name__)
 

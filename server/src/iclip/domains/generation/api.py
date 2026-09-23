@@ -36,6 +36,7 @@ from iclip.domains.identity.public import (
     require_permission,
     resolve_user_name,
 )
+from iclip.platform.http import validation_error_detail
 from iclip.platform.paging import DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT
 
 
@@ -197,7 +198,7 @@ def _metadata_filter(raw: str | None) -> dict[str, Any] | None:
     try:
         return _METADATA_FILTER.validate_python(parsed)
     except ValidationError as exc:
-        raise ValidationFailed(str(exc.errors()[0]["msg"])) from exc
+        raise ValidationFailed(validation_error_detail(exc.errors())) from exc
 
 
 __all__ = ["create_generations_router"]

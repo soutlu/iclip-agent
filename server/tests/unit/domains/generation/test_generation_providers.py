@@ -8,25 +8,25 @@ import uuid
 import httpx
 import pytest
 
-from iclip.domains.generation.image_upstream import task_url
-from iclip.domains.generation.nano_banana import (
-    NanoBananaImageProvider,
-    NanoBananaSettings,
+from iclip.domains.generation.clip import FfmpegClipProvider
+from iclip.domains.generation.image_upstream import (
+    GatewayImageModel,
+    GatewayImageProvider,
+    GatewayImageSettings,
+    task_url,
 )
-from iclip.domains.generation.provider import ProviderError
-from iclip.domains.generation.seedream import (
-    SPEC as SEEDREAM_SPEC,
-)
-from iclip.domains.generation.seedream import (
-    SeedreamImageProvider,
-    SeedreamSettings,
-)
+from iclip.domains.generation.models import GenerationJob
+from iclip.domains.generation.nano_banana import NANO_BANANA_PRO
+from iclip.domains.generation.provider import GenerationProvider, ProviderError
+from iclip.domains.generation.schemas import ClipStage
+from iclip.domains.generation.seedream import SEEDREAM_V5_PRO
 from iclip.domains.generation.video import HttpVideoProvider, VideoProviderSettings
 from iclip.platform.object_store.layout import MEDIA_PATHS
 from tests.helpers.generation import (
     SHOT_IMAGE_URLS,
     SHOT_PROMPT,
     MemoryObjectStore,
+    clip_request,
     image_request,
     make_job,
     video_request,
@@ -41,17 +41,31 @@ VIDEO_SETTINGS = VideoProviderSettings(
 IMAGE_API_BASE = "https://image.test/nano-banana-pro"
 IMAGE_TEXT_TO_IMAGE_URL = task_url(IMAGE_API_BASE, editing=False)
 IMAGE_EDIT_URL = task_url(IMAGE_API_BASE, editing=True)
-IMAGE_SETTINGS = NanoBananaSettings(api_base=IMAGE_API_BASE, env="test")
+IMAGE_SETTINGS = GatewayImageSettings(api_base=IMAGE_API_BASE, env="test")
 
 SEEDREAM_API_BASE = "https://image.test/seedrance5.0pro"
 SEEDREAM_TEXT_TO_IMAGE_URL = task_url(SEEDREAM_API_BASE, editing=False)
 SEEDREAM_EDIT_URL = task_url(SEEDREAM_API_BASE, editing=True)
-SEEDREAM_SETTINGS = SeedreamSettings(api_base=SEEDREAM_API_BASE, env="test")
+SEEDREAM_SETTINGS = GatewayImageSettings(api_base=SEEDREAM_API_BASE, env="test")
+SEEDREAM_SPEC = SEEDREAM_V5_PRO.spec
 
 
-def seedream_provider(handler: object, *, store: MemoryObjectStore) -> SeedreamImageProvider:
+def nano_provider(
+    handler: object, *, store: MemoryObjectStore | None = None
+) -> GatewayImageProvider:
     assert callable(handler)
-    return SeedreamImageProvider(
+    return GatewayImageProvider(
+        NANO_BANANA_PRO,
+        IMAGE_SETTINGS,
+        object_store=store or MemoryObjectStore(),
+        transport=httpx.MockTransport(handler),  # type: ignore[arg-type]
+    )
+
+
+def seedream_provider(handler: object, *, store: MemoryObjectStore) -> GatewayImageProvider:
+    assert callable(handler)
+    return GatewayImageProvider(
+        SEEDREAM_V5_PRO,
         SEEDREAM_SETTINGS,
         object_store=store,
         transport=httpx.MockTransport(handler),  # type: ignore[arg-type]
@@ -311,10 +325,7 @@ async def test_image_generation_rehosts_result_and_returns_stable_url() -> None:
         return httpx.Response(200, content=b"PNGDATA", headers={"content-type": "image/png"})
 
     job = make_job(image_request(channel="dev"))
-    provider = NanoBananaImageProvider(
-        IMAGE_SETTINGS, object_store=store, transport=httpx.MockTransport(handler)
-    )
-    submission = await provider.submit(job)
+    submission = await nano_provider(handler, store=store).submit(job)
 
     key = MEDIA_PATHS.generated_image(job_id=job.id, ext="png")
     assert submission.output_url == f"{store.base}/{key}"
@@ -334,10 +345,7 @@ async def test_image_with_references_uses_edit_endpoint() -> None:
             )
         return httpx.Response(200, content=b"JPG", headers={"content-type": "image/jpeg"})
 
-    provider = NanoBananaImageProvider(
-        IMAGE_SETTINGS, object_store=store, transport=httpx.MockTransport(handler)
-    )
-    await provider.submit(
+    await nano_provider(handler, store=store).submit(
         make_job(
             image_request(channel="dev", reference_image_urls=["https://example.test/ref.png"])
         )
@@ -354,26 +362,24 @@ async def test_image_never_retries_and_never_switches_channel() -> None:
         attempts.append(request.url.path)
         raise httpx.ReadTimeout("timed out", request=request)
 
-    provider = NanoBananaImageProvider(
-        IMAGE_SETTINGS,
-        object_store=MemoryObjectStore(),
-        transport=httpx.MockTransport(handler),
-    )
     with pytest.raises(ProviderError) as error:
-        await provider.submit(make_job(image_request(channel="dev")))
+        await nano_provider(handler).submit(make_job(image_request(channel="dev")))
     assert error.value.code == "PROVIDER_RESULT_UNKNOWN"
     assert error.value.retryable is False
     assert len(attempts) == 1, "只调一次，不换渠道再来"
 
 
-async def test_image_has_no_polling_phase() -> None:
-    provider = NanoBananaImageProvider(
+@pytest.mark.parametrize("model", [NANO_BANANA_PRO, SEEDREAM_V5_PRO], ids=lambda m: m.name)
+async def test_image_has_no_polling_phase(model: GatewayImageModel) -> None:
+    provider = GatewayImageProvider(
+        model,
         IMAGE_SETTINGS,
         object_store=MemoryObjectStore(),
         transport=httpx.MockTransport(lambda request: httpx.Response(200, json={})),
     )
-    with pytest.raises(ProviderError, match="没有轮询阶段"):
+    with pytest.raises(ProviderError, match="没有轮询阶段") as error:
         await provider.poll(make_job(image_request()))
+    assert (error.value.code, error.value.retryable) == ("PROVIDER_POLL_UNSUPPORTED", False)
 
 
 @pytest.mark.parametrize("channel", ["dev", "pro"])
@@ -389,12 +395,7 @@ async def test_image_sends_the_channel_from_the_request(channel: str) -> None:
             )
         return httpx.Response(200, content=b"PNG", headers={"content-type": "image/png"})
 
-    provider = NanoBananaImageProvider(
-        IMAGE_SETTINGS,
-        object_store=MemoryObjectStore(),
-        transport=httpx.MockTransport(handler),
-    )
-    submission = await provider.submit(make_job(image_request(channel=channel)))
+    submission = await nano_provider(handler).submit(make_job(image_request(channel=channel)))
 
     assert sent["channel"] == channel
     assert submission.raw["channel"] == channel, "落库的快照要记下实际走的渠道"
@@ -433,10 +434,7 @@ async def test_image_edit_sends_the_urls_in_the_order_the_caller_gave() -> None:
             )
         return httpx.Response(200, content=b"PNG", headers={"content-type": "image/png"})
 
-    provider = NanoBananaImageProvider(
-        IMAGE_SETTINGS, object_store=MemoryObjectStore(), transport=httpx.MockTransport(handler)
-    )
-    await provider.submit(make_job(request))
+    await nano_provider(handler).submit(make_job(request))
     assert sent["input_str_list"] == request.reference_image_urls
     assert sent["prompt"] == request.prompt
     assert sent["user_name"] == "luke", "对账的名字来自请求，不再是配置里写死的"
@@ -479,6 +477,7 @@ async def test_seedream_sends_a_pixel_size_and_no_channel() -> None:
     }, "键集变了就是上游合同变了"
     assert (sent[0]["task_source"], sent[0]["env"]) == ("iclip_agent", "test")
     assert sent[0]["size"] == "1584*2816"
+    assert submission.raw["size"] == "1584*2816", "落库的快照要记下实际发的尺寸"
     assert submission.provider_task_id == str(job.id), "上游不回任务 id，用 data_id 对账"
 
     key = MEDIA_PATHS.generated_image(job_id=job.id, ext="jpg")
@@ -557,19 +556,44 @@ async def test_seedream_with_references_uses_the_edit_endpoint_in_order() -> Non
     assert sent[0]["input_str_list"] == references, "顺序即 prompt 里 image 1 / image 2 的编号"
 
 
-async def test_seedream_has_no_polling_phase() -> None:
-    provider = seedream_provider(seedream_ok, store=MemoryObjectStore())
-    with pytest.raises(ProviderError, match="同步"):
-        await provider.poll(make_job(image_request()))
+def upstream_down(_request: httpx.Request) -> httpx.Response:
+    return httpx.Response(500)
 
 
 async def test_nano_refuses_to_send_a_null_channel() -> None:
     """这家声明了渠道轴，受理层会填好；真为空说明装配串了，不能给付费接口送 null。"""
 
-    provider = NanoBananaImageProvider(
-        IMAGE_SETTINGS,
-        object_store=MemoryObjectStore(),
-        transport=httpx.MockTransport(lambda _request: httpx.Response(500)),
-    )
+    provider = nano_provider(upstream_down)
     with pytest.raises(ProviderError, match="没有渠道"):
         await provider.submit(make_job(image_request(channel=None)))
+
+
+async def _report_stage(_job_id: uuid.UUID, _stage: ClipStage) -> bool:
+    return True
+
+
+@pytest.mark.parametrize(
+    ("provider", "job"),
+    [
+        (video_provider(upstream_down), make_job(image_request())),
+        (nano_provider(upstream_down), make_job(video_request())),
+        (
+            seedream_provider(upstream_down, store=MemoryObjectStore()),
+            make_job(clip_request()),
+        ),
+        (
+            FfmpegClipProvider(object_store=MemoryObjectStore(), report_stage=_report_stage),
+            make_job(video_request()),
+        ),
+    ],
+    ids=["video", "nano", "seedream", "clip"],
+)
+async def test_every_provider_reports_a_misrouted_job_with_one_code(
+    provider: GenerationProvider, job: GenerationJob
+) -> None:
+    """任务排错了队是同一件事，四家都给同一个码，且不碰上游。"""
+
+    with pytest.raises(ProviderError) as error:
+        await provider.submit(job)
+    assert (error.value.code, error.value.retryable) == ("PROVIDER_KIND_MISMATCH", False)
+    assert provider.name in str(error.value)

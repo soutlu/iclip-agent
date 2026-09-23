@@ -185,7 +185,10 @@ class GenerationService:
             await self._clear_completion(job.conversation_id, job.owner_user_id)
         except Exception:
             _logger.warning(
-                "取消对话收尾标记失败", job_id=job.id, conversation_id=job.conversation_id
+                "取消对话收尾标记失败",
+                job_id=job.id,
+                conversation_id=job.conversation_id,
+                exc_info=True,
             )
 
     def _settle_image_model(self, request: ImageGenerationIn) -> tuple[ImageGenerationIn, str]:

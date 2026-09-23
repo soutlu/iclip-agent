@@ -45,7 +45,8 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
     ),
     ("fastapi_users", "fastapi_users_db_sqlalchemy"): ("domains/identity/",),
     ("openai",): ("harness/models.py",),
-    ("oss2",): ("platform/object_store/",),
+    # 端口协议在 store.py，消费方不经 SDK 适配器就能依赖它。
+    ("oss2",): ("platform/object_store/oss.py",),
     ("PIL",): ("capabilities/shot_video/board.py",),
     # 队列实现、连接器类型与组合根需要直接引用 procrastinate。
     ("procrastinate",): (

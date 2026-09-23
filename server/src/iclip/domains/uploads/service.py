@@ -21,7 +21,7 @@ from iclip.domains.uploads.models import (
 )
 from iclip.domains.uploads.schemas import UploadSignIn
 from iclip.platform.object_store.layout import MEDIA_PATHS
-from iclip.platform.object_store.oss import SIGNED_PUT_EXPIRES_SECONDS, SignedUploadStore
+from iclip.platform.object_store.store import SIGNED_PUT_EXPIRES_SECONDS, SignedUploadStore
 
 UPLOADER_HEADER: Final = "x-oss-meta-uploader"
 API_KEY_HEADER: Final = "x-oss-meta-api-key"
