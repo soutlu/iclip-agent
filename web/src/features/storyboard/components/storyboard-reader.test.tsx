@@ -1102,6 +1102,18 @@ describe('StoryboardReader', () => {
     expect(screen.queryByText('已上传，分镜未保存')).not.toBeInTheDocument()
   })
 
+  it('新增上传后保存失败，提示图片已上传、分镜未保存', async () => {
+    const files = provide()
+    files.failSave('服务暂时不可用')
+    await renderReader()
+    const page = await screen.findByRole('region', { name: '镜头组 1' })
+    await userEvent.click(within(page).getByRole('button', { name: '添加图片' }))
+    await userEvent.upload(screen.getByLabelText('选择要上传的图片'), imageFile())
+    await screen.findByRole('button', { name: '重试保存' }, { timeout: 3000 })
+    expect(screen.getByText('已上传，分镜未保存')).toBeVisible()
+    expect(files.snapshot()).toEqual(document)
+  })
+
   it('共享提示按本组编号统计，不把相同 URL 的另一编号算进来', async () => {
     const shared: ShotsDocument = {
       ...document,

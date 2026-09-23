@@ -141,6 +141,38 @@ describe('projectEditChain', () => {
     ])
   })
 
+  it('同一 editId 重发过时，各角色取列表最前那条（接口新的在前），坐标跟着它', () => {
+    const resent = projectEditChain(root, [
+      derived({
+        id: 'e5-video-retry',
+        createdAt: '2026-09-15T10:09:00Z',
+        outputUrl: 'https://oss.example/e5-retry.mp4',
+        metadata: coords('e5', 'root', 1.2, 4),
+        request: { prompt: '重发：人物转身' },
+      }),
+      derived({
+        id: 'e5-video',
+        createdAt: '2026-09-15T10:08:00Z',
+        status: 'failed',
+        errorMessage: '上游超时',
+        metadata: coords('e5', 'root', 1.5, 4),
+        request: { prompt: '人物转身' },
+      }),
+      derived({
+        id: 'e5-ref',
+        kind: 'clip',
+        createdAt: '2026-09-15T10:07:00Z',
+        outputUrl: 'https://oss.example/e5-ref.mp4',
+        metadata: coords('e5', 'root', 1, 4),
+        request: { purpose: 'reference', segments: [{ url: ROOT_URL, start: 1, end: 4 }] },
+      }),
+    ])
+    expect(
+      resent.pending.map((edit) => [edit.key, edit.stage, edit.video?.id, edit.prompt]),
+    ).toEqual([['e5', 'ready', 'e5-video-retry', '重发：人物转身']])
+    expect(resent.pending[0]?.coords).toMatchObject({ editStart: 1.2, editEnd: 4 })
+  })
+
   it('根没有结果时没有任何版本', () => {
     expect(projectEditChain(job({ id: 'root' }), chainJobs).versions).toEqual([])
   })

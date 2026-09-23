@@ -82,6 +82,25 @@ describe('frameImageEntries', () => {
     expect(entries.map((entry) => entry.key)).toEqual(['current', 'second', 'first'])
   })
 
+  it('同一张图有两条任务都产出过时，留列表里最前那条（接口新的在前）', () => {
+    const entries = frameImageEntries(
+      [
+        job({
+          id: 'rerun',
+          createdAt: '2026-09-13T03:00:00Z',
+          outputUrl: 'https://cdn.test/same.png',
+        }),
+        job({
+          id: 'first',
+          createdAt: '2026-09-13T02:00:00Z',
+          outputUrl: 'https://cdn.test/same.png',
+        }),
+      ],
+      CURRENT,
+    )
+    expect(entries.map((entry) => entry.key)).toEqual(['current', 'rerun'])
+  })
+
   it.each([
     ['pending', 'pending'],
     ['submitted', 'pending'],

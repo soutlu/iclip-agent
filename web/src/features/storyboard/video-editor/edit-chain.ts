@@ -81,9 +81,6 @@ const promptOf = (job: GenerationJob | undefined): string | undefined => {
   return typeof prompt === 'string' ? prompt : undefined
 }
 
-const newest = (jobs: readonly GenerationJob[]): GenerationJob | undefined =>
-  [...jobs].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
-
 const coordsOf = (job: GenerationJob | undefined): VideoEditMetadata | undefined =>
   job === undefined ? undefined : readVideoEditMetadata(job)
 
@@ -94,7 +91,7 @@ type EditGroup = {
   master: GenerationJob | undefined
 }
 
-/** 按 editId 分组，每种角色只认最新的一条。 */
+/** 按 editId 分组，每种角色只认最新的一条：分桶只过滤不重排，桶里第一条就是。 */
 const groupEdits = (jobs: readonly GenerationJob[]): Map<string, EditGroup> => {
   const buckets = new Map<
     string,
@@ -123,10 +120,10 @@ const groupEdits = (jobs: readonly GenerationJob[]): Map<string, EditGroup> => {
       {
         // 坐标以编辑结果为准：它记的 editStart 是按片段实际时长反算的，参考片段上是用户选的。
         // 同一 editId 重发过就跟着展示的那条（最新的）取，别一条显示、一条给坐标。
-        coords: coordsOf(newest(bucket.video)) ?? coordsOf(newest(bucket.master)) ?? bucket.coords,
-        reference: newest(bucket.reference),
-        video: newest(bucket.video),
-        master: newest(bucket.master),
+        coords: coordsOf(bucket.video[0]) ?? coordsOf(bucket.master[0]) ?? bucket.coords,
+        reference: bucket.reference[0],
+        video: bucket.video[0],
+        master: bucket.master[0],
       },
     ]),
   )
@@ -168,7 +165,8 @@ export const splicePreview = (
   return segments
 }
 
-/** 版本与进行中的编辑。`jobs` 是链查询拿回来的（编辑记录与成片），根自己不在里面，单独传。 */
+/** 版本与进行中的编辑。`jobs` 是链查询拿回来的（编辑记录与成片），根自己不在里面，单独传；
+ * 顺序照服务端给的（新的在前），同一 editId 重发过时各角色取最前那条。 */
 export const projectEditChain = (
   root: GenerationJob,
   jobs: readonly GenerationJob[],

@@ -30,6 +30,8 @@ const shotKeys = (keys: ReadonlySet<DirtyKey>): number[] =>
   [...keys].filter((key): key is number => key !== ASPECT_KEY)
 
 type Base = { version: number; document: ShotsDocument }
+/** 上传落进的那一格：镜头组编号、第几帧（从 1 数）与上传地址。 */
+type UploadedFrame = { index: number; frame: number; url: string }
 type UseShotsDraftOptions = {
   conversationId: string
   path: string
@@ -92,6 +94,8 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
   )
   const [edited, setEdited] = useState<ShotsDocument | null>(null)
   const [state, setState] = useState<SaveState>({ kind: 'idle' })
+  // 只用来在保存失败时说清图片已经传上去了；同一格只记最后一次。
+  const [uploads, setUploads] = useState<readonly UploadedFrame[]>([])
   const ledgerRef = useRef({
     base: null as Base | null,
     edited: null as ShotsDocument | null,
@@ -356,9 +360,19 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     [replaceFrame, saveNow],
   )
 
+  /** 记下这一格刚换成了上传的图；不改草稿，只影响 `hasUnsavedUpload`。 */
+  const recordUpload = useCallback((index: number, frame: number, url: string) => {
+    setUploads((current) => [
+      ...current.filter((upload) => upload.index !== index || upload.frame !== frame),
+      { index, frame, url },
+    ])
+  }, [])
+
   const resolveConflict = useCallback(
     (choice: 'mine' | 'theirs') => {
       const book = ledgerRef.current
+      // 用最新的就不再提上传过什么，不管下面有没有真正换掉草稿。
+      if (choice === 'theirs') setUploads([])
       const latest = book.latest
       const mine = book.edited
       if (latest === null || mine === null) return
@@ -393,13 +407,25 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     [saveNow],
   )
 
+  // 按已落盘的文件内容判断，不看哪次请求成功：较早的一次保存成功不能抹掉后来那张图的提示。
+  const hasUnsavedUpload =
+    edited !== null &&
+    uploads.some(
+      ({ index, frame, url }) =>
+        shotOf(edited, index)?.image_urls[frame - 1] === url &&
+        (parsed === null ? undefined : shotOf(parsed, index))?.image_urls[frame - 1] !== url,
+    )
+
   return {
     applyFrame,
     document: edited ?? parsed,
     hasUnsavedChanges: edited !== null,
+    /** 草稿里有记过的上传图，而已落盘的文件那一格还不是它。 */
+    hasUnsavedUpload,
     state,
     updateAspectRatio,
     updateShot,
+    recordUpload,
     replaceFrame,
     resolveConflict,
     saveNow,
