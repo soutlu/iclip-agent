@@ -12,7 +12,7 @@ from sqlalchemy import text
 from tests.helpers.app import make_client, settled
 from tests.helpers.auth import register_and_login, set_roles_in_db
 from tests.helpers.pg import connected
-from tests.integration_no_llm.tasks.test_tasks import INPUTS
+from tests.helpers.tasks import INPUTS
 
 ACT_AS_GRANTS = ["agent:run", "agent:read", "tasks:read", "tasks:write", "users:act_as"]
 PLAIN_GRANTS = ["agent:run", "agent:read", "tasks:read", "tasks:write"]

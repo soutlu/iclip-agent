@@ -17,6 +17,7 @@ from iclip.config import (
     SecuritySection,
     SsoSection,
 )
+from iclip.domains.identity.middleware import bind_principal
 from iclip.domains.identity.public import Principal
 
 TEST_MODEL_NAME = "test-model"
@@ -51,9 +52,7 @@ def app_with_principal(granted: Principal | None) -> FastAPI:
     async def inject_principal(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        # 与 PrincipalMiddleware 写入同一个 state 键，principal_of 从这里读。
-        if granted is not None:
-            request.state.principal = granted
+        bind_principal(request, granted)
         return await call_next(request)
 
     install_error_handlers(app)

@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from tests.helpers.auth import register_and_login
-from tests.integration_no_llm.inspirations.conftest import seed_style, seed_video, urls_of
+from tests.helpers.inspirations import seed_style, seed_video, urls_of
 
 URL = "/inspirations/videos/search"
 STYLE = "SNMT241M"

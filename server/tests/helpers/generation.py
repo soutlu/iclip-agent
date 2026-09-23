@@ -7,6 +7,8 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+from procrastinate.testing import InMemoryConnector
+
 from iclip.domains.generation.models import (
     STATUS_COMPLETED,
     STATUS_FAILED,
@@ -23,6 +25,7 @@ from iclip.domains.generation.provider import (
     ProviderProgress,
     ProviderSubmission,
 )
+from iclip.domains.generation.queue import GenerationQueue, GenerationQueueSettings, ProviderLane
 from iclip.domains.generation.schemas import (
     KIND_VIDEO,
     ClipIn,
@@ -349,6 +352,36 @@ class ScriptedProvider:
         return self._progress
 
 
+QUEUE_SETTINGS = GenerationQueueSettings(
+    poll_interval_seconds=5, error_retry_seconds=30, job_timeout_seconds=3600
+)
+
+
+def build_queue(
+    repo: InMemoryGenerationRepository,
+    *,
+    video: ScriptedProvider | None = None,
+    image: ScriptedProvider | None = None,
+    lanes: tuple[ProviderLane, ...] | None = None,
+) -> tuple[GenerationQueue, InMemoryConnector]:
+    """两家替身各占一条 lane，名字与 make_job 落到 provider 列上的值一致。"""
+
+    if lanes is None:
+        video_double = video or ScriptedProvider()
+        video_double.provider_name = FAKE_VIDEO_PROVIDER
+        image_double = image or ScriptedProvider()
+        image_double.provider_name = FAKE_IMAGE_PROVIDER
+        lanes = (ProviderLane(video_double, 1), ProviderLane(image_double, 1))
+    connector = InMemoryConnector()
+    queue = GenerationQueue(
+        repo,
+        lanes=lanes,
+        connector=connector,
+        settings=QUEUE_SETTINGS,
+    )
+    return queue, connector
+
+
 class MemoryObjectStore:
     """PublicBucket 内存替身。
 
@@ -378,9 +411,11 @@ class MemoryObjectStore:
 
 
 __all__ = [
+    "QUEUE_SETTINGS",
     "InMemoryGenerationRepository",
     "MemoryObjectStore",
     "ScriptedProvider",
+    "build_queue",
     "clip_request",
     "image_request",
     "make_job",

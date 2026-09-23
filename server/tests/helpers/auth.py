@@ -39,4 +39,13 @@ async def set_roles_in_db(pg_url: str, email: str, roles: list[str]) -> None:
         )
 
 
-__all__ = ["register_and_login", "set_roles_in_db"]
+async def login_as_editor(client: httpx.AsyncClient, pg_url: str, *, username: str = "luke") -> str:
+    """以 ``{username}@example.com`` 注册登录并授 editor 角色；返回用户 id。"""
+
+    email = f"{username}@example.com"
+    user_id = await register_and_login(client, username=username, email=email)
+    await set_roles_in_db(pg_url, email, ["editor"])
+    return user_id
+
+
+__all__ = ["login_as_editor", "register_and_login", "set_roles_in_db"]

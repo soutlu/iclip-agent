@@ -13,7 +13,9 @@ from iclip.domains.identity.rbac import effective_permissions
 
 
 class CamelModel(BaseModel):
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid", frozen=True
+    )
 
 
 class DepartmentOut(CamelModel):

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import httpx
 
-from tests.integration_no_llm.tasks.test_tasks import URL, create, login_as_editor
+from tests.helpers.auth import login_as_editor
+from tests.helpers.tasks import URL, create
 
 CONVERSATIONS = "/conversations"
 

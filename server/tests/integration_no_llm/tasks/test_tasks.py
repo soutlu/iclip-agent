@@ -11,70 +11,13 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from tests.helpers.app import make_client
-from tests.helpers.auth import register_and_login, set_roles_in_db
+from tests.helpers.auth import login_as_editor, register_and_login, set_roles_in_db
 from tests.helpers.pg import connected
-from tests.helpers.tasks import STYLE_NO
-
-URL = "/tasks"
-
-INPUTS = {
-    "products": [
-        {
-            "style_no": STYLE_NO,
-            "name": "秋冬长靴",
-            "brand": "品牌甲",
-            "category": "鞋靴",
-            "color_name": "黑色",
-            "image_oss_urls": ["https://example.com/product.jpg"],
-        },
-        {
-            "style_no": "SBPU24002W",
-            "name": "同系列短靴",
-            "brand": "品牌甲",
-            "category": "鞋靴",
-            "color_name": "棕色",
-            "image_oss_urls": [],
-        },
-    ],
-    "video_spec": {
-        "platform": "douyin",
-        "video_type": "product_showcase",
-        "content_type": "short_video",
-        "resolution": "1080p",
-        "aspect_ratio": "9:16",
-        "duration_seconds": 30,
-    },
-    "creative_requirement": "三十秒的上身效果",
-    "reference_image_oss_urls": {
-        "model": ["https://example.com/model.jpg"],
-        "outfit": [],
-        "prop": [],
-    },
-    "reference_video_oss_url": None,
-}
+from tests.helpers.tasks import INPUTS, URL, create
 
 
 def future(days: int = 7) -> str:
     return (datetime.now(UTC) + timedelta(days=days)).isoformat()
-
-
-async def login_as_editor(client: httpx.AsyncClient, pg_url: str, *, username: str = "luke") -> str:
-    email = f"{username}@example.com"
-    user_id = await register_and_login(client, username=username, email=email)
-    await set_roles_in_db(pg_url, email, ["editor"])
-    return user_id
-
-
-async def create(client: httpx.AsyncClient, **body: object) -> httpx.Response:
-    return await client.post(
-        URL,
-        json={
-            "title": "秋冬新品短视频",
-            "inputs": INPUTS,
-            "deadline": future(),
-            **body,
-        },
-    )
 
 
 async def set_status_directly(pg_url: str, task_id: str, status: str) -> None:
