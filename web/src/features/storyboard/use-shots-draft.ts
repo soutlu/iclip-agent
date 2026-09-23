@@ -2,7 +2,7 @@
 
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ApiError } from '@/shared/api/client'
+import { ApiError, errorMessageOf } from '@/shared/api/client'
 import { readWorkspaceFile, workspaceQueryKeys, writeWorkspaceFile } from '@/shared/workbench'
 import {
   parseShotsDocument,
@@ -177,10 +177,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
         } catch (error) {
           if (!(error instanceof ApiError) || error.status !== 409 || rebased) {
             clearTimer()
-            setState({
-              kind: 'error',
-              message: error instanceof Error ? error.message : '保存失败',
-            })
+            setState({ kind: 'error', message: errorMessageOf(error, '保存失败') })
             return null
           }
           const latestFile = await queryClient.fetchQuery({
@@ -220,7 +217,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     book.inFlight = run()
       .catch((error: unknown) => {
         clearTimer()
-        setState({ kind: 'error', message: error instanceof Error ? error.message : '保存失败' })
+        setState({ kind: 'error', message: errorMessageOf(error, '保存失败') })
         return null
       })
       .finally(() => {

@@ -24,7 +24,7 @@ import {
   type SidebarCollection,
 } from '@/features/conversations'
 import { tasksQueryKeys, useTaskOptions } from '@/features/tasks'
-import { ApiError } from '@/shared/api/client'
+import { ApiError, errorMessageOf } from '@/shared/api/client'
 import { hasPermission, PERMISSION, useUser } from '@/shared/auth'
 import { Icon, type IconName } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
@@ -138,9 +138,7 @@ export function SidebarConversations() {
       <SidebarFeedback error loading={topology.isFetching} onRetry={() => void topology.refetch()}>
         {topology.error instanceof ApiError && topology.error.status === 403
           ? '当前账号没有查看对话权限'
-          : topology.error instanceof ApiError
-            ? topology.error.message
-            : '读取对话列表失败，请重试'}
+          : errorMessageOf(topology.error, '读取对话列表失败，请重试')}
       </SidebarFeedback>
     )
 
@@ -448,7 +446,7 @@ function ExpandRow({
     <>
       {error != null && (
         <p className="px-3 py-1 text-body-sm text-error" role="alert">
-          {error instanceof ApiError ? error.message : '加载更多对话失败，请重试'}
+          {errorMessageOf(error, '加载更多对话失败，请重试')}
         </p>
       )}
       <button

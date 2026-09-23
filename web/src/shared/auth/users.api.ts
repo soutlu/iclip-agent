@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
-import { apiFetch } from '@/shared/api/client'
+import { apiFetch, errorMessageOf } from '@/shared/api/client'
 import { zUsersPageOut } from '@/shared/api/generated/zod.gen'
 import { drainPages } from '@/shared/api/paging'
 import type { PickerSource } from '@/shared/ui/search-picker'
@@ -59,7 +59,7 @@ export const useUsersDirectory = (enabled: boolean) => {
   )
   const users: readonly DirectoryUser[] = query.data ?? []
   return {
-    error: query.error?.message,
+    error: query.isError ? errorMessageOf(query.error, '读取用户名册失败') : undefined,
     isPending: enabled && query.isPending,
     nameOf: (userId: string) => byId.get(userId),
     /** 报表按上游归属的用户名归人，用它把用户名翻成显示名。 */

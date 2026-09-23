@@ -1,4 +1,5 @@
 import { useRef, useState, type RefObject } from 'react'
+import { errorMessageOf } from '@/shared/api/client'
 import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
 import { MediaFallback } from '@/shared/ui/media-fallback'
@@ -45,7 +46,8 @@ export function ConversationVideos({ conversationId, onBeforePreview }: Conversa
         {query.isError ? (
           <div className="flex flex-wrap items-center gap-2 text-body-sm text-error" role="alert">
             <p className="min-w-0 flex-1 break-words">
-              {query.data === undefined ? '读取视频失败' : '视频刷新失败'}：{query.error.message}
+              {query.data === undefined ? '读取视频失败' : '视频刷新失败'}：
+              {errorMessageOf(query.error, '请稍后重试')}
             </p>
             <Button
               loading={query.isFetching}

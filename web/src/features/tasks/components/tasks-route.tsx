@@ -1,4 +1,5 @@
 import { useId, useState, type ReactNode } from 'react'
+import { errorMessageOf } from '@/shared/api/client'
 import { hasPermission, PERMISSION, useUser } from '@/shared/auth'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/field'
@@ -91,7 +92,10 @@ export function TasksRoute({ onStartCreation, relatedContent }: TasksRouteProps 
             {myTasks.isPending ? (
               <ListPending label="正在读取我的需求单" />
             ) : myTasks.isError && !myTasks.isFetchNextPageError ? (
-              <ListError message={myTasks.error.message} onRetry={() => void myTasks.refetch()} />
+              <ListError
+                message={errorMessageOf(myTasks.error, '读取我的需求单失败')}
+                onRetry={() => void myTasks.refetch()}
+              />
             ) : mine.length === 0 ? (
               <ListEmpty>{searching ? '没有匹配的需求单' : '还没有认领的需求单'}</ListEmpty>
             ) : (
@@ -126,7 +130,7 @@ export function TasksRoute({ onStartCreation, relatedContent }: TasksRouteProps 
             {(searching || myTasksExpanded) && myTasks.hasNextPage ? (
               myTasks.isFetchNextPageError && !myTasks.isFetchingNextPage ? (
                 <ListError
-                  message={myTasks.error.message}
+                  message={errorMessageOf(myTasks.error, '读取我的需求单失败')}
                   onRetry={() => void myTasks.fetchNextPage()}
                 />
               ) : (
@@ -146,7 +150,10 @@ export function TasksRoute({ onStartCreation, relatedContent }: TasksRouteProps 
             {allTasks.isPending ? (
               <ListPending label="正在读取全部需求单" />
             ) : allTasks.isError && !allTasks.isFetchNextPageError ? (
-              <ListError message={allTasks.error.message} onRetry={() => void allTasks.refetch()} />
+              <ListError
+                message={errorMessageOf(allTasks.error, '读取需求单列表失败')}
+                onRetry={() => void allTasks.refetch()}
+              />
             ) : all.length === 0 ? (
               <ListEmpty>{searching ? '没有匹配的需求单' : '还没有需求单'}</ListEmpty>
             ) : (
@@ -163,7 +170,7 @@ export function TasksRoute({ onStartCreation, relatedContent }: TasksRouteProps 
             {allTasks.hasNextPage ? (
               allTasks.isFetchNextPageError && !allTasks.isFetchingNextPage ? (
                 <ListError
-                  message={allTasks.error.message}
+                  message={errorMessageOf(allTasks.error, '读取需求单列表失败')}
                   onRetry={() => void allTasks.fetchNextPage()}
                 />
               ) : (

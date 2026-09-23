@@ -1,6 +1,6 @@
 /** 参考 Kimi 客户端：基线加载前缓冲 WS 批次，加载后按序应用。缺批优先补发，超出窗口重拉；未应用批次必须返回 false，禁止推进水位。 */
 
-import { ApiError } from '@/shared/api/client'
+import { ApiError, errorMessageOf } from '@/shared/api/client'
 import {
   MAIN_AGENT_ID,
   type TranscriptConnection,
@@ -249,7 +249,7 @@ export class TranscriptReader {
           this.fail(this.missingMessage())
           return
         }
-        this.fail(error instanceof Error ? error.message : '读取对话内容失败')
+        this.fail(errorMessageOf(error, '读取对话内容失败'))
         this.scheduleReload()
       }
     })

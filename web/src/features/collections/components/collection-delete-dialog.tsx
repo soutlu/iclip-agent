@@ -1,4 +1,4 @@
-import { ApiError } from '@/shared/api/client'
+import { errorMessageOf } from '@/shared/api/client'
 import { Button } from '@/shared/ui/button'
 import {
   DialogBody,
@@ -56,7 +56,7 @@ export function CollectionDeleteDialog({
                 if (!collection) return
                 deleteMutation.mutate(collection.id, {
                   onError: (error) => {
-                    toast.error(error instanceof ApiError ? error.message : '删除失败，请重试')
+                    toast.error(errorMessageOf(error, '删除失败，请重试'))
                   },
                 })
               }}

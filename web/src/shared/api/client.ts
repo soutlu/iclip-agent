@@ -4,15 +4,20 @@ import type { z } from 'zod'
 
 const API_BASE_PATH = '/api'
 
+/** apiFetch 除取消外的唯一失败形态：message 是可直接展示的中文；status 为 HTTP 状态码，断网或响应无法解析、校验不过时为 0，原始错误放在 cause。 */
 export class ApiError extends Error {
   readonly status: number
 
-  constructor(status: number, message: string) {
-    super(message)
+  constructor(status: number, message: string, options?: ErrorOptions) {
+    super(message, options)
     this.name = 'ApiError'
     this.status = status
   }
 }
+
+/** 取可展示的错误文案：ApiError 用它的 message，其余一律用 fallback，不外露原始英文或技术信息。 */
+export const errorMessageOf = (error: unknown, fallback: string): string =>
+  error instanceof ApiError ? error.message : fallback
 
 // 鉴权回调由 app 注入，避免 shared/api 反向依赖路由。
 let onUnauthorized: (() => void) | null = null
@@ -30,7 +35,7 @@ export const setOnForbidden = (handler: (() => void) | null) => {
 
 type ApiFetchOptions = Omit<RequestInit, 'body'> & {
   body?: unknown
-  /** 请求失败或响应无法解析时的错误文案前缀。 */
+  /** 一切失败的错误文案前缀：HTTP 错误、断网、响应无法解析或校验不过。 */
   fallbackErrorMessage?: string
   /** 401 属于调用方的正常业务态（登录态探测、登录/登出/SSO 流程自身），不触发全局会话复核。 */
   skipUnauthorizedHandler?: boolean
@@ -41,39 +46,31 @@ export interface ApiFetchResult<T> {
   response: Response
 }
 
+/** 只认合同的 `{ detail: string }` 信封；其余正文（网关 HTML、纯文本、别的 JSON 形状）不外露，只保留状态码。 */
 const readApiErrorMessage = async (response: Response, fallbackMessage: string) => {
   const responseText = await response.text().catch(() => '')
-  const normalizedText = responseText.trim().toLowerCase()
-
-  // 反代/网关的 HTML 错误页不外露给用户，只保留状态码。
-  if (
-    !responseText ||
-    normalizedText.startsWith('<!doctype') ||
-    normalizedText.startsWith('<html')
-  ) {
-    return `${fallbackMessage}（${response.status}）`
-  }
-
+  let detail: unknown
   try {
-    const parsed = JSON.parse(responseText) as {
-      cause?: unknown
-      detail?: unknown
-      error?: unknown
-      message?: unknown
-    }
-    const message =
-      (typeof parsed.message === 'string' && parsed.message.trim()) ||
-      (typeof parsed.cause === 'string' && parsed.cause.trim()) ||
-      (typeof parsed.error === 'string' && parsed.error.trim()) ||
-      (typeof parsed.detail === 'string' && parsed.detail.trim())
-
-    return message ? `${fallbackMessage}：${message}` : `${fallbackMessage}（${response.status}）`
+    detail = (JSON.parse(responseText) as { detail?: unknown } | null)?.detail
   } catch {
-    return `${fallbackMessage}：${responseText}`
+    detail = undefined
   }
+  const message = typeof detail === 'string' ? detail.trim() : ''
+  return message ? `${fallbackMessage}：${message}` : `${fallbackMessage}（${response.status}）`
 }
 
-/** path 不含 /api；URLSearchParams 按表单提交，其余 body 按 JSON。空正文按 undefined 校验；请求或校验失败抛错。 */
+const NETWORK_FAILURE = '网络连接失败，请检查网络后重试'
+const MALFORMED_RESPONSE = '服务返回的数据格式不正确'
+
+// 按 name 判断：中止可能来自另一个 realm 的 DOMException，instanceof 不可靠。
+const isAbortError = (error: unknown): boolean =>
+  typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
+
+/** 取消不是失败：AbortError 原样抛出，交给 TanStack Query 与调用方的取消处理；其余包成 status 0 的 ApiError。 */
+const asClientFailure = (error: unknown, message: string): unknown =>
+  isAbortError(error) ? error : new ApiError(0, message, { cause: error })
+
+/** path 不含 /api；URLSearchParams 按表单提交，其余 body 按 JSON。空正文按 undefined 校验；失败抛 {@link ApiError}，取消原样抛 AbortError。 */
 export const apiFetchWithResponse = async <T>(
   path: string,
   schema: z.ZodType<T>,
@@ -103,7 +100,12 @@ export const apiFetchWithResponse = async <T>(
     requestInit.headers = headers
   }
 
-  const response = await fetch(`${API_BASE_PATH}${path}`, requestInit)
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_PATH}${path}`, requestInit)
+  } catch (error) {
+    throw asClientFailure(error, `${fallbackErrorMessage}：${NETWORK_FAILURE}`)
+  }
 
   if (!response.ok) {
     if (response.status === 401 && !skipUnauthorizedHandler) {
@@ -117,14 +119,24 @@ export const apiFetchWithResponse = async <T>(
     throw new ApiError(response.status, await readApiErrorMessage(response, fallbackErrorMessage))
   }
 
-  const responseText = await response.text()
-  const payload: unknown = responseText.length > 0 ? JSON.parse(responseText) : undefined
+  let responseText: string
+  try {
+    responseText = await response.text()
+  } catch (error) {
+    throw asClientFailure(error, `${fallbackErrorMessage}：${NETWORK_FAILURE}`)
+  }
+  let payload: unknown
+  try {
+    payload = responseText.length > 0 ? JSON.parse(responseText) : undefined
+  } catch (error) {
+    throw new ApiError(0, `${fallbackErrorMessage}：${MALFORMED_RESPONSE}`, { cause: error })
+  }
   const parsed = schema.safeParse(payload)
 
   if (!parsed.success) {
-    const issue = parsed.error.issues[0]
-    const location = issue && issue.path.length > 0 ? `（${issue.path.join('.')}）` : ''
-    throw new Error(`${issue?.message ?? '响应格式无效'}${location}`)
+    throw new ApiError(0, `${fallbackErrorMessage}：${MALFORMED_RESPONSE}`, {
+      cause: parsed.error,
+    })
   }
 
   return {

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
+import { errorMessageOf } from '@/shared/api/client'
 import { userPickerSourceOf, useUsersDirectory } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
 import { formatRelativeTime } from '@/shared/lib/relative-time'
@@ -95,7 +96,10 @@ export function ConversationsRoute({
           {query.isPending ? (
             <ListPending label="正在读取全部对话" />
           ) : query.isError ? (
-            <ListError message={query.error.message} onRetry={() => void query.refetch()} />
+            <ListError
+              message={errorMessageOf(query.error, '读取全部对话失败')}
+              onRetry={() => void query.refetch()}
+            />
           ) : rows.length === 0 ? (
             <ListEmpty>这个筛选下没有对话</ListEmpty>
           ) : (

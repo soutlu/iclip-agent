@@ -26,11 +26,12 @@ const tailOf = (url: string): string => {
   }
 }
 
-const parse = (text: string): { value: JsonValue } | { error: string } => {
+// 解析器的报错是英文位置信息，不展示给用户；原文就在下方，足够定位。
+const parse = (text: string): { value: JsonValue } | null => {
   try {
     return { value: JSON.parse(text) as JsonValue }
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : String(error) }
+  } catch {
+    return null
   }
 }
 
@@ -38,11 +39,11 @@ export function JsonTree({ text }: { text: string }) {
   const [preview, setPreview] = useState<LightboxMedia | null>(null)
   const parsed = parse(text)
 
-  if ('error' in parsed) {
+  if (parsed === null) {
     return (
       <div className="flex flex-col gap-3">
         <p className="text-body-sm text-chat-error-text" role="alert">
-          不是合法的 JSON：{parsed.error}
+          不是合法的 JSON，以下显示原文
         </p>
         <TextLines text={text} />
       </div>

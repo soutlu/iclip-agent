@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { ApiError } from '@/shared/api/client'
+import { errorMessageOf } from '@/shared/api/client'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
 import {
@@ -52,7 +52,7 @@ function RenameForm({ onOpenChange, task }: { onOpenChange: (open: boolean) => v
       })
     },
     onError: (error) => {
-      toast.error(error instanceof ApiError ? error.message : '重命名失败，请重试')
+      toast.error(errorMessageOf(error, '重命名失败，请重试'))
     },
     onSuccess: () => {
       toast.success('已保存')

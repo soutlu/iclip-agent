@@ -2,6 +2,7 @@
 
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
+import { errorMessageOf } from '@/shared/api/client'
 import { Icon } from '@/shared/icons'
 import { formatDateTime } from '@/shared/lib/date-time'
 import { cn } from '@/shared/lib/utils'
@@ -56,7 +57,10 @@ export function AnomaliesPanel({ scope, nameOf, taskTitleOf }: AnomaliesPanelPro
       {query.isPending ? (
         <ListPending label="正在读取异常" />
       ) : query.isError ? (
-        <ListError message={query.error.message} onRetry={() => void query.refetch()} />
+        <ListError
+          message={errorMessageOf(query.error, '读取异常列表失败')}
+          onRetry={() => void query.refetch()}
+        />
       ) : rows.length === 0 ? (
         <ListEmpty icon="success">这个范围里没有异常</ListEmpty>
       ) : (

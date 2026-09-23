@@ -2,7 +2,7 @@
 
 import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
-import { ApiError } from '@/shared/api/client'
+import { ApiError, errorMessageOf } from '@/shared/api/client'
 import { copyText } from '@/shared/lib/clipboard'
 import { Button, IconButton } from '@/shared/ui/button'
 import { Markdown } from '@/shared/ui/markdown'
@@ -83,7 +83,7 @@ export function FileReader({ conversationId, onBack, path }: FileReaderProps) {
         file.error instanceof ApiError && file.error.status === 404 ? (
           <PanelNotice hint="它已经被删掉了，回列表看看还有什么。" text="这个文件已经不在了" />
         ) : (
-          <PanelNotice text={file.error.message} />
+          <PanelNotice text={errorMessageOf(file.error, '读取工作区文件失败')} />
         )
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">
