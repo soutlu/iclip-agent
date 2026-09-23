@@ -22,7 +22,7 @@ from iclip.domains.generation.schemas import (
     ImageGenerationIn,
     VideoGenerationIn,
 )
-from iclip.domains.identity.public import ACT_AS_PERMISSION, Principal
+from iclip.domains.identity.public import Principal, visible_owner_incl_act_as
 from iclip.platform.paging import check_limit
 
 _logger = structlog.stdlib.get_logger(__name__)
@@ -107,7 +107,9 @@ class GenerationService:
         if request.root_job_id is None:
             return
         try:
-            root = await self._repo.get(request.root_job_id, owner=_owner_scope(principal))
+            root = await self._repo.get(
+                request.root_job_id, owner=visible_owner_incl_act_as(principal)
+            )
         except NotFound:
             root = None
         if (
@@ -227,7 +229,7 @@ class GenerationService:
     async def get(self, principal: Principal, job_id: uuid.UUID) -> GenerationJob:
         """读取可见生成记录，不可见时返回 NotFound。"""
 
-        return await self._repo.get(job_id, owner=_owner_scope(principal))
+        return await self._repo.get(job_id, owner=visible_owner_incl_act_as(principal))
 
     async def get_video(self, principal: Principal, job_id: uuid.UUID) -> GenerationJob:
         """视频任务查询只认视频记录：拿图片的 id 来查与不存在同样是 404。"""
@@ -260,7 +262,7 @@ class GenerationService:
 
         check_limit(limit)
         return await self._repo.list_for_owner(
-            owner=_owner_scope(principal),
+            owner=visible_owner_incl_act_as(principal),
             limit=limit,
             conversation_id=conversation_id,
             kind=kind,
@@ -276,16 +278,6 @@ def _require_user_name(user_name: str | None) -> None:
 
     if user_name is None:
         raise ValidationFailed("user_name 必填")
-
-
-def _owner_scope(principal: Principal) -> uuid.UUID | None:
-    """治理者（``users:manage``）与替人办事的钥匙（``users:act_as``）看全部，其余人只看自己的。"""
-
-    if principal.has("users:manage"):
-        return None
-    if principal.kind == "api_key" and principal.has(ACT_AS_PERMISSION):
-        return None
-    return principal.user_id
 
 
 __all__ = ["GenerationService"]

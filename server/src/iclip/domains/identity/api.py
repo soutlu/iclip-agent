@@ -28,7 +28,7 @@ from iclip.domains.identity.infra_sql import OAuthAccount, SessionFactory, User
 from iclip.domains.identity.middleware import require_authenticated, require_permission
 from iclip.domains.identity.models import Principal
 from iclip.domains.identity.pms import PmsUnavailable, PmsUserClient
-from iclip.domains.identity.rbac import ROOT_ROLE
+from iclip.domains.identity.rbac import MANAGE_PERMISSION, ROOT_ROLE
 from iclip.domains.identity.repository import UserRepository
 from iclip.domains.identity.schemas import (
     ApiKeyCreatedEnvelope,
@@ -96,7 +96,7 @@ def create_users_router(service: IdentityService) -> APIRouter:
 
     @router.get("/users", response_model=UsersPageOut)
     async def list_users(
-        principal: Annotated[Principal, Depends(require_permission("users:manage"))],
+        principal: Annotated[Principal, Depends(require_permission(MANAGE_PERMISSION))],
         page: Annotated[int, Query(ge=1)] = 1,
         page_size: Annotated[int, Query(alias="pageSize", ge=1, le=200)] = 50,
     ) -> UsersPageOut:
@@ -116,7 +116,7 @@ def create_users_router(service: IdentityService) -> APIRouter:
     async def patch_user(
         user_id: uuid.UUID,
         patch: UserPatchIn,
-        principal: Annotated[Principal, Depends(require_permission("users:manage"))],
+        principal: Annotated[Principal, Depends(require_permission(MANAGE_PERMISSION))],
     ) -> UserEnvelope:
         try:
             account = await service.update_user(

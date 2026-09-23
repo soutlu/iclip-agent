@@ -19,8 +19,14 @@ from iclip.common.errors import (
 )
 from iclip.domains.identity.commands import CreateApiKey, UpdateUser
 from iclip.domains.identity.models import ApiKeyRecord, Principal, UserAccount
-from iclip.domains.identity.rbac import PERMISSIONS, effective_permissions, is_known_role
+from iclip.domains.identity.rbac import (
+    MANAGE_PERMISSION,
+    PERMISSIONS,
+    effective_permissions,
+    is_known_role,
+)
 from iclip.domains.identity.repository import ApiKeyRepository, UserRepository
+from iclip.domains.identity.visibility import visible_owner
 
 API_KEY_TOKEN_PREFIX = "iclip_sk_"
 _TOKEN_PREFIX_DISPLAY_LENGTH = 16
@@ -149,21 +155,20 @@ class IdentityService:
         return record, token
 
     async def list_api_keys(self, principal: Principal) -> tuple[ApiKeyRecord, ...]:
-        owner = None if principal.has("users:manage") else principal.user_id
-        return await self._api_keys.list_for_owner(owner)
+        return await self._api_keys.list_for_owner(visible_owner(principal))
 
     async def revoke_api_key(self, principal: Principal, key_id: uuid.UUID) -> None:
         record = await self._api_keys.get(key_id)
         if record is None:
             raise NotFound("API key 不存在")
-        if record.owner_user_id != principal.user_id and not principal.has("users:manage"):
+        if record.owner_user_id != principal.user_id and not principal.has(MANAGE_PERMISSION):
             raise NotFound("API key 不存在")
         await self._api_keys.revoke(key_id, _now())
 
     async def list_users_page(
         self, principal: Principal, *, page: int, page_size: int
     ) -> tuple[tuple[UserAccount, ...], int]:
-        if not principal.has("users:manage"):
+        if not principal.has(MANAGE_PERMISSION):
             raise PermissionDenied("需要 users:manage 权限")
         if page < 1 or page_size < 1 or page_size > 200:
             raise ValidationFailed("分页参数无效")
@@ -172,7 +177,7 @@ class IdentityService:
     async def update_user(
         self, principal: Principal, user_id: uuid.UUID, patch: UpdateUser
     ) -> UserAccount:
-        if not principal.has("users:manage"):
+        if not principal.has(MANAGE_PERMISSION):
             raise PermissionDenied("需要 users:manage 权限")
         if patch.roles is not None:
             unknown_roles = {role for role in patch.roles if not is_known_role(role)}
