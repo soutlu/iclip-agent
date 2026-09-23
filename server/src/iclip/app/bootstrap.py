@@ -56,11 +56,7 @@ from iclip.domains.collections.infra_sql import SqlCollectionRepository
 from iclip.domains.collections.module import build_collections_module
 from iclip.domains.conversations.infra_sql import SqlConversationRepository
 from iclip.domains.conversations.module import build_conversations_module
-from iclip.domains.conversations.service import (
-    SIDEBAR_COLLECTIONS,
-    CollectionInfo,
-    ConversationActivity,
-)
+from iclip.domains.conversations.service import CollectionInfo, ConversationActivity
 from iclip.domains.generation.infra_sql import SqlGenerationRepository
 from iclip.domains.generation.module import (
     GenerationModule,
@@ -398,10 +394,10 @@ def build_app(
     collection_repo = SqlCollectionRepository(active_engine)
     collections = build_collections_module(collection_repo)
 
-    async def list_owner_collections(owner: uuid.UUID) -> tuple[CollectionInfo, ...]:
+    async def list_owner_collections(owner: uuid.UUID, *, limit: int) -> tuple[CollectionInfo, ...]:
         """将合集元信息适配到对话侧栏，保持两个领域独立。"""
 
-        found = await collection_repo.list_recent(owner=owner, limit=SIDEBAR_COLLECTIONS)
+        found = await collection_repo.list_recent(owner=owner, limit=limit)
         return tuple(
             CollectionInfo(id=item.id, name=item.name, updated_at=item.updated_at) for item in found
         )

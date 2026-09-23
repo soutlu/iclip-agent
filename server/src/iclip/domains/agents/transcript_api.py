@@ -156,7 +156,10 @@ class Transcripts(Protocol):
 
 
 class ConversationHeader(Protocol):
-    """会话页首屏要贴在信封顶层的几项。"""
+    """会话页首屏要贴在信封顶层的几项，外加读这一页要用的 Agent id。"""
+
+    @property
+    def agent_id(self) -> str: ...
 
     @property
     def title(self) -> str: ...
@@ -182,7 +185,7 @@ class Conversations(Protocol):
         ...
 
     async def header_of(self, principal: Principal, conversation_id: str) -> ConversationHeader:
-        """读取可见对话的标题与属主，不可见时抛 NotFound。"""
+        """读取可见对话的首屏信息，可见范围同 ``agent_of(writing=False)``；不可见时抛 NotFound。"""
         ...
 
 
@@ -473,17 +476,16 @@ def create_transcript_router(
         ``session.meta.updated`` 推送，不再问这里）。
         """
 
-        runtime_agent_id = await _readable(principal, conversation_id)
+        header = await conversations.header_of(principal, conversation_id)
         await transcripts.verify_agent(conversation_id, agent_id)
         page = await transcripts.page(
             conversation_id,
             agent_id=agent_id,
-            runtime_agent_id=runtime_agent_id,
+            runtime_agent_id=header.agent_id,
             before_turn=before_turn,
             after_turn=after_turn,
             page_size=page_size,
         )
-        header = await conversations.header_of(principal, conversation_id)
         return page.model_copy(
             update={
                 "title": header.title,
