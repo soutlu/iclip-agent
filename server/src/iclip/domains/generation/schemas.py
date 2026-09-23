@@ -37,8 +37,17 @@ if TYPE_CHECKING:  # 只为类型：真导入会和 models.py 成环
 GenerationKind = Literal["video", "image", "clip"]
 
 GenerationStatus = Literal["pending", "submitting", "submitted", "completed", "failed"]
-"""生成记录的业务状态，取值含义见 models.py 的 ``STATUS_*``。放在这里是因为 ``GenerationOut``
-运行时要解析它，models.py 反过来导入。"""
+"""生成记录的业务状态，取值含义见下面的 ``STATUS_*``。它和这些常量放在这里而不是 models.py：
+``GenerationOut`` 运行时要解析它，本模块的投影要按它判断，而 models.py 反过来导入本模块。"""
+
+STATUS_PENDING: Final = "pending"
+"""已受理，尚未提交给 Provider。"""
+STATUS_SUBMITTING: Final = "submitting"
+"""提交中断时禁止自动重投，避免重复计费；恢复规则见 queue.py。"""
+STATUS_SUBMITTED: Final = "submitted"
+"""Provider 已接受任务，等待结果。"""
+STATUS_COMPLETED: Final = "completed"
+STATUS_FAILED: Final = "failed"
 
 KIND_VIDEO: Final = "video"
 KIND_IMAGE: Final = "image"
@@ -473,7 +482,7 @@ def _clip_stage(job: GenerationJob) -> ClipStage | None:
     只在 submitting 时认：收尾写终态时不带 provider_status，那一列会留着最后上报的阶段词，
     照它读会让一条已失败的记录看着还在上传。"""
 
-    if job.kind != KIND_CLIP or job.status != "submitting":
+    if job.kind != KIND_CLIP or job.status != STATUS_SUBMITTING:
         return None
     return next((stage for stage in CLIP_STAGES if stage == job.provider_status), None)
 
@@ -496,12 +505,12 @@ class VideoTaskError(SnakeModel):
 
 VideoTaskStatus = Literal["queued", "running", "succeeded", "failed"]
 
-_TASK_STATUS: Final[Mapping[str, VideoTaskStatus]] = {
-    "pending": "queued",
-    "submitting": "running",
-    "submitted": "running",
-    "completed": "succeeded",
-    "failed": "failed",
+_TASK_STATUS: Final[Mapping[GenerationStatus, VideoTaskStatus]] = {
+    STATUS_PENDING: "queued",
+    STATUS_SUBMITTING: "running",
+    STATUS_SUBMITTED: "running",
+    STATUS_COMPLETED: "succeeded",
+    STATUS_FAILED: "failed",
 }
 """我们的记录状态到上游状态词。调用方拿现成的上游轮询代码就能用。"""
 
@@ -589,6 +598,11 @@ __all__ = [
     "MAX_USER_NAME_CHARS",
     "NOT_FORWARDED_FIELDS",
     "ORIGIN_FIELDS",
+    "STATUS_COMPLETED",
+    "STATUS_FAILED",
+    "STATUS_PENDING",
+    "STATUS_SUBMITTED",
+    "STATUS_SUBMITTING",
     "ClipIn",
     "ClipPurpose",
     "ClipSegmentIn",

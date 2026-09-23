@@ -1,4 +1,4 @@
-"""OSS 公开对象适配器：稳定 key 写入、直传签名、重试和异常映射。
+"""OSS 公开对象适配器：实现 store.py 的端口，负责稳定 key 写入、直传签名、重试和异常映射。
 
 同步网络调用在线程中执行；供应商生成结果转存后避免依赖临时签名 URL。
 """
@@ -9,63 +9,23 @@ import asyncio
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 from urllib.parse import quote, urlsplit
 
 import oss2
 
 from iclip.platform.object_store.layout import OSS_ROOT
+from iclip.platform.object_store.store import (
+    SIGNED_PUT_EXPIRES_SECONDS,
+    ObjectStoreUnavailable,
+    StoredObject,
+)
 
 RETRY_ATTEMPTS = 3
 """网络错误与 5xx 的最大尝试次数；4xx 不重试。"""
 
 RETRY_BACKOFF_SECONDS = 1.0
 """重试基础间隔，按尝试次数线性增加。"""
-
-SIGNED_PUT_EXPIRES_SECONDS = 3600
-"""预签名 PUT 有效期，包含用户准备与大文件上传所需时间。"""
-
-
-@dataclass(frozen=True, slots=True)
-class StoredObject:
-    """从桶读取的对象元信息，确认上传时的事实来源。"""
-
-    object_key: str
-    content_type: str
-    size_bytes: int
-
-
-class ObjectStoreUnavailable(Exception):
-    """对象存储调用失败；由调用边界转换，不归入领域 HTTP 错误。"""
-
-
-class PublicObjectStore(Protocol):
-    """公开对象写入端口，供无需直传能力的调用方依赖。"""
-
-    async def put_public_object(self, *, object_key: str, content: bytes, content_type: str) -> str:
-        """写入公开对象，返回它的公网 URL；同 key 已存在即复用。"""
-        ...
-
-
-class SignedUploadStore(Protocol):
-    """浏览器直传所需的签名、对象查询和 URL 构造端口。"""
-
-    def sign_put(self, *, object_key: str, headers: Mapping[str, str]) -> str:
-        """生成限时 PUT URL，``headers`` 全部签进去：Content-Type 限制上传类型，
-        ``x-oss-meta-*`` 记审计；客户端必须原样带上。"""
-        ...
-
-    async def find_object(self, *, prefix: str) -> StoredObject | None:
-        """按前缀查询唯一对象；不存在返回 None，多个匹配视为错误。"""
-        ...
-
-    def public_url(self, object_key: str) -> str:
-        """从 key 生成公网地址，支持更换域名而无需迁移持久化记录。"""
-        ...
-
-
-class PublicBucket(PublicObjectStore, SignedUploadStore, Protocol):
-    """完整公开桶端口；消费者可依赖所需的较小接口。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +41,7 @@ class OssSettings:
 
 
 class OssObjectStore:
-    """``PublicObjectStore`` 的 OSS 实现。"""
+    """``PublicBucket`` 的 OSS 实现。"""
 
     def __init__(self, settings: OssSettings, *, bucket: Any | None = None) -> None:
         """允许注入 bucket 替身；未提供时按 settings 创建客户端。"""
@@ -211,11 +171,7 @@ def validate_public_url_base(value: str) -> str:
 __all__ = [
     "RETRY_ATTEMPTS",
     "RETRY_BACKOFF_SECONDS",
-    "SIGNED_PUT_EXPIRES_SECONDS",
-    "ObjectStoreUnavailable",
     "OssObjectStore",
     "OssSettings",
-    "PublicObjectStore",
-    "StoredObject",
     "validate_public_url_base",
 ]

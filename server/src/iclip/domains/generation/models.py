@@ -1,4 +1,4 @@
-"""媒体生成持久模型。请求类型统一定义于 schemas.py，同时用于 HTTP 与持久化。"""
+"""媒体生成持久模型。请求类型与状态词统一定义于 schemas.py，同时用于 HTTP 与持久化。"""
 
 from __future__ import annotations
 
@@ -7,16 +7,16 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final, Literal
 
-from iclip.domains.generation.schemas import GenerationKind, GenerationRequest, GenerationStatus
-
-STATUS_PENDING: Final = "pending"
-"""已受理，尚未提交给 Provider。"""
-STATUS_SUBMITTING: Final = "submitting"
-"""提交中断时禁止自动重投，避免重复计费；恢复规则见 queue.py。"""
-STATUS_SUBMITTED: Final = "submitted"
-"""Provider 已接受任务，等待结果。"""
-STATUS_COMPLETED: Final = "completed"
-STATUS_FAILED: Final = "failed"
+from iclip.domains.generation.schemas import (
+    STATUS_COMPLETED,
+    STATUS_FAILED,
+    STATUS_PENDING,
+    STATUS_SUBMITTED,
+    STATUS_SUBMITTING,
+    GenerationKind,
+    GenerationRequest,
+    GenerationStatus,
+)
 
 TERMINAL_STATUSES: Final = frozenset({STATUS_COMPLETED, STATUS_FAILED})
 

@@ -19,6 +19,7 @@ from iclip.domains.generation.provider import (
     ProviderError,
     ProviderProgress,
     ProviderSubmission,
+    request_of,
 )
 from iclip.domains.generation.schemas import (
     CLIP_FETCHING,
@@ -41,7 +42,7 @@ from iclip.platform.media.ffmpeg import (
     probe_video,
 )
 from iclip.platform.object_store.layout import MEDIA_PATHS
-from iclip.platform.object_store.oss import ObjectStoreUnavailable, PublicObjectStore
+from iclip.platform.object_store.store import ObjectStoreUnavailable, PublicObjectStore
 
 _logger = structlog.stdlib.get_logger(__name__)
 
@@ -81,13 +82,7 @@ class FfmpegClipProvider:
         return PROVIDER_NAME
 
     async def submit(self, job: GenerationJob) -> ProviderSubmission:
-        request = job.request
-        if not isinstance(request, ClipIn):
-            raise ProviderError(
-                f"{PROVIDER_NAME} 只处理本地视频加工请求",
-                code="REQUEST_KIND_MISMATCH",
-                retryable=False,
-            )
+        request = request_of(job, ClipIn, provider=PROVIDER_NAME)
         report = self._reporter(job.id)
         content, duration_ms = await self._render(request, report)
         key = (
@@ -117,7 +112,7 @@ class FfmpegClipProvider:
         """造一个只服务这一次调用的上报器。
 
         实例被多个任务共享，所以「还在途」这个标记留在闭包里，不挂在 self 上。上报被拒之后
-        就不再报，但活照样干完——产物按任务 id 落在固定的 key 上，迟到的上传覆盖它自己那份。"""
+        就不再报，但活照样干完——产物按任务 id 落在固定的 key 上，同 key 已存在则保留先到的那份。"""
 
         live = True
 

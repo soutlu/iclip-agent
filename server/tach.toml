@@ -84,6 +84,7 @@ path = "iclip.domains.generation"
 depends_on = [
     "iclip.common",
     "iclip.platform.db",
+    "iclip.platform.http",
     "iclip.platform.media",
     "iclip.platform.object_store",
     "iclip.platform.paging",

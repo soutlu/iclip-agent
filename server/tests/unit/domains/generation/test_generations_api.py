@@ -22,10 +22,10 @@ from iclip.domains.generation.models import (
     GenerationJob,
     GenerationStatus,
 )
-from iclip.domains.generation.nano_banana import SPEC as NANO_SPEC
+from iclip.domains.generation.nano_banana import NANO_BANANA_PRO
 from iclip.domains.generation.provider import ImageModelSpec
 from iclip.domains.generation.schemas import request_to_payload
-from iclip.domains.generation.seedream import SPEC as SEEDREAM_SPEC
+from iclip.domains.generation.seedream import SEEDREAM_V5_PRO
 from iclip.domains.generation.service import GenerationService
 from iclip.domains.identity.acting import ActAs
 from iclip.domains.identity.models import Principal
@@ -53,7 +53,7 @@ VIDEO_BODY = {
 
 IMAGE_BODY = {"prompt": "一只猫的正面特写", "aspectRatio": "1:1"}
 
-IMAGE_MODELS = {"nano_banana_pro": NANO_SPEC, "seedream_v5_pro": SEEDREAM_SPEC}
+IMAGE_MODELS = {"nano_banana_pro": NANO_BANANA_PRO.spec, "seedream_v5_pro": SEEDREAM_V5_PRO.spec}
 
 
 def principal(*permissions: str, user_id: uuid.UUID | None = None) -> Principal:
@@ -439,9 +439,16 @@ async def test_metadata_filter_is_containment_and_bad_filters_are_422() -> None:
         by_shot = await http.get("/generations", params={"metadata": json.dumps({"shot": 1})})
         not_json = await http.get("/generations", params={"metadata": "not json"})
         not_object = await http.get("/generations", params={"metadata": "[1]"})
+        oversized = await http.get(
+            "/generations", params={"metadata": json.dumps({"note": "x" * 2001})}
+        )
     assert [item["id"] for item in by_frame.json()["items"]] == [str(hit.id)]
     assert {item["id"] for item in by_shot.json()["items"]} == {str(hit.id), str(other.id)}
     assert (not_json.status_code, not_object.status_code) == (422, 422)
+    assert oversized.status_code == 422
+    assert oversized.json() == {"detail": "metadata 序列化后不能超过 2000 字符"}, (
+        "与请求体的 422 同一口径：不带 pydantic 的前缀"
+    )
 
 
 @pytest.mark.parametrize(

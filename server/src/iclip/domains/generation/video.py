@@ -16,6 +16,8 @@ from iclip.domains.generation.provider import (
     ProviderError,
     ProviderProgress,
     ProviderSubmission,
+    request_of,
+    user_name_of,
 )
 from iclip.domains.generation.schemas import NOT_FORWARDED_FIELDS, VideoGenerationIn
 
@@ -56,8 +58,8 @@ class HttpVideoProvider:
         return PROVIDER_NAME
 
     async def submit(self, job: GenerationJob) -> ProviderSubmission:
-        request = _video_request(job)
-        _user_name(request)
+        request = request_of(job, VideoGenerationIn, provider=PROVIDER_NAME)
+        user_name_of(request)
         # 没给的可选字段不发，上游的模型默认值才能生效；归属字段与 shot 是我们自己的，不发。
         payload = request.model_dump(exclude_none=True, exclude=set(NOT_FORWARDED_FIELDS))
         body = await self._request(
@@ -81,7 +83,7 @@ class HttpVideoProvider:
         )
 
     async def poll(self, job: GenerationJob) -> ProviderProgress:
-        request = _video_request(job)
+        request = request_of(job, VideoGenerationIn, provider=PROVIDER_NAME)
         task_id = job.provider_task_id
         if task_id is None:
             raise ProviderError(
@@ -93,7 +95,7 @@ class HttpVideoProvider:
         body = await self._request(
             "GET",
             url,
-            params={"user_name": _user_name(request)},
+            params={"user_name": user_name_of(request)},
             timeout=_POLL_TIMEOUT_SECONDS,
         )
         return _progress_from_body(body)
@@ -169,29 +171,6 @@ class HttpVideoProvider:
                 retryable=True,
             )
         return body
-
-
-def _video_request(job: GenerationJob) -> VideoGenerationIn:
-    request = job.request
-    if not isinstance(request, VideoGenerationIn):
-        raise ProviderError(
-            f"视频 provider 收到了 {job.kind} 请求",
-            code="PROVIDER_KIND_MISMATCH",
-            retryable=False,
-        )
-    return request
-
-
-def _user_name(request: VideoGenerationIn) -> str:
-    """受理层保证填好了；为空说明装配串了，不给付费接口送一个没名字的请求。"""
-
-    if request.user_name is None:
-        raise ProviderError(
-            "视频请求没有 user_name",
-            code="PROVIDER_USER_NAME_MISSING",
-            retryable=False,
-        )
-    return request.user_name
 
 
 def _progress_from_body(body: dict[str, Any]) -> ProviderProgress:
