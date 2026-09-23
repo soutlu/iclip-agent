@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI
 
-from iclip.app.errors import install_error_handlers
 from iclip.domains.identity.acting import ActAs
 from iclip.domains.identity.models import Principal
 from iclip.domains.tasks.api import create_tasks_router
@@ -22,6 +20,7 @@ from iclip.domains.tasks.models import (
     STATUS_WITHDRAWN,
 )
 from iclip.domains.tasks.service import TaskService
+from tests.helpers.app import app_with_principal
 from tests.helpers.identity import InMemoryUserRepository
 from tests.helpers.tasks import (
     STYLE_NO,
@@ -57,18 +56,7 @@ def build_test_app(
     *,
     granted: Principal | None,
 ) -> FastAPI:
-    app = FastAPI()
-
-    @app.middleware("http")
-    async def _inject_principal(
-        request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
-        if granted is not None:
-            request.state.principal = granted
-        return await call_next(request)
-
-    install_error_handlers(app)
-
+    app = app_with_principal(granted)
     app.include_router(
         create_tasks_router(TaskService(repo), act_as=ActAs(InMemoryUserRepository()))
     )

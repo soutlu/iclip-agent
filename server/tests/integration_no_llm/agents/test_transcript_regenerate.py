@@ -12,39 +12,19 @@ from fastapi import FastAPI
 from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
 
 from iclip.config import ResolvedAgent
-from tests.integration_no_llm.agents.waiting import settled
-from tests.integration_no_llm.conftest import (
-    TEST_MODEL_NAME,
-    make_client,
-    new_conversation,
-    register_and_login,
-    set_roles_in_db,
-)
+from tests.helpers.agents import declared_agent
+from tests.helpers.app import TEST_MODEL_NAME, make_client, new_conversation, settled
+from tests.helpers.auth import register_and_login, set_roles_in_db
+from tests.helpers.pg import connected
 
 AGENT_ID = "storyboard"
 
 
 @pytest.fixture
 def agent_declarations(tmp_path: Path) -> tuple[ResolvedAgent, ...]:
-    folder = tmp_path / AGENT_ID
-    folder.mkdir(parents=True, exist_ok=True)
-    spec = folder / "agent.yaml"
-    spec.write_text("", encoding="utf-8")
-    return (
-        ResolvedAgent(
-            agent_id=AGENT_ID,
-            name=AGENT_ID,
-            spec=spec,
-            instructions=None,
-            model=TEST_MODEL_NAME,
-            skills=None,
-            capabilities=(),
-            subagents=(),
-        ),
-    )
+    return (declared_agent(tmp_path, AGENT_ID),)
 
 
 def _last_user_text(messages: list[ModelMessage]) -> str:
@@ -89,17 +69,13 @@ async def _send(
 async def _run_count(pg_url: str, conversation_id: str) -> int:
     """统计持久化 run 数；重新生成保留旧 run 并新增记录。"""
 
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.connect() as conn:
-            return (
-                await conn.execute(
-                    text("SELECT count(*) FROM agent_runtime.runs WHERE conversation_id = :cid"),
-                    {"cid": conversation_id},
-                )
-            ).scalar_one()
-    finally:
-        await engine.dispose()
+    async with connected(pg_url) as conn:
+        return (
+            await conn.execute(
+                text("SELECT count(*) FROM agent_runtime.runs WHERE conversation_id = :cid"),
+                {"cid": conversation_id},
+            )
+        ).scalar_one()
 
 
 async def test_regenerate_replays_the_last_turn(app: FastAPI, pg_url: str) -> None:
@@ -248,15 +224,11 @@ async def test_regenerate_without_prompt_row_is_not_found(app: FastAPI, pg_url: 
         await _send(client, conversation_id, "prm_gone", "问")
         await settled(client, conversation_id)
 
-        engine = create_async_engine(pg_url)
-        try:
-            async with engine.begin() as conn:
-                await conn.execute(
-                    text("DELETE FROM agent_runtime.agent_jobs WHERE conversation_id = :cid"),
-                    {"cid": conversation_id},
-                )
-        finally:
-            await engine.dispose()
+        async with connected(pg_url) as conn:
+            await conn.execute(
+                text("DELETE FROM agent_runtime.agent_jobs WHERE conversation_id = :cid"),
+                {"cid": conversation_id},
+            )
 
         missing = await client.post(f"/conversations/{conversation_id}/turns/t1:regenerate")
         page = (await client.get(f"/conversations/{conversation_id}/transcript")).json()

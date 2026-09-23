@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from fastapi import FastAPI, WebSocket
 from starlette.testclient import TestClient
@@ -11,6 +13,7 @@ from iclip.domains.identity.middleware import (
     websocket_origin_allowed,
     websocket_principal,
 )
+from tests.helpers.auth import set_roles_in_db
 
 PASSWORD = "password-123"
 
@@ -44,10 +47,6 @@ def _register_and_login(tc: TestClient) -> str:
 
 
 def test_cookie_and_bearer_handshakes(ws_app: FastAPI, migrated_pg: str) -> None:
-    import asyncio
-
-    from tests.integration_no_llm.conftest import set_roles_in_db
-
     _install_ws_routes(ws_app)
     with TestClient(ws_app) as tc:
         cookie = _register_and_login(tc)

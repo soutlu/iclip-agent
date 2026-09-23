@@ -13,7 +13,6 @@ from iclip.domains.generation.models import (
     STATUS_PENDING,
     STATUS_SUBMITTED,
     STATUS_SUBMITTING,
-    TERMINAL_STATUSES,
     GenerationJob,
     GenerationKind,
     GenerationStatus,
@@ -25,7 +24,6 @@ from iclip.domains.generation.provider import (
     ProviderSubmission,
 )
 from iclip.domains.generation.schemas import (
-    CLIP_REFERENCE,
     KIND_VIDEO,
     ClipIn,
     GenerationRequest,
@@ -147,7 +145,7 @@ def make_job(
 
 
 class InMemoryGenerationRepository:
-    """GenerationRepository 内存替身，仅处理状态跳转；排期由队列负责。"""
+    """GenerationRepository 内存替身，仅处理状态跳转与列表筛选；排期由队列负责。"""
 
     def __init__(self, jobs: list[GenerationJob] | None = None) -> None:
         self.jobs: dict[uuid.UUID, GenerationJob] = {job.id: job for job in jobs or []}
@@ -209,32 +207,9 @@ class InMemoryGenerationRepository:
         owner: uuid.UUID,
         task_id: uuid.UUID | None,
     ) -> int:
-        from dataclasses import replace
+        """分叉复制的规则只由 Postgres 仓储的集成测试覆盖，替身不复刻。"""
 
-        picked = [
-            job
-            for job in list(self.jobs.values())
-            if job.conversation_id == source_conversation_id
-            and job.status == STATUS_COMPLETED
-            and not (isinstance(job.request, ClipIn) and job.request.purpose == CLIP_REFERENCE)
-        ]
-        fresh = {job.id: uuid.uuid4() for job in picked}
-        copied = [
-            replace(
-                job,
-                id=fresh[job.id],
-                owner_user_id=owner,
-                api_key_id=None,
-                conversation_id=target_conversation_id,
-                task_id=task_id,
-                root_job_id=None if job.root_job_id is None else fresh[job.root_job_id],
-            )
-            for job in picked
-            if job.root_job_id is None or job.root_job_id in fresh
-        ]
-        for job in copied:
-            self.jobs[job.id] = job
-        return len(copied)
+        raise AssertionError("unit 层不走分叉复制")
 
     async def mark_submitting(self, job_id: uuid.UUID) -> GenerationJob:
         return self._replace(job_id, status=STATUS_SUBMITTING)
@@ -324,17 +299,9 @@ class InMemoryGenerationRepository:
     async def in_flight_by_conversation(
         self, conversation_ids: Sequence[uuid.UUID], *, kind: GenerationKind
     ) -> Mapping[uuid.UUID, InFlightPhase]:
-        phases: dict[uuid.UUID, InFlightPhase] = {}
-        for job in self.jobs.values():
-            if job.conversation_id not in conversation_ids or job.kind != kind:
-                continue
-            if job.status in TERMINAL_STATUSES or job.conversation_id is None:
-                continue
-            if job.status != STATUS_PENDING or phases.get(job.conversation_id) is None:
-                phases[job.conversation_id] = (
-                    "queued" if job.status == STATUS_PENDING else "running"
-                )
-        return phases
+        """在途汇总的优先级规则只由 Postgres 仓储的集成测试覆盖，替身不复刻。"""
+
+        raise AssertionError("unit 层不走在途汇总")
 
     def _replace(self, job_id: uuid.UUID, **values: Any) -> GenerationJob:
         from dataclasses import replace

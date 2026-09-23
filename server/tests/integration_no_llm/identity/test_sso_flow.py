@@ -6,7 +6,8 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from tests.integration_no_llm.conftest import make_client
+from tests.helpers.app import make_client
+from tests.helpers.auth import register_and_login, set_roles_in_db
 
 SSO_OK = {
     "result": "OK",
@@ -87,8 +88,6 @@ async def test_first_login_creates_editor_with_pms_profile(sso_app: FastAPI) -> 
 async def test_second_login_reuses_account_and_keeps_roles(
     sso_app: FastAPI, migrated_pg: str
 ) -> None:
-    from tests.integration_no_llm.conftest import set_roles_in_db
-
     async with make_client(sso_app) as client:
         assert (await client.get("/auth/sso/callback", params={"jwt": "j1"})).status_code == 204
     await set_roles_in_db(migrated_pg, "luke@corp.test", ["root", "editor"])
@@ -122,8 +121,6 @@ class TestBindingToExistingAccount:
     async def test_first_sso_login_keeps_existing_roles(
         self, sso_app: FastAPI, migrated_pg: str
     ) -> None:
-        from tests.integration_no_llm.conftest import register_and_login, set_roles_in_db
-
         async with make_client(sso_app) as client:
             await register_and_login(client, username="luke", email="luke@example.com")
         await set_roles_in_db(migrated_pg, "luke@example.com", ["root"])

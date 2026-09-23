@@ -1,27 +1,44 @@
-"""测试库清表：先踢掉握着表锁的遗留会话，再在限时内 TRUNCATE。
+"""测试库直连与清表。
 
-上一个用例可能留下没关干净的连接（跨事件循环的 NullPool 连接、被取消在事务中间的运行）；
-它握着的表锁会让 TRUNCATE 无限期等待，整条 CI 就此挂住。测试库专用，踢掉别的会话不伤人。
+清表先踢掉握着表锁的遗留会话，再在限时内 TRUNCATE：上一个用例可能留下没关干净的连接
+（跨事件循环的 NullPool 连接、被取消在事务中间的运行），它握着的表锁会让 TRUNCATE 无限期
+等待，整条 CI 就此挂住。测试库专用，踢掉别的会话不伤人。
 """
 
 from __future__ import annotations
 
 import warnings
-from collections.abc import Sequence
+from collections.abc import AsyncGenerator, Sequence
+from contextlib import asynccontextmanager
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
+from sqlalchemy.pool import NullPool
 
-IDENTITY_TABLES = ("iclip.api_keys", "iclip.oauth_accounts", "iclip.users")
+APP_TABLES = (
+    "iclip.users",
+    "iclip.oauth_accounts",
+    "iclip.api_keys",
+    "iclip.conversations",
+    "iclip.collections",
+    "iclip.tasks",
+    "iclip.task_assignees",
+    "iclip.generation_jobs",
+)
+"""iclip 里每个用例自己造数据的表。``inspiration_videos`` 装着迁移灌入的快照，只由爆款视频夹具清。"""
 
 AGENT_RUNTIME_TABLES = (
     "agent_runtime.runs",
     "agent_runtime.events",
     "agent_runtime.snapshots",
+    "agent_runtime.snapshot_idempotency_keys",
     "agent_runtime.tool_effects",
     "agent_runtime.media",
     "agent_runtime.agent_jobs",
     "agent_runtime.agent_job_runs",
+    "agent_runtime.conversation_usage",
+    "agent_runtime.materials",
+    "agent_runtime.workspace_files",
 )
 
 LOCK_TIMEOUT = "10s"
@@ -55,4 +72,35 @@ async def truncate_clean(
     await conn.execute(text(f"TRUNCATE {', '.join(tables)}{' CASCADE' if cascade else ''}"))
 
 
-__all__ = ["AGENT_RUNTIME_TABLES", "IDENTITY_TABLES", "LOCK_TIMEOUT", "truncate_clean"]
+async def reset_database(conn: AsyncConnection) -> None:
+    """一条语句清空 ``APP_TABLES`` 与 ``AGENT_RUNTIME_TABLES``。
+
+    不带 CASCADE：外键两端都在清单里就不需要级联；新表外键指向清单却没进清单时当场报错。
+    """
+
+    await truncate_clean(conn, (*APP_TABLES, *AGENT_RUNTIME_TABLES))
+
+
+@asynccontextmanager
+async def connected(url: str) -> AsyncGenerator[AsyncConnection]:
+    """在一次性引擎上开一个事务连接，块正常结束提交、出错回滚，最后释放引擎。
+
+    NullPool 让连接随块关闭，``asyncio.run`` 里用也不会把连接留给下一个事件循环。
+    """
+
+    engine = create_async_engine(url, poolclass=NullPool)
+    try:
+        async with engine.begin() as conn:
+            yield conn
+    finally:
+        await engine.dispose()
+
+
+__all__ = [
+    "AGENT_RUNTIME_TABLES",
+    "APP_TABLES",
+    "LOCK_TIMEOUT",
+    "connected",
+    "reset_database",
+    "truncate_clean",
+]

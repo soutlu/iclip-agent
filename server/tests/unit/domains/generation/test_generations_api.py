@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import replace
 
 import httpx
 import pytest
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI
 
-from iclip.app.errors import install_error_handlers
 from iclip.domains.generation.api import create_generations_router
 from iclip.domains.generation.models import (
     STATUS_COMPLETED,
@@ -29,6 +28,7 @@ from iclip.domains.generation.seedream import SEEDREAM_V5_PRO
 from iclip.domains.generation.service import GenerationService
 from iclip.domains.identity.acting import ActAs
 from iclip.domains.identity.models import Principal
+from tests.helpers.app import app_with_principal
 from tests.helpers.generation import (
     SHOT_IMAGE_URLS,
     SHOT_PROMPT,
@@ -94,19 +94,9 @@ def build_test_app(
     broken_queue: bool = False,
     image_models: Mapping[str, ImageModelSpec] | None = None,
 ) -> FastAPI:
-    app = FastAPI()
+    app = app_with_principal(granted)
     cleared = ClearedCompletions()
     app.state.cleared_completions = cleared
-
-    @app.middleware("http")
-    async def _inject_principal(
-        request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
-        if granted is not None:
-            request.state.principal = granted
-        return await call_next(request)
-
-    install_error_handlers(app)
 
     queue, _ = build_queue(repo)
     if broken_queue:

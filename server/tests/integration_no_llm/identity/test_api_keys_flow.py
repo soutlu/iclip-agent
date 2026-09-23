@@ -8,11 +8,8 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI
 
-from tests.integration_no_llm.conftest import (
-    make_client,
-    register_and_login,
-    set_roles_in_db,
-)
+from tests.helpers.app import make_client
+from tests.helpers.auth import register_and_login, set_roles_in_db
 
 
 @asynccontextmanager

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from iclip.harness.transcript.store import TranscriptStore
+from iclip.harness.transcript.store import JOURNAL_CAPACITY, TranscriptStore
 from iclip.platform.transcript.ops import (
     AppendOp,
     FrameTarget,
@@ -126,18 +126,13 @@ def test_catch_up_returns_the_batches_after_the_given_position() -> None:
 
 def test_catch_up_reports_incomplete_when_the_window_has_moved_past() -> None:
 
-    store = TranscriptStore(resident=4)
-    for _ in range(3):
+    store = TranscriptStore()
+    # 多写两批，补发日志挤掉最早的两批。
+    for _ in range(JOURNAL_CAPACITY + 2):
         store.append(CONVERSATION, AGENT, ())
-    agent = store.subscribe_view(CONVERSATION, AGENT)
-    assert agent.watermark == 3
-
-    # 直接移除最早两批，模拟补发日志窗口过期。
-    journal = store._conversations[CONVERSATION].agents[AGENT].journal  # pyright: ignore[reportPrivateUsage]
-    journal.popleft()
-    journal.popleft()
 
     view = store.subscribe_view(CONVERSATION, AGENT, since=0)
+    assert view.watermark == JOURNAL_CAPACITY + 2
     assert view.complete is False
 
 
