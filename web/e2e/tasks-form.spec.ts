@@ -2,6 +2,7 @@
 
 import { readFile } from 'node:fs/promises'
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { canvasPng } from './helpers'
 import { login } from './login'
 
 const SHOT_DIR = '../.artifacts/design-qa/task-form'
@@ -9,17 +10,7 @@ const SHOT_DIR = '../.artifacts/design-qa/task-form'
 const productPng = async (page: Page) => {
   const fixture = process.env['TASK_FORM_QA_IMAGE']
   if (fixture) return readFile(fixture)
-  const base64 = await page.evaluate(() => {
-    const canvas = document.createElement('canvas')
-    canvas.width = 600
-    canvas.height = 800
-    const context = canvas.getContext('2d')
-    if (!context) throw new Error('需要 Canvas 生成上传测试文件')
-    context.fillStyle = '#eeeeee'
-    context.fillRect(0, 0, canvas.width, canvas.height)
-    return canvas.toDataURL('image/png').split(',')[1] ?? ''
-  })
-  return Buffer.from(base64, 'base64')
+  return canvasPng(page, { fill: '#eeeeee' })
 }
 
 const openCreate = async (page: Page) => {

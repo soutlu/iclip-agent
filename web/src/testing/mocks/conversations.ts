@@ -1,34 +1,22 @@
+import type { z } from 'zod'
+import type { zCollectionOut, zConversationOut } from '@/shared/api/generated/zod.gen'
 import { mockAuthUser } from './auth-user'
+import { mockCreatedAt } from './paging'
 
 // 内存对话与合集遵循 ConversationOut / CollectionOut；单独成模块，transcript mock 才能按 id 查属主而不成环。
 
-export type MockConversation = {
-  activity: {
-    busy: boolean
-    lastTurnReason: 'completed' | 'failed' | 'aborted' | null
-    pendingInteraction: 'none' | 'approval' | 'question'
-    videoGeneration: 'none' | 'queued' | 'running'
-  }
-  agentId: string
-  collectionId: string | null
-  completedAt: string | null
-  createdAt: string
-  deletedAt: string | null
-  forkTurn: number | null
-  forkedFrom: string | null
-  id: string
-  lastRunId: string | null
-  ownerUserId: string
-  taskId: string | null
-  title: string
-  updatedAt: string
-}
+export type MockConversation = z.output<typeof zConversationOut>
 
+/** 删除只写 deletedAt（合同 §6 墓碑）；墓碑只有审计列表列得出来。 */
 export const mockConversations: MockConversation[] = []
+
+/** 还活着的那一段；墓碑对改名、换归属、再删、发消息一律按不存在答复。 */
+export const liveMockConversation = (conversationId: string) =>
+  mockConversations.find((item) => item.id === conversationId && item.deletedAt === null)
 
 export const addMockConversation = (
   title: string,
-  updatedAt = new Date().toISOString(),
+  createdAt = mockCreatedAt(),
   ownerUserId = mockAuthUser.id,
 ) => {
   const conversation: MockConversation = {
@@ -41,7 +29,7 @@ export const addMockConversation = (
     agentId: 'storyboard',
     collectionId: null,
     completedAt: null,
-    createdAt: updatedAt,
+    createdAt,
     deletedAt: null,
     forkTurn: null,
     forkedFrom: null,
@@ -50,7 +38,7 @@ export const addMockConversation = (
     ownerUserId,
     taskId: null,
     title,
-    updatedAt,
+    updatedAt: createdAt,
   }
   mockConversations.push(conversation)
   return conversation
@@ -65,18 +53,12 @@ export const resetMockConversations = () => {
   mockCollections.length = 0
 }
 
-type MockCollection = {
-  createdAt: string
-  id: string
-  name: string
-  ownerUserId: string
-  updatedAt: string
-}
+type MockCollection = z.output<typeof zCollectionOut>
 
 export const mockCollections: MockCollection[] = []
 
 export const addMockCollection = (name: string) => {
-  const now = new Date().toISOString()
+  const now = mockCreatedAt()
   const collection: MockCollection = {
     createdAt: now,
     id: crypto.randomUUID(),

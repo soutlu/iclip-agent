@@ -6,6 +6,8 @@ import { TasksRoute } from '@/features/tasks'
 import {
   addMockConversation,
   addMockTask,
+  liveMockConversation,
+  loginAs,
   mockAuthUser,
   mockConversations,
 } from '@/testing/mocks/handlers'
@@ -18,11 +20,10 @@ function TaskCreationPage() {
   return <TasksRoute onStartCreation={startCreation} />
 }
 
+const liveConversations = () => mockConversations.filter((item) => item.deletedAt === null)
+
 const prepare = async () => {
-  await fetch('/api/auth/login', {
-    body: new URLSearchParams({ username: 'tester', password: 'x' }),
-    method: 'POST',
-  })
+  loginAs(mockAuthUser)
   const task = addMockTask('短靴创作需求')
   task.status = 'confirmed'
   task.assigneeUserIds = [mockAuthUser.id]
@@ -169,7 +170,7 @@ describe('需求单发起对话', () => {
       http.post('*/api/conversations/:conversationId/prompts', ({ params, request }) => {
         const target = String(params['conversationId'])
         targets.push(target)
-        if (!mockConversations.some((item) => item.id === target)) {
+        if (!liveMockConversation(target)) {
           return HttpResponse.json({ detail: '对话已不存在' }, { status: 404 })
         }
         if (targets.length === 1) {
@@ -187,14 +188,15 @@ describe('需求单发起对话', () => {
 
     await user.click(screen.getByRole('button', { name: /确认并开始|重试发送/ }))
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('对话已不存在'))
-    expect(mockConversations).toHaveLength(0)
+    // 删除留下墓碑（合同 §6），只数活着的对话。
+    expect(liveConversations()).toHaveLength(0)
 
     await user.click(screen.getByRole('button', { name: /确认并开始|重试发送/ }))
     await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/c\//))
     expect(targets).toHaveLength(3)
     expect(targets[1]).toBe(removed.id)
     expect(targets[2]).not.toBe(removed.id)
-    expect(mockConversations).toHaveLength(1)
-    expect(mockConversations[0]).toMatchObject({ id: targets[2], taskId: task.id })
+    expect(liveConversations()).toHaveLength(1)
+    expect(liveConversations()[0]).toMatchObject({ id: targets[2], taskId: task.id })
   })
 })

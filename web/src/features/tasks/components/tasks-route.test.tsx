@@ -5,18 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { server } from '@/testing/mocks/server'
 import { ApiError } from '@/shared/api/client'
 import { zTaskInputsOutput } from '@/shared/api/generated/zod.gen'
-import { mockAuthUser, mockTasks } from '@/testing/mocks/handlers'
+import { loginAs, mockAuthUser, mockTasks, type MockUser } from '@/testing/mocks/handlers'
 import { renderWithProviders } from '@/testing/render'
 import type { TaskCreationDraft } from '../task-creation'
 import { TasksRoute } from './tasks-route'
-
-// 通过 MSW 登录设置会话，保持 /users/me 路径与实际应用一致。
-const login = async () => {
-  await fetch('/api/auth/login', {
-    body: new URLSearchParams({ password: 'x', username: 'tester' }),
-    method: 'POST',
-  })
-}
 
 const makeTask = (overrides: Partial<(typeof mockTasks)[number]>) => ({
   assigneeUserIds: [],
@@ -37,8 +29,12 @@ const makeTask = (overrides: Partial<(typeof mockTasks)[number]>) => ({
   ...overrides,
 })
 
-const renderLoggedIn = async (onStartCreation?: (draft: TaskCreationDraft) => Promise<void>) => {
-  await login()
+/** 以测试用户登录后挂载；overrides 换权限等字段。 */
+const renderLoggedIn = async (
+  onStartCreation?: (draft: TaskCreationDraft) => Promise<void>,
+  overrides: Partial<MockUser> = {},
+) => {
+  loginAs(mockAuthUser, overrides)
   return renderWithProviders(<TasksRoute {...(onStartCreation ? { onStartCreation } : {})} />)
 }
 
@@ -569,14 +565,9 @@ describe('TasksRoute', () => {
   })
 
   it('只有查看权限时详情只读', async () => {
-    server.use(
-      http.get('*/api/users/me', () =>
-        HttpResponse.json({ user: { ...mockAuthUser, permissions: ['tasks:read'] } }),
-      ),
-    )
     mockTasks.push(makeTask({ status: 'published', title: '只读需求' }))
     const user = userEvent.setup()
-    await renderLoggedIn()
+    await renderLoggedIn(undefined, { permissions: ['tasks:read'] })
     await user.click(await screen.findByText('只读需求'))
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByLabelText('创作要求')).toBeDisabled()
@@ -746,18 +737,6 @@ describe('TasksRoute', () => {
     { status: 'published' as const, claimed: true, canRun: true },
     { status: 'confirmed' as const, claimed: true, canRun: false },
   ])('开始入口要求已认领、confirmed和agent:run：%j', async ({ status, claimed, canRun }) => {
-    server.use(
-      http.get('*/api/users/me', () =>
-        HttpResponse.json({
-          user: {
-            ...mockAuthUser,
-            permissions: canRun
-              ? mockAuthUser.permissions
-              : mockAuthUser.permissions.filter((permission) => permission !== 'agent:run'),
-          },
-        }),
-      ),
-    )
     const task = makeTask({
       status,
       assigneeUserIds: claimed ? [mockAuthUser.id] : [],
@@ -766,7 +745,11 @@ describe('TasksRoute', () => {
     task.inputs.creative_requirement = '需求内容'
     mockTasks.push(task)
     const user = userEvent.setup()
-    await renderLoggedIn(async () => {})
+    await renderLoggedIn(async () => {}, {
+      permissions: canRun
+        ? mockAuthUser.permissions
+        : mockAuthUser.permissions.filter((permission) => permission !== 'agent:run'),
+    })
     await user.click(
       await within(screen.getByRole('region', { name: '全部需求单' })).findByText(task.title),
     )

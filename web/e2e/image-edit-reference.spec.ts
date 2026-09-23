@@ -1,7 +1,7 @@
 /// <reference lib="dom" />
 
 import { expect, test } from '@playwright/test'
-import { login } from './login'
+import { canvasPng, openConversation } from './helpers'
 
 for (const prefix of ['', '把']) {
   for (const method of ['鼠标', '回车'] as const) {
@@ -9,9 +9,7 @@ for (const prefix of ['', '把']) {
       page,
     }) => {
       await page.setViewportSize({ width: 1600, height: 1000 })
-      await page.goto('/')
-      await login(page)
-      await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+      await openConversation(page, '夜景延时素材生成')
       const group = page.getByRole('region', { name: '镜头组 1', exact: true })
       await group.getByRole('button', { name: '镜头 1', exact: true }).click()
       await group.getByRole('img', { name: '镜头组 1 第 1 帧' }).hover()
@@ -48,9 +46,7 @@ for (const prefix of ['', '把']) {
 }
 
 test('普通编辑只填写要求即可提交编辑底图', async ({ page }) => {
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+  await openConversation(page, '夜景延时素材生成')
   const group = page.getByRole('region', { name: '镜头组 1', exact: true })
   await group.getByRole('button', { name: '镜头 1', exact: true }).click()
   const original = group.getByRole('img', { name: '镜头组 1 第 1 帧' })
@@ -76,10 +72,7 @@ for (const width of [1600, 390]) {
     }) => {
       await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 })
       await page.emulateMedia({ colorScheme })
-      await page.goto('/')
-      await login(page)
-      await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
-      if (width === 390) await page.getByRole('button', { name: '打开右侧面板' }).click()
+      await openConversation(page, '夜景延时素材生成', { mobile: width === 390 })
       const group = page.getByRole('region', { name: '镜头组 2', exact: true })
       await group.getByRole('button', { name: '镜头 2', exact: true }).click()
       await group.getByRole('button', { name: '预览第 3 帧' }).click()
@@ -162,10 +155,7 @@ for (const width of [1600, 390]) {
     }) => {
       await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 })
       await page.emulateMedia({ colorScheme })
-      await page.goto('/')
-      await login(page)
-      await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
-      if (width === 390) await page.getByRole('button', { name: '打开右侧面板' }).click()
+      await openConversation(page, '夜景延时素材生成', { mobile: width === 390 })
       const group = page.getByRole('region', { name: '镜头组 1', exact: true })
       await group.getByRole('button', { name: '镜头 1', exact: true }).click()
       const filmstrip = group.getByRole('navigation', { name: '本组镜头', exact: true })
@@ -219,9 +209,7 @@ test('往编辑器拖本地图片：参考图片区就地上传，其余位置�
   page,
 }) => {
   await page.setViewportSize({ width: 1600, height: 1000 })
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+  await openConversation(page, '夜景延时素材生成')
   const group = page.getByRole('region', { name: '镜头组 1', exact: true })
   await group.getByRole('button', { name: '镜头 1', exact: true }).click()
   await group.getByRole('img', { name: '镜头组 1 第 1 帧' }).hover()
@@ -232,17 +220,7 @@ test('往编辑器拖本地图片：参考图片区就地上传，其余位置�
   await expect(dialog.getByRole('button', { name: '添加参考图片', exact: true })).toBeEnabled()
   const overlay = page.getByText('松开鼠标添加附件')
 
-  // 上传前会校验图片尺寸（短边至少 300），画一张够大的。
-  const png = Buffer.from(
-    await page.evaluate(() => {
-      const canvas = document.createElement('canvas')
-      canvas.width = 600
-      canvas.height = 800
-      canvas.getContext('2d')?.fillRect(0, 0, canvas.width, canvas.height)
-      return canvas.toDataURL('image/png').split(',')[1] ?? ''
-    }),
-    'base64',
-  )
+  const png = await canvasPng(page)
   await page.context().route('http://localhost/mock-oss/**', async (route) => {
     if (route.request().method() === 'GET')
       await route.fulfill({ body: png, contentType: 'image/png' })

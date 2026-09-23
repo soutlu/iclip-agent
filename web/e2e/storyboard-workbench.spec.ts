@@ -1,8 +1,8 @@
 /// <reference lib="dom" />
 
 import { readFile } from 'node:fs/promises'
-import { expect, test, type Page } from '@playwright/test'
-import { login } from './login'
+import { expect, test } from '@playwright/test'
+import { canvasPng, openConversation } from './helpers'
 
 /** mock 出片用的测试卡源文件；下载回来的字节要和它一致。 */
 const SAMPLE_VIDEO = new URL('../src/testing/fixtures/sample-video.webm', import.meta.url)
@@ -10,32 +10,9 @@ const SAMPLE_VIDEO = new URL('../src/testing/fixtures/sample-video.webm', import
 // 在浏览器验证 scroll-snap 翻组；视口需容纳 264px 侧栏、400px 聊天和 560px 面板。
 test.use({ viewport: { height: 900, width: 1600 } })
 
-const framePng = async (page: Page) => {
-  const base64 = await page.evaluate(() => {
-    const canvas = document.createElement('canvas')
-    canvas.width = 600
-    canvas.height = 800
-    const context = canvas.getContext('2d')
-    if (context === null) throw new Error('测试图片需要 Canvas 2D')
-    context.fillStyle = '#dfe8dd'
-    context.fillRect(0, 0, canvas.width, canvas.height)
-    context.fillStyle = '#23503e'
-    context.fillRect(70, 180, 460, 440)
-    context.font = '36px sans-serif'
-    context.fillStyle = '#ffffff'
-    context.fillText('Local frame', 180, 420)
-    return canvas.toDataURL('image/png').split(',')[1] ?? ''
-  })
-  return Buffer.from(base64, 'base64')
-}
-
 test('短桌面中首帧卡片在原位展开，预览与底部导航均完整可见且可键盘切帧', async ({ page }) => {
   await page.setViewportSize({ height: 700, width: 1600 })
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
-
-  const panel = page.getByRole('complementary', { name: '右侧面板' })
+  const panel = await openConversation(page, '夜景延时素材生成')
   await panel.getByRole('button', { name: '第 2 组' }).click()
   const group = panel.getByRole('region', { name: '镜头组 2' })
   const navigation = group.getByRole('navigation', { name: '本组镜头' })
@@ -113,11 +90,7 @@ for (const width of [1335, 390]) {
     test(`视频记录空态 ${width}px ${colorScheme}：说明和返回分镜入口完整可见`, async ({ page }) => {
       await page.setViewportSize({ width, height: 880 })
       await page.emulateMedia({ colorScheme })
-      await page.goto('/')
-      await login(page)
-      await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
-      if (width === 390) await page.getByRole('button', { name: '打开右侧面板' }).click()
-      const panel = page.getByRole('complementary', { name: '右侧面板' })
+      const panel = await openConversation(page, '夜景延时素材生成', { mobile: width === 390 })
       await panel.getByRole('button', { name: '生成记录', exact: true }).click()
       const records = panel.getByRole('complementary', { name: '生成记录' })
       await expect(records.getByRole('heading', { name: '暂无视频记录' })).toBeVisible()
@@ -143,11 +116,7 @@ for (const width of [1335, 390]) {
   test(`视频记录预览 ${width}px：播放与关闭复用对话弹层，保留记录和当前分镜`, async ({ page }) => {
     await page.setViewportSize({ width, height: 934 })
     await page.emulateMedia({ colorScheme: 'dark' })
-    await page.goto('/')
-    await login(page)
-    await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
-    if (width === 390) await page.getByRole('button', { name: '打开右侧面板' }).click()
-    const panel = page.getByRole('complementary', { name: '右侧面板' })
+    const panel = await openConversation(page, '夜景延时素材生成', { mobile: width === 390 })
     await panel.getByRole('button', { name: '第 2 组' }).click()
     const group = panel.getByRole('region', { name: '镜头组 2' })
     await group.getByRole('button', { name: '镜头 2', exact: true }).click()
@@ -218,12 +187,7 @@ test.describe('移动触屏分镜', () => {
 
   test('选中的末帧完整显示，替换图标可直接点开文件选择器', async ({ page }) => {
     await page.setViewportSize({ height: 844, width: 390 })
-    await page.goto('/')
-    await login(page)
-    await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
-    await page.getByRole('button', { name: '打开右侧面板' }).click()
-
-    const panel = page.getByRole('complementary', { name: '右侧面板' })
+    const panel = await openConversation(page, '夜景延时素材生成', { mobile: true })
     await panel.getByRole('button', { name: '第 2 组' }).click()
     const group = panel.getByRole('region', { name: '镜头组 2' })
     const navigation = group.getByRole('navigation', { name: '本组镜头' })
@@ -249,11 +213,7 @@ test.describe('移动触屏分镜', () => {
 
 // MSW 会话随整页加载清空，无法直接验证带参数刷新；此处验证程序化跳页不被中间滚动事件覆盖。
 test('点页码点跳组：地址落在那一组不回弹，帧号照样点得动', async ({ page }) => {
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
-
-  const panel = page.getByRole('complementary', { name: '右侧面板' })
+  const panel = await openConversation(page, '夜景延时素材生成')
   await expect(panel.getByRole('button', { name: '第 1 组' })).toHaveAttribute(
     'aria-current',
     'true',
@@ -282,11 +242,7 @@ test('点页码点跳组：地址落在那一组不回弹，帧号照样点得�
 })
 
 test('替换图标与拖放都可上传本地图片，保持当前帧并可继续编辑', async ({ page }) => {
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
-
-  const panel = page.getByRole('complementary', { name: '右侧面板' })
+  const panel = await openConversation(page, '夜景延时素材生成')
   await expect(panel.getByRole('button', { name: '第 1 组' })).toHaveAttribute(
     'aria-current',
     'true',
@@ -306,7 +262,7 @@ test('替换图标与拖放都可上传本地图片，保持当前帧并可继�
     '台词并成一句',
     { timeout: 20_000 },
   )
-  const png = await framePng(page)
+  const png = await canvasPng(page, { fill: '#dfe8dd', label: 'Local frame' })
   await page.context().route('http://localhost/mock-oss/**', async (route) => {
     if (route.request().method() === 'GET') {
       await route.fulfill({ body: png, contentType: 'image/png' })
@@ -365,11 +321,7 @@ test('替换图标与拖放都可上传本地图片，保持当前帧并可继�
 test('完整提示词面板短桌面：原文与参考图可读，收起保留帧与焦点', async ({ page }) => {
   await page.setViewportSize({ height: 700, width: 1600 })
   await page.emulateMedia({ colorScheme: 'dark' })
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
-
-  const panel = page.getByRole('complementary', { name: '右侧面板' })
+  const panel = await openConversation(page, '夜景延时素材生成')
   await panel.getByRole('button', { name: '第 2 组' }).click()
   const group = panel.getByRole('region', { name: '镜头组 2' })
   await group
@@ -418,11 +370,7 @@ test('完整提示词面板短桌面：原文与参考图可读，收起保留�
 })
 
 test('选中即上下文：输入框上出现芯片，× 掉不再回来，发出去的正文带前缀', async ({ page }) => {
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
-
-  const panel = page.getByRole('complementary', { name: '右侧面板' })
+  const panel = await openConversation(page, '夜景延时素材生成')
   await expect(panel.getByRole('button', { name: '第 1 组' })).toHaveAttribute(
     'aria-current',
     'true',
@@ -448,10 +396,7 @@ test('选中即上下文：输入框上出现芯片，× 掉不再回来，发�
 })
 
 test('没有工作区文件的对话仍是折叠空态', async ({ page }) => {
-  await page.goto('/')
-  await login(page)
-
-  await page.getByRole('link', { name: '亚麻衬衫二剪', exact: true }).click()
+  await openConversation(page, '亚麻衬衫二剪')
   await expect(page).toHaveURL(/\/c\//)
 
   await expect(page.getByRole('button', { name: '打开右侧面板' })).toBeVisible()
@@ -463,11 +408,7 @@ for (const width of [1335, 390]) {
     test(`记录下载 ${width}px ${colorScheme}：保存视频字节并保留记录界面`, async ({ page }) => {
       await page.setViewportSize({ width, height: 934 })
       await page.emulateMedia({ colorScheme })
-      await page.goto('/')
-      await login(page)
-      await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
-      if (width === 390) await page.getByRole('button', { name: '打开右侧面板' }).click()
-      const panel = page.getByRole('complementary', { name: '右侧面板' })
+      const panel = await openConversation(page, '夜景延时素材生成', { mobile: width === 390 })
       await panel.getByRole('button', { name: '第 2 组' }).click()
       await panel.getByRole('button', { name: '生成记录' }).click()
       const records = panel.getByRole('complementary', { name: '生成记录' })

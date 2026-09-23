@@ -11,6 +11,7 @@ import {
   addMockConversation,
   addMockTask,
   addMockUser,
+  loginAs,
   mockGovernor,
 } from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
@@ -36,9 +37,6 @@ const renderAt = async (initialPath: string) => {
   return router
 }
 
-const signedInAsGovernor = () =>
-  server.use(http.get('*/api/users/me', () => HttpResponse.json({ user: mockGovernor })))
-
 afterEach(() => {
   queryClient.clear()
   window.sessionStorage.clear()
@@ -46,7 +44,7 @@ afterEach(() => {
 
 describe('全部对话的需求单预览', () => {
   it('列表中的需求单直接展示创作要求与商品图，只有参考图的没有缩略图，关联到的需求单去重后一批读取', async () => {
-    signedInAsGovernor()
+    loginAs(mockGovernor)
     const recent = addMockTask('夏季上新')
     recent.inputs.creative_requirement = '用自然光展示亚麻衬衫的质感'
     recent.inputs.products = recent.inputs.products.map((product) => ({
@@ -88,7 +86,7 @@ describe('全部对话的需求单预览', () => {
   })
 
   it('需求单读取失败时把失败与未关联分开说，重试成功后预览补上', async () => {
-    signedInAsGovernor()
+    loginAs(mockGovernor)
     const task = addMockTask('历史需求')
     task.inputs.creative_requirement = '用街拍风格表现皮鞋的日常穿搭'
     addMockConversation('历史尝试').taskId = task.id
@@ -120,18 +118,9 @@ describe('全部对话的需求单预览', () => {
   })
 
   it('没有需求单读取权限时不请求素材并保留对话审计', async () => {
-    server.use(
-      http.get('*/api/users/me', () =>
-        HttpResponse.json({
-          user: {
-            ...mockGovernor,
-            permissions: mockGovernor.permissions.filter(
-              (permission) => permission !== 'tasks:read',
-            ),
-          },
-        }),
-      ),
-    )
+    loginAs(mockGovernor, {
+      permissions: mockGovernor.permissions.filter((permission) => permission !== 'tasks:read'),
+    })
     const requests: string[] = []
     server.use(
       http.get('*/api/tasks', ({ request }) => {
@@ -155,7 +144,7 @@ describe('全部对话的需求单预览', () => {
 
 describe('全部对话的筛选条件', () => {
   it('地址栏带着属主就只列他的对话，退回来还是这一屏', async () => {
-    signedInAsGovernor()
+    loginAs(mockGovernor)
     const other = addMockUser('小王')
     const theirs = addMockConversation('小王的秋季片', '2026-09-02T00:00:00Z', other.id)
     addMockConversation('自己的冬季片', '2026-09-03T00:00:00Z')
@@ -181,7 +170,7 @@ describe('全部对话的筛选条件', () => {
   })
 
   it('改筛选只换地址不堆历史记录', async () => {
-    signedInAsGovernor()
+    loginAs(mockGovernor)
     addMockConversation('自己的冬季片', '2026-09-03T00:00:00Z')
     const user = userEvent.setup()
 

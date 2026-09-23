@@ -7,6 +7,7 @@ import {
   addMockConversation,
   addMockTask,
   addMockUser,
+  loginAs,
   mockAuthUser,
 } from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
@@ -65,13 +66,7 @@ function StatefulConversationsRoute({
 }
 
 const render = async (tasks: readonly { id: string; label: string }[] = []) => {
-  server.use(
-    http.get('*/api/users/me', () =>
-      HttpResponse.json({
-        user: { ...mockAuthUser, permissions: [...mockAuthUser.permissions, 'users:manage'] },
-      }),
-    ),
-  )
+  loginAs(mockAuthUser, { permissions: [...mockAuthUser.permissions, 'users:manage'] })
   const user = userEvent.setup()
   const rendered = await renderWithProviders(
     <>

@@ -2,7 +2,8 @@ import { act, waitFor } from '@testing-library/react'
 import type { QueryClient } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { addMockConversation, mockAuthUser } from '@/testing/mocks/handlers'
+import { USER_QUERY_KEY } from '@/shared/auth/session'
+import { addMockConversation, loginAs, mockAuthUser } from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
 import { SERVER_HELLO } from '@/testing/ws'
@@ -21,9 +22,6 @@ function AuditList() {
   useAuditConversations(DEFAULT_AUDIT_FILTERS, true)
   return null
 }
-
-/** 登录身份缓存键，等它落定后再发帧，属主判断才是确定的。 */
-const AUTH_USER_KEY = ['auth', 'current-user']
 
 const AUDIT_KEY = conversationsQueryKeys.audit(DEFAULT_AUDIT_FILTERS)
 const SIDEBAR_KEY = conversationsQueryKeys.sidebar('all')
@@ -87,11 +85,11 @@ const generationFrame = (conversationId: string, kind: 'video' | 'image') => ({
   type: 'event.generation.changed',
 })
 
-/** 挂上订阅并等登录身份落定；随后接管 setTimeout，方便推过去抖窗口。 */
+/** 挂上订阅并等登录身份进缓存，属主判断才是确定的；随后接管 setTimeout，方便推过去抖窗口。 */
 const mount = async () => {
-  server.use(http.get('*/api/users/me', () => HttpResponse.json({ user: mockAuthUser })))
+  loginAs(mockAuthUser)
   const rendered = await renderWithProviders(<LiveFrames />)
-  await waitFor(() => expect(rendered.queryClient.getQueryData(AUTH_USER_KEY)).toBeTruthy())
+  await waitFor(() => expect(rendered.queryClient.getQueryData(USER_QUERY_KEY)).toBeTruthy())
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   return rendered
 }
@@ -243,8 +241,8 @@ describe('useLiveConversations', () => {
 
   it('一阵帧只重拉一次全部对话页', async () => {
     const reads: string[] = []
+    loginAs(mockAuthUser)
     server.use(
-      http.get('*/api/users/me', () => HttpResponse.json({ user: mockAuthUser })),
       http.get('*/api/conversations/audit', ({ request }) => {
         reads.push(new URL(request.url).search)
         return HttpResponse.json({ items: [], nextCursor: null, runningTotal: 0, total: 0 })
@@ -256,7 +254,7 @@ describe('useLiveConversations', () => {
         <AuditList />
       </>,
     )
-    await waitFor(() => expect(queryClient.getQueryData(AUTH_USER_KEY)).toBeTruthy())
+    await waitFor(() => expect(queryClient.getQueryData(USER_QUERY_KEY)).toBeTruthy())
     await waitFor(() => expect(reads).toHaveLength(1))
 
     // 缓存里一段都没有，每一帧单看都够格重拉。

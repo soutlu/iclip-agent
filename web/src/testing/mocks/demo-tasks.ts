@@ -69,7 +69,8 @@ export function seedDemoTasks(conversations: readonly MockConversation[]) {
     task.creatorUserId = mockGovernor.id
     task.status = 'confirmed'
     task.assigneeUserIds = [...new Set(attempts.map((conversation) => conversation.ownerUserId))]
-    task.createdAt = new Date(Date.now() - 7 * 86400_000).toISOString()
+    // 一周前建的，按列出的次序每张早一分钟，列表里保持这个次序。
+    task.createdAt = new Date(Date.now() - 7 * 86400_000 - index * 60_000).toISOString()
     task.updatedAt = task.createdAt
     task.inputs.creative_requirement = demo.requirement
     task.inputs.video_spec = {
