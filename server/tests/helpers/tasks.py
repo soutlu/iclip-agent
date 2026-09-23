@@ -1,4 +1,4 @@
-"""tasks 测试替身与构造器。"""
+"""tasks 测试替身、构造器与经 HTTP 建单的驱动。"""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
+
+import httpx
 
 from iclip.common.errors import NotFound
 from iclip.domains.tasks.models import (
@@ -33,6 +35,57 @@ def make_inputs(**overrides: Any) -> TaskInputs:
 
 def future(days: int = 7) -> datetime:
     return datetime.now(UTC) + timedelta(days=days)
+
+
+URL = "/tasks"
+
+INPUTS = {
+    "products": [
+        {
+            "style_no": STYLE_NO,
+            "name": "秋冬长靴",
+            "brand": "品牌甲",
+            "category": "鞋靴",
+            "color_name": "黑色",
+            "image_oss_urls": ["https://example.com/product.jpg"],
+        },
+        {
+            "style_no": "SBPU24002W",
+            "name": "同系列短靴",
+            "brand": "品牌甲",
+            "category": "鞋靴",
+            "color_name": "棕色",
+            "image_oss_urls": [],
+        },
+    ],
+    "video_spec": {
+        "platform": "douyin",
+        "video_type": "product_showcase",
+        "content_type": "short_video",
+        "resolution": "1080p",
+        "aspect_ratio": "9:16",
+        "duration_seconds": 30,
+    },
+    "creative_requirement": "三十秒的上身效果",
+    "reference_image_oss_urls": {
+        "model": ["https://example.com/model.jpg"],
+        "outfit": [],
+        "prop": [],
+    },
+    "reference_video_oss_url": None,
+}
+
+
+async def create(client: httpx.AsyncClient, **body: object) -> httpx.Response:
+    return await client.post(
+        URL,
+        json={
+            "title": "秋冬新品短视频",
+            "inputs": INPUTS,
+            "deadline": future().isoformat(),
+            **body,
+        },
+    )
 
 
 def make_task(
@@ -193,8 +246,11 @@ class InMemoryTaskRepository:
 
 
 __all__ = [
+    "INPUTS",
     "STYLE_NO",
+    "URL",
     "InMemoryTaskRepository",
+    "create",
     "future",
     "make_inputs",
     "make_task",

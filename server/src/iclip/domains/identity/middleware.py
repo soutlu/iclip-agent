@@ -71,9 +71,14 @@ class PrincipalMiddleware:
             principal = await self._resolver.resolve(connection.headers, connection.cookies)
             if principal is not None:
                 structlog.contextvars.bind_contextvars(principal=principal.audit_label)
-            state = scope.setdefault("state", {})
-            state["principal"] = principal
+            bind_principal(connection, principal)
         await self._app(scope, receive, send)
+
+
+def bind_principal(connection: HTTPConnection, principal: Principal | None) -> None:
+    """把已解析的主体写到连接 state 上，``principal_of`` / ``websocket_principal`` 从这里读；``None`` 即匿名。"""
+
+    connection.state.principal = principal
 
 
 def principal_of(request: Request) -> Principal | None:
@@ -116,6 +121,7 @@ def websocket_origin_allowed(websocket: WebSocket, allowed_origins: tuple[str, .
 __all__ = [
     "PrincipalMiddleware",
     "PrincipalResolver",
+    "bind_principal",
     "principal_of",
     "require_authenticated",
     "require_permission",

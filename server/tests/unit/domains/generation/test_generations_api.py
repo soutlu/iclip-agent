@@ -33,6 +33,7 @@ from tests.helpers.generation import (
     SHOT_IMAGE_URLS,
     SHOT_PROMPT,
     InMemoryGenerationRepository,
+    build_queue,
     clip_request,
     image_request,
     make_job,
@@ -40,7 +41,6 @@ from tests.helpers.generation import (
     video_shot,
 )
 from tests.helpers.identity import InMemoryUserRepository
-from tests.unit.domains.generation.test_generation_queue import build_queue
 
 VIDEO_MODELS = ("moyu-seedance-2-0", "moyu-seedance-2-5", "wan3.0-video")
 
