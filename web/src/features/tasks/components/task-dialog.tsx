@@ -22,7 +22,11 @@ import {
   withdrawTask,
   type Task,
 } from '../tasks.api'
-import { buildTaskCreationDraft, type TaskCreationDraft } from '../task-creation'
+import {
+  buildTaskCreationDraft,
+  type TaskCreationDraft,
+  type TaskCreationStarter,
+} from '../task-creation'
 import {
   canEditTaskField,
   canManageDraft,
@@ -36,7 +40,7 @@ import { emptyTaskForm, taskFormOf, type TaskFormState } from './task-form-state
 
 type TaskDialogProps = {
   relatedContent?: ((taskId: string) => ReactNode) | undefined
-  onStartCreation?: ((draft: TaskCreationDraft) => Promise<void>) | undefined
+  creation?: TaskCreationStarter | undefined
   onOpenChange: (open: boolean) => void
   open: boolean
   /** 有 taskId 时编辑详情，否则新建。 */
@@ -47,9 +51,9 @@ const toIso = (local: string): string | null => (local ? new Date(local).toISOSt
 
 /** 详情使用完整数据执行 PUT，遗漏字段会被清空；发布后仅管理信息和 PLANNER 字段可编辑，撤回后只读。 */
 export function TaskDialog({
+  creation,
   relatedContent,
   onOpenChange,
-  onStartCreation,
   open,
   taskId,
 }: TaskDialogProps) {
@@ -78,8 +82,8 @@ export function TaskDialog({
     queryFn: () => getTask(taskId ?? ''),
     queryKey: tasksQueryKeys.detail(taskId ?? ''),
   })
-  const startCreation = async () => {
-    if (!onStartCreation || !creationDraft || sendingRef.current) return
+  const startCreation = async (agentId: string) => {
+    if (!creation || !creationDraft || sendingRef.current) return
     sendingRef.current = true
     setSending(true)
     setStartError(null)
@@ -90,7 +94,7 @@ export function TaskDialog({
         setStartError(blocked)
         return
       }
-      await onStartCreation(creationDraft)
+      await creation.start(creationDraft, agentId)
       setCreationDraft(null)
       onOpenChange(false)
     } catch (cause) {
@@ -138,8 +142,9 @@ export function TaskDialog({
               }
             />
             {open &&
-              (creationDraft ? (
+              (creationDraft && creation ? (
                 <TaskCreationPreview
+                  agents={creation.agents}
                   draft={creationDraft}
                   error={startError}
                   blockedReason={creationBlockReason(currentUser, task)}
@@ -148,7 +153,7 @@ export function TaskDialog({
                     setCreationDraft(null)
                     setStartError(null)
                   }}
-                  onConfirm={() => void startCreation()}
+                  onConfirm={(agentId) => void startCreation(agentId)}
                 />
               ) : isCreate || task ? (
                 // 切换需求单或新建模式时重挂表单，以重新初始化 useState。
@@ -157,7 +162,7 @@ export function TaskDialog({
                   onOpenChange={changeOpen}
                   task={task}
                   onPreview={
-                    onStartCreation
+                    creation
                       ? (draft) => {
                           setCreationDraft(draft)
                           setStartError(null)

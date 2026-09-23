@@ -4,7 +4,7 @@ import { hasPermission, PERMISSION, useUser } from '@/shared/auth'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/field'
 import { ListEmpty, ListError, ListPending, LoadMoreFooter } from '@/shared/ui/list-state'
-import type { TaskCreationDraft } from '../task-creation'
+import type { TaskCreationStarter } from '../task-creation'
 import { canEditTaskField } from '../task-permissions'
 import { useTasksPages, type Task } from '../tasks.api'
 import { RenameTaskDialog } from './rename-task-dialog'
@@ -14,11 +14,11 @@ import { TaskHero } from './task-hero'
 
 /** 路由负责登录守卫；我的需求单由 claimedBy=me 筛选，认领身份由服务端解析。 */
 type TasksRouteProps = {
-  onStartCreation?: (draft: TaskCreationDraft) => Promise<void>
+  creation?: TaskCreationStarter
   relatedContent?: (taskId: string) => ReactNode
 }
 
-export function TasksRoute({ onStartCreation, relatedContent }: TasksRouteProps = {}) {
+export function TasksRoute({ creation, relatedContent }: TasksRouteProps = {}) {
   const { data: user } = useUser()
   const myTasksId = useId()
   const [keyword, setKeyword] = useState('')
@@ -187,8 +187,8 @@ export function TasksRoute({ onStartCreation, relatedContent }: TasksRouteProps 
       </div>
 
       <TaskDialog
+        creation={creation}
         relatedContent={relatedContent}
-        onStartCreation={onStartCreation}
         onOpenChange={(open) => setDialog((prev) => ({ ...prev, open }))}
         open={dialog.open}
         taskId={dialog.taskId}
