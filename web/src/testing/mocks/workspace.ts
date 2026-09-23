@@ -229,6 +229,28 @@ const VIDEO_DONE_MS = 3000
 /** 重置 mock 时清除完成计时器，防止写入下一个用例。 */
 const timers = new Set<ReturnType<typeof setTimeout>>()
 
+type MockGenerationChange = {
+  conversationId: string
+  id: string
+  kind: string
+  status: string
+  metadata: Record<string, unknown> | null
+}
+
+const generationWatchers = new Set<(change: MockGenerationChange) => void>()
+
+/** 生成记录状态每跳一格通知一次；WebSocket 模拟据此发 event.generation.changed，返回取消函数。 */
+export const watchMockGenerations = (watcher: (change: MockGenerationChange) => void) => {
+  generationWatchers.add(watcher)
+  return () => void generationWatchers.delete(watcher)
+}
+
+const announceGeneration = (conversationId: string | null, record: ReturnType<typeof job>) => {
+  if (conversationId === null) return
+  const { id, kind, metadata, status } = record
+  for (const watcher of generationWatchers) watcher({ conversationId, id, kind, metadata, status })
+}
+
 export const seedMockWorkspace = (
   conversationId: string,
   options: { httpFrames?: boolean; withoutImages?: boolean } = {},
@@ -769,7 +791,9 @@ function acceptGeneration(spec: {
     created.durationMs = spec.durationMs ?? null
     created.status = 'completed'
     timers.delete(timer)
+    announceGeneration(spec.conversationId, created)
   }, VIDEO_DONE_MS)
   timers.add(timer)
+  announceGeneration(spec.conversationId, created)
   return created
 }

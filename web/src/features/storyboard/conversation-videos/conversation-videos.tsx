@@ -4,6 +4,7 @@ import { Button, IconButton } from '@/shared/ui/button'
 import { MediaFallback } from '@/shared/ui/media-fallback'
 import { MediaLightbox, type LightboxMedia } from '@/shared/ui/media-lightbox'
 import { GenerationDownload } from '../components/generation-download'
+import { useLiveGenerations } from '../use-live-generations'
 import { useConversationVideos } from './conversation-videos.api'
 import type { ConversationVideoGroup } from './video-groups'
 
@@ -16,6 +17,7 @@ type ConversationVideosProps = {
 /** 需求单关联对话的视频浏览区；对话信息与访问权限由上层负责。 */
 export function ConversationVideos({ conversationId, onBeforePreview }: ConversationVideosProps) {
   const query = useConversationVideos(conversationId)
+  useLiveGenerations(conversationId)
   const contentRef = useRef<HTMLDivElement>(null)
   const [preview, setPreview] = useState<LightboxMedia | null>(null)
 
