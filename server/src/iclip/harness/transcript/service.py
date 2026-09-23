@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from iclip.common.errors import Conflict, NotFound, ValidationFailed
+from iclip.common.urls import is_http_url
 from iclip.harness.jobs import JobQueue
 from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.runner import ConversationRunner
@@ -71,7 +72,7 @@ class TranscriptService:
         for part in content:
             if not isinstance(part, ImageContent | VideoContent):
                 continue
-            if part.source.url is None or not part.source.url.startswith(("http://", "https://")):
+            if part.source.url is None or not is_http_url(part.source.url):
                 raise ValidationFailed("附件地址必须是 http(s) 地址")
         # 入队前登记附件，确保排队期间也可被工具引用。
         await self.record_materials(owner_user_id, conversation_id, content)

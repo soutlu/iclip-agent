@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from iclip.common.urls import is_http_url
 from iclip.domains.generation.models import GenerationJob
 from iclip.domains.generation.provider import (
     ImageModelSpec,
@@ -224,7 +225,7 @@ def _read_output_url(body: dict[str, Any]) -> str:
         )
     for key in ("output_sign_str", "output_str"):
         value = body.get(key)
-        if isinstance(value, str) and value.startswith(("http://", "https://")):
+        if isinstance(value, str) and is_http_url(value):
             return value
     raise ProviderError(
         "图像 provider 的响应里没有结果 URL",

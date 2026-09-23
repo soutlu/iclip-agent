@@ -25,6 +25,7 @@ from pydantic import (
 from pydantic.alias_generators import to_camel
 
 from iclip.common.errors import ValidationFailed
+from iclip.common.urls import is_http_url
 from iclip.domains.generation.shot_prompt import (
     format_seconds,
     format_shot_prompt,
@@ -138,15 +139,9 @@ MediaUrls = Annotated[list[str], Field(max_length=MAX_REFERENCE_URLS)]
 
 def _http_only(urls: list[str]) -> list[str]:
     for index, url in enumerate(urls):
-        if not _is_http(url):
+        if not is_http_url(url):
             raise ValueError(f"[{index}] 必须是 http:// 或 https:// 地址")
     return urls
-
-
-def _is_http(url: str) -> bool:
-    """服务端会拿去下载的地址只放行 http(s)：放行别的 scheme 等于开一个任意文件读取入口。"""
-
-    return url.startswith(("http://", "https://"))
 
 
 def _bounded_metadata(value: dict[str, Any]) -> dict[str, Any]:
@@ -353,7 +348,7 @@ class ClipSegmentIn(CamelModel):
     @field_validator("url")
     @classmethod
     def _downloadable(cls, url: str) -> str:
-        if not _is_http(url):
+        if not is_http_url(url):
             raise ValueError("必须是 http:// 或 https:// 地址")
         return url
 

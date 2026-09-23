@@ -17,6 +17,8 @@ from typing import Final
 
 import httpx
 
+from iclip.common.urls import is_http_url
+
 _STDERR_LIMIT = 400
 _DOWNLOAD_CHUNK = 256 * 1024
 
@@ -213,7 +215,7 @@ async def cut_copy_url(url: str, *, start: float, end: float, dest: Path) -> Non
     地址非法、区间无效、网络失败、超时或产物无效抛 MediaError；消息里的地址去掉查询串，
     签名不进日志。超时与取消都先 kill 再 wait，不留子进程。"""
 
-    if not url.startswith(("http://", "https://")):
+    if not is_http_url(url):
         raise MediaError(f"要裁的地址不是 http(s): {_safe_url(url)}")
     duration = end - start
     if start < 0 or duration <= 0:

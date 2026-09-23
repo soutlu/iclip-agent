@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from typing import Final, Literal
 from urllib.parse import urlsplit
 
+from iclip.common.urls import is_http_url
+
 MediaKind = Literal["image", "video", "audio", "file"]
 
 _LABEL_BY_KIND: Final[Mapping[MediaKind, str]] = {
@@ -51,7 +53,7 @@ def _unescape_attr(value: str) -> str:
 def media_tag_open(kind: MediaKind, url: str, *, name: str | None = None) -> str:
     """生成媒体开标签；拒绝含空白的 URL，确保可按协议还原。"""
 
-    if not _is_http_url(url):
+    if not is_http_url(url):
         raise ValueError(f"媒体 tag 的地址只接受不含空白的 HTTP/HTTPS URL: {url!r}")
     name_attr = f' name="{_escape_attr(name)}"' if name else ""
     return f'<{kind} url="{_escape_attr(url)}"{name_attr}>'
@@ -144,10 +146,6 @@ def _require_oss_processable(url: str, *, what: str) -> None:
         raise ValueError(f"这个域名不支持 OSS 处理参数，{what}: {url!r}")
     if parsed.query:
         raise ValueError(f"地址已经带了 query，没法再挂 OSS 处理参数: {url!r}")
-
-
-def _is_http_url(value: str) -> bool:
-    return value.startswith(("http://", "https://")) and not any(ch.isspace() for ch in value)
 
 
 __all__ = [
