@@ -134,6 +134,7 @@ depends_on = [
     "iclip.platform.object_store",
     "iclip.platform.file_store",
     "iclip.platform.material_ledger",
+    "iclip.platform.media",
     "iclip.platform.transcript",
     "iclip.config",
     "iclip.domains.identity",

@@ -37,9 +37,8 @@ from iclip.domains.generation.service import GenerationService
 from iclip.domains.identity.public import Principal
 from iclip.platform.object_store.store import ObjectStoreUnavailable
 from tests.helpers.file_store import FakeFileStore
-from tests.helpers.generation import make_job
+from tests.helpers.generation import MemoryObjectStore, make_job
 from tests.helpers.material_ledger import FakeMaterialLedger
-from tests.helpers.shot_video import FakeObjects
 
 IMAGE_URL = "https://bucket.oss-cn-hangzhou.aliyuncs.com/style.jpg"
 
@@ -141,7 +140,7 @@ def test_shot_video_is_registered_when_backed(
         workspace_store=FakeFileStore(),
         material_ledger=FakeMaterialLedger(),
         generation_service=cast("GenerationService", object()),
-        object_store=FakeObjects(),
+        object_store=MemoryObjectStore(),
         http_client=idle_client(),
         video=video_settings,
         shot_video=shot_video_settings,
@@ -162,7 +161,7 @@ def test_shot_video_without_workspace_and_video_fails_at_assembly(
         workspace_store=FakeFileStore(),
         material_ledger=FakeMaterialLedger(),
         generation_service=cast("GenerationService", object()),
-        object_store=FakeObjects(),
+        object_store=MemoryObjectStore(),
         http_client=idle_client(),
         video=video_settings,
         shot_video=shot_video_settings,
@@ -185,7 +184,7 @@ def test_the_display_registry_covers_every_mounted_tool(
         workspace_store=FakeFileStore(),
         material_ledger=FakeMaterialLedger(),
         generation_service=cast("GenerationService", object()),
-        object_store=FakeObjects(),
+        object_store=MemoryObjectStore(),
         http_client=idle_client(),
         video=video_settings,
         shot_video=shot_video_settings,
@@ -268,7 +267,7 @@ async def test_generations_adapter_carries_the_conversation_onto_the_job() -> No
     assert seen[0].user_name == "designer-zhang", "运行替谁跑，图就记在谁头上"
 
 
-class _StoreDown:
+class _StoreDown(MemoryObjectStore):
     async def put_public_object(self, *, object_key: str, content: bytes, content_type: str) -> str:
         _ = (object_key, content, content_type)
         raise ObjectStoreUnavailable("OSS 写入失败（试了 3 次）: Read timed out")
@@ -375,10 +374,11 @@ async def test_object_writer_adapter_translates_the_failure_and_passes_urls_thro
             object_key="k", content=b"x", content_type="image/jpeg"
         )
 
-    url = await ObjectWriterAdapter(FakeObjects()).put_public_object(
-        object_key="k", content=b"x", content_type="image/jpeg"
-    )
-    assert url == "https://cdn.test/k"
+    adapter = ObjectWriterAdapter(MemoryObjectStore())
+    url = await adapter.put_public_object(object_key="k", content=b"x", content_type="image/jpeg")
+    assert url == "https://cdn.example.test/k"
+    # 复用取帧台账时按 key 重算板地址，须与写入时交回的逐字相同。
+    assert adapter.public_url("k") == url
 
 
 async def test_generations_adapter_turns_intake_rejection_into_a_fixable_error() -> None:
@@ -416,7 +416,7 @@ def test_shot_video_refuses_to_mount_when_its_image_model_is_not_wired(
             workspace_store=FakeFileStore(),
             material_ledger=FakeMaterialLedger(),
             generation_service=cast("GenerationService", object()),
-            object_store=FakeObjects(),
+            object_store=MemoryObjectStore(),
             http_client=idle_client(),
             shot_video=shot_video_settings,
             image_models=frozenset({"别的一家"}),

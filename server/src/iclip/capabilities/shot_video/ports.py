@@ -69,7 +69,11 @@ class PublicObjectWriter(Protocol):
     """写入可公开访问的对象，供外部生成接口下载参考图。"""
 
     async def put_public_object(self, *, object_key: str, content: bytes, content_type: str) -> str:
-        """写入并返回公网 URL；同 key 已存在即复用。存不下来抛 ``ObjectWriteFailed``。"""
+        """写入并返回 ``public_url(object_key)``；同 key 已存在即复用。存不下来抛 ``ObjectWriteFailed``。"""
+        ...
+
+    def public_url(self, object_key: str) -> str:
+        """对象 key 对应的公网地址，与写入时返回的逐字相同；不访问存储。"""
         ...
 
 
