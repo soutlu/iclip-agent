@@ -41,15 +41,13 @@ const useUnread = (conversation: Conversation, active: boolean): boolean => {
 type SidebarConversationRowProps = {
   conversation: Conversation
   dragging: boolean
-  onChanged: () => void
   onOpenMembership: () => void
 }
 
-/** 侧栏一行对话：打开、改名、归属、标记完成与删除；改对话要有 agent:run。 */
+/** 侧栏一行对话：打开、改名、归属、标记完成与删除；改对话要有 agent:run，改完各 mutation 自己刷新列表。 */
 export function SidebarConversationRow({
   conversation,
   dragging,
-  onChanged,
   onOpenMembership,
 }: SidebarConversationRowProps) {
   const canWrite = hasPermission(useUser().data, PERMISSION.agentRun)
@@ -61,9 +59,9 @@ export function SidebarConversationRow({
   const openedId = useParams({ select: (params) => params.conversationId, strict: false })
   const active = openedId === conversation.id
   const [editing, setEditing] = useState(false)
-  const rename = useRenameConversation(onChanged)
-  const remove = useDeleteConversation(onChanged)
-  const completion = useSetConversationCompletion(onChanged)
+  const rename = useRenameConversation()
+  const remove = useDeleteConversation()
+  const completion = useSetConversationCompletion()
   const completed = conversation.completedAt !== null
   const unread = useUnread(conversation, active)
   const status = conversationStatus(conversation.activity)

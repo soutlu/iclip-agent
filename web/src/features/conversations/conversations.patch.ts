@@ -3,7 +3,7 @@
  *
  * 拓扑、额外分页、搜索结果、全部对话页的无限查询、需求单关联列表形状各不相同，行却都是同一个
  * ``ConversationOut``。这里不认形状，只认行：深遍历整份数据，id 相同且带 activity 与 ownerUserId
- * 的对象就是要改的那一行。``['conversations']`` 前缀下还有工作区一类不是列表的查询，靠这个判定不去碰它们。
+ * 的对象就是要改的那一行。拓扑里的合集节点也带 id，只凭 id 会把它当成行、不再往它名下的对话里找。
  */
 
 import type { Conversation } from './conversations.api'

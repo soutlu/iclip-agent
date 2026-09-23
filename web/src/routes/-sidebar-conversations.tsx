@@ -9,7 +9,8 @@ import {
 } from '@/features/collections'
 import {
   ConversationMembershipDialog,
-  conversationsQueryKeys,
+  conversationListStateSchema,
+  refreshConversationLists,
   SidebarConversationRow,
   SIDEBAR_ROW_CLASS,
   SIDEBAR_ROW_TITLE_CLASS,
@@ -42,7 +43,7 @@ const UNGROUPED = 'ungrouped'
 /** 改对话（重命名、删除、拖动归属）要有 agent:run；用到的组件自己读，不逐层传。 */
 const useCanWrite = () => hasPermission(useUser().data, PERMISSION.agentRun)
 
-/** 任务区和合集内容使用服务端分页，合集列表在前端切片；拖动成功后刷新拓扑。 */
+/** 任务区和合集内容使用服务端分页，合集列表在前端切片；拖动改归属后由 mutation 刷新拓扑。 */
 export function SidebarConversations() {
   const queryClient = useQueryClient()
   const session = useUser()
@@ -73,20 +74,16 @@ export function SidebarConversations() {
   const collections = useCollections(membership.open && canReadCollections)
   const tasks = useTaskOptions(membership.open && canReadTasks)
 
-  const refreshSidebar = () => {
-    // 拓扑刷新时丢弃额外分页，避免每个已加载页分别重新请求。
-    queryClient.removeQueries({ queryKey: conversationsQueryKeys.moreAll })
-    void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
-  }
+  // 合集的增删改只刷新合集自己的查询，侧栏拓扑由这里接着刷新。
+  const refreshSidebar = () => void refreshConversationLists(queryClient, 'sidebar')
 
-  /** 挂上需求单即认领（合同 §8），那张单会从「待认领」变「进行中」，列表与详情跟着刷新。 */
-  const refreshAfterMembership = () => {
-    refreshSidebar()
+  /** 挂上需求单即认领（合同 §8），那张单会从「待认领」变「进行中」，列表与详情跟着刷新；对话列表由归属 mutation 自己刷新。 */
+  const refreshClaimedTasks = () => {
     void queryClient.invalidateQueries({ queryKey: tasksQueryKeys.all })
   }
 
-  // 拖动只改合集归属，不碰需求单。
-  const moveMutation = useSetConversationMembership(refreshSidebar)
+  // 拖动只改合集归属，不碰需求单；对话列表由 mutation 自己刷新。
+  const moveMutation = useSetConversationMembership()
   const pointer = useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
 
   /** 在 document 上拦截拖动结束后指向原对话的一次 click；行可能已重建，行级监听无法可靠阻止误跳转。 */
@@ -151,8 +148,11 @@ export function SidebarConversations() {
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 pt-3 ui-state-subtle">
         <ChipGroup
           aria-label="对话筛选"
-          // 忽略 Radix 取消当前选项产生的空串，保持筛选始终有值。
-          onValueChange={(value) => value && setState(value as ConversationListState)}
+          // Radix 取消当前选项给空串，不在档位里的值一律忽略，筛选始终有值。
+          onValueChange={(value) => {
+            const parsed = conversationListStateSchema.safeParse(value)
+            if (parsed.success) setState(parsed.data)
+          }}
           type="single"
           value={state}
         >
@@ -167,7 +167,6 @@ export function SidebarConversations() {
         <UngroupedSection
           count={topology.data?.ungroupedCount ?? 0}
           dragging={dragging}
-          onChanged={refreshSidebar}
           onOpenMembership={(conversation) => setMembership({ conversation, open: true })}
           page={topology.data?.ungrouped ?? { items: [], nextCursor: null }}
           state={state}
@@ -192,7 +191,6 @@ export function SidebarConversations() {
               canManage={canManageCollections}
               collection={collection}
               dragging={dragging}
-              onChanged={refreshSidebar}
               onDelete={() =>
                 setCollectionDelete({
                   collection: { id: collection.id, name: collection.name },
@@ -261,7 +259,7 @@ export function SidebarConversations() {
         }))}
         conversation={membership.conversation}
         onOpenChange={(open) => setMembership((prev) => ({ ...prev, open }))}
-        onSaved={refreshAfterMembership}
+        onSaved={refreshClaimedTasks}
         open={membership.open}
         taskOptions={tasks.data ?? []}
       />
@@ -272,14 +270,12 @@ export function SidebarConversations() {
 function UngroupedSection({
   count,
   dragging,
-  onChanged,
   onOpenMembership,
   page,
   state,
 }: {
   count: number
   dragging: string | null
-  onChanged: () => void
   onOpenMembership: (conversation: Conversation) => void
   page: ConversationPage
   state: ConversationListState
@@ -302,7 +298,6 @@ function UngroupedSection({
               key={conversation.id}
               conversation={conversation}
               dragging={dragging === conversation.id}
-              onChanged={onChanged}
               onOpenMembership={() => onOpenMembership(conversation)}
             />
           ))}
@@ -469,7 +464,6 @@ type CollectionGroupProps = {
   canManage: boolean
   collection: SidebarCollection
   dragging: string | null
-  onChanged: () => void
   onDelete: () => void
   onOpenMembership: (conversation: Conversation) => void
   onRename: () => void
@@ -480,7 +474,6 @@ function CollectionGroup({
   canManage,
   collection,
   dragging,
-  onChanged,
   onDelete,
   onOpenMembership,
   onRename,
@@ -547,7 +540,6 @@ function CollectionGroup({
               key={conversation.id}
               conversation={conversation}
               dragging={dragging === conversation.id}
-              onChanged={onChanged}
               onOpenMembership={() => onOpenMembership(conversation)}
             />
           ))}

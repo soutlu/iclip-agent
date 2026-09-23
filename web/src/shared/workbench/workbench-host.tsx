@@ -1,7 +1,6 @@
 /** 宿主管理布局与渲染分派；壳提供并排条件，不足时在聊天和面板间切换。没选中产物时正文是一张「能打开什么」的列表。 */
 
 import { useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useSearch } from '@tanstack/react-router'
 import { use, useEffect, useMemo, useState } from 'react'
 import { TranscriptConnectionContext } from '@/shared/transcript/transcript-context'
 import { useConversationReadOnly } from '@/shared/transcript/use-conversation-read-only'
@@ -12,6 +11,7 @@ import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from '@/shared/ui/tabs'
 import type { Artifact, ArtifactEntry, WorkbenchFrame } from './artifact'
+import { useArtifactSearch, useOpenArtifact } from './artifact-search'
 import { composeArtifacts, isStanding, pickArtifact, type ArtifactRegistry } from './registry'
 import { useWorkbenchRegistry } from './use-workbench-registry'
 import { useWorkbenchSelection } from './use-workbench-selection'
@@ -104,10 +104,10 @@ type WorkbenchHostProps = {
 
 export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
   const registry = useWorkbenchRegistry()
-  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const connection = use(TranscriptConnectionContext)
-  const search: { artifact?: string } = useSearch({ strict: false })
+  const artifactId = useArtifactSearch()
+  const openArtifact = useOpenArtifact()
   const files = useWorkspaceFiles(conversationId)
   // 与聊天页共用同一个主流读取器（按会话与 agent 登记），这里再订不会踢掉它的订阅。
   const { view } = useTranscript(conversationId)
@@ -125,9 +125,7 @@ export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
     if (connection === null) return undefined
     return connection.watchSessions((update) => {
       if (update.kind !== 'reconnected') return
-      void queryClient.invalidateQueries({
-        queryKey: ['conversations', conversationId, 'workspace'],
-      })
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.all(conversationId) })
     })
   }, [connection, conversationId, queryClient])
 
@@ -151,7 +149,7 @@ export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
 
   const artifacts = composeArtifacts(registry, files.data?.files ?? [], frames)
   // 地址点名的或 autoOpen 的那件才算选中；都没有就给选择页，不替用户挑第一件。
-  const selected = pickArtifact(registry, artifacts, search.artifact)
+  const selected = pickArtifact(registry, artifacts, artifactId)
   const entry = selected === undefined ? undefined : registry.resolve(selected.type)
   // 只有分镜这类 autoOpen 的产物落地、或地址点名了某件产物，面板才自动展开；其余时候等用户自己点开。
   const collapsed =
@@ -161,10 +159,7 @@ export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
   const setCollapsed = (value: boolean) => setUserChoice({ collapsed: value, token: openToken })
   const open = (id: string) => {
     setCollapsed(false)
-    void navigate({
-      search: (previous: Record<string, unknown>) => ({ ...previous, artifact: id }),
-      to: '.',
-    })
+    void openArtifact(id)
   }
   const covering = maximized || !sideBySide
   // 仅面板占据布局空间时通知壳显示拖柄。

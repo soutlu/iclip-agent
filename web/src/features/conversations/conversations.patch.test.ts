@@ -93,10 +93,23 @@ describe('在各种形状的缓存里找行、改行', () => {
     expect(patchConversationRows(infinite, 'nobody', { title: '无关' })).toBe(infinite)
   })
 
-  it('只有 id 相同、不带 activity 与 ownerUserId 的对象不算行，不被碰', () => {
-    const workspace = { id: first.id, files: [{ id: first.id, name: 'a.txt' }] }
+  it('拓扑里带 id 的合集节点不算行，照样往它名下的对话里找', () => {
+    const collection = {
+      conversationCount: 1,
+      id: crypto.randomUUID(),
+      name: '秋季',
+      page: { items: [second], nextCursor: null },
+    }
+    const sidebar = {
+      collections: [collection],
+      ungrouped: { items: [first], nextCursor: null },
+      ungroupedCount: 1,
+    }
 
-    expect(findConversationRow(workspace, first.id)).toBeUndefined()
-    expect(patchConversationRows(workspace, first.id, { title: '无关' })).toBe(workspace)
+    expect(findConversationRow(sidebar, second.id)).toBe(second)
+    expect(findConversationRow(sidebar, collection.id)).toBeUndefined()
+    const patched = patchConversationRows(sidebar, second.id, { title: '改过' }) as typeof sidebar
+    expect(patched.collections[0]?.page.items[0]?.title).toBe('改过')
+    expect(patched.ungrouped).toBe(sidebar.ungrouped)
   })
 })

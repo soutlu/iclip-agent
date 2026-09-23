@@ -9,11 +9,15 @@ import {
   zVideoSubmitOut,
 } from '@/shared/api/generated/zod.gen'
 import type { VideoEditMetadata } from '../generation-metadata'
-import { generationsRefetchInterval, type GenerationJob } from '../storyboard.api'
+import {
+  generationsRefetchInterval,
+  storyboardQueryKeys,
+  type GenerationJob,
+} from '../storyboard.api'
 
-/** 本对话全部编辑链的查询前缀；按根的键挂在它下面，状态跳转帧到了一次失效全部。 */
+/** 本对话全部编辑链的查询前缀，挂在本对话生成记录的前缀下；按根的键挂在它下面，一次失效全部。 */
 export const videoEditConversationKey = (conversationId: string) =>
-  ['video-edits', conversationId] as const
+  [...storyboardQueryKeys.conversation(conversationId), 'video-edits'] as const
 
 export const videoEditChainKey = (conversationId: string, rootJobId: string) =>
   [...videoEditConversationKey(conversationId), rootJobId] as const

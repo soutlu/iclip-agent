@@ -42,7 +42,7 @@ export const useVideoGeneration = (conversationId: string) => {
         shot,
       })
       void queryClient.invalidateQueries({
-        queryKey: storyboardQueryKeys.generations(conversationId),
+        queryKey: storyboardQueryKeys.videoJobs(conversationId),
       })
     } catch (error) {
       setFailure({ index: shot.index, message: errorMessageOf(error, '视频提交失败') })
