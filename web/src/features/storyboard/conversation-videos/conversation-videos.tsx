@@ -46,8 +46,7 @@ export function ConversationVideos({ conversationId, onBeforePreview }: Conversa
         {query.isError ? (
           <div className="flex flex-wrap items-center gap-2 text-body-sm text-error" role="alert">
             <p className="min-w-0 flex-1 break-words">
-              {query.data === undefined ? '读取视频失败' : '视频刷新失败'}：
-              {errorMessageOf(query.error, '请稍后重试')}
+              {errorMessageOf(query.error, '读取视频记录失败')}
             </p>
             <Button
               loading={query.isFetching}

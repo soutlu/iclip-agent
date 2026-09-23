@@ -164,16 +164,18 @@ export const useAuditConversationReports = (scope: AuditScope) =>
     queryKey: auditQueryKeys.conversations(scope),
   })
 
-/** kinds 为 null 即全部种类。 */
-export const useAuditAnomalies = (scope: AuditScope, kinds: readonly AnomalyKind[] | null) =>
-  useInfiniteQuery({
+/** kinds 为空即全部种类；路由层与面板用同一组 kinds 调用时共享同一份缓存。 */
+export const useAuditAnomalies = (scope: AuditScope, kinds: readonly AnomalyKind[]) => {
+  const filter = kinds.length === 0 ? null : kinds
+  return useInfiniteQuery({
     queryFn: ({ pageParam, signal }) =>
       apiFetch(
-        `/audit/anomalies?${anomaliesSearchParams(scope, kinds, pageParam).toString()}`,
+        `/audit/anomalies?${anomaliesSearchParams(scope, filter, pageParam).toString()}`,
         zAnomaliesOut,
         { fallbackErrorMessage: '读取异常列表失败', signal },
       ),
     initialPageParam: null as string | null,
     getNextPageParam: (last: AnomaliesPage) => last.nextCursor,
-    queryKey: auditQueryKeys.anomalies(scope, kinds),
+    queryKey: auditQueryKeys.anomalies(scope, filter),
   })
+}

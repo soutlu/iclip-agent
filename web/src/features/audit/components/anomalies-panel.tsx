@@ -1,7 +1,6 @@
 /** 异常列表：按种类筛，一条一行，说清是谁、哪段对话、越了哪条线。 */
 
 import { Link } from '@tanstack/react-router'
-import { useState } from 'react'
 import { errorMessageOf } from '@/shared/api/client'
 import { Icon } from '@/shared/icons'
 import { formatDateTime } from '@/shared/lib/date-time'
@@ -13,6 +12,9 @@ import { useAuditAnomalies, type Anomaly, type AnomalyKind, type AuditScope } fr
 
 type AnomaliesPanelProps = {
   scope: AuditScope
+  /** 选中的异常种类，空即全部；由上层持有，好让它按同一份列表去取需求单标题。 */
+  kinds: AnomalyKind[]
+  onKindsChange: (kinds: AnomalyKind[]) => void
   nameOf: (userName: string) => string | undefined
   taskTitleOf: (taskId: string) => string | undefined
 }
@@ -25,9 +27,14 @@ const TONE_DOT: Record<AnomalyTone, string> = {
 
 const isKind = (value: string): value is AnomalyKind => value in ANOMALY_META
 
-export function AnomaliesPanel({ scope, nameOf, taskTitleOf }: AnomaliesPanelProps) {
-  const [kinds, setKinds] = useState<AnomalyKind[]>([])
-  const query = useAuditAnomalies(scope, kinds.length === 0 ? null : kinds)
+export function AnomaliesPanel({
+  scope,
+  kinds,
+  onKindsChange,
+  nameOf,
+  taskTitleOf,
+}: AnomaliesPanelProps) {
+  const query = useAuditAnomalies(scope, kinds)
   const rows = query.data?.pages.flatMap((page) => page.items) ?? []
 
   return (
@@ -35,7 +42,7 @@ export function AnomaliesPanel({ scope, nameOf, taskTitleOf }: AnomaliesPanelPro
       <ChipGroup
         aria-label="异常种类"
         className="flex-wrap gap-1"
-        onValueChange={(values: string[]) => setKinds(values.filter(isKind))}
+        onValueChange={(values: string[]) => onKindsChange(values.filter(isKind))}
         type="multiple"
         value={kinds}
       >

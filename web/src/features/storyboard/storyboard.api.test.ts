@@ -6,6 +6,7 @@ import type { Shot } from './shot-document'
 import {
   generationsRefetchInterval,
   historyShotOf,
+  readConversationVideoJobs,
   submitVideoGeneration,
   uploadFrameImage,
   type GenerationJob,
@@ -121,6 +122,46 @@ describe('historyShotOf', () => {
     ],
   ])('%s 的记录回填不了', (_name, request) => {
     expect(historyShotOf(job(request))).toBeUndefined()
+  })
+})
+
+describe('readConversationVideoJobs', () => {
+  const fullPage = () => Array.from({ length: 100 }, () => makeGenerationJob())
+
+  it('按上一页最后一条往前翻，直到空页，按页序拼起全部记录', async () => {
+    const pages = [fullPage(), fullPage(), []]
+    const requests: Record<string, string>[] = []
+    server.use(
+      http.get('*/api/generations', ({ request }) => {
+        requests.push(Object.fromEntries(new URL(request.url).searchParams))
+        return HttpResponse.json({ items: pages[requests.length - 1] })
+      }),
+    )
+
+    const jobs = await readConversationVideoJobs(conversationId, new AbortController().signal)
+
+    expect(jobs.map((job) => job.id)).toEqual(pages.flat().map((job) => job.id))
+    expect(requests).toEqual([
+      { conversationId, kind: 'video', limit: '100' },
+      { conversationId, kind: 'video', limit: '100', before: pages[0]?.at(-1)?.id },
+      { conversationId, kind: 'video', limit: '100', before: pages[1]?.at(-1)?.id },
+    ])
+  })
+
+  it('游标原地不动时报分页异常，不无限翻页', async () => {
+    const page = fullPage()
+    let reads = 0
+    server.use(
+      http.get('*/api/generations', () => {
+        reads += 1
+        return HttpResponse.json({ items: page })
+      }),
+    )
+
+    await expect(
+      readConversationVideoJobs(conversationId, new AbortController().signal),
+    ).rejects.toThrow('读取视频记录失败：分页异常，请重试')
+    expect(reads).toBe(2)
   })
 })
 

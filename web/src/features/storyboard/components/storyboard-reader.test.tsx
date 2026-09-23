@@ -401,6 +401,44 @@ describe('StoryboardReader', () => {
     expect(await within(records).findByText('需求单那边出的片。')).toBeVisible()
   })
 
+  describe('视频记录超过一页', () => {
+    // 第一页整页都是别的组更新的记录，本组唯一的出片落在第二页。
+    const newer = Array.from({ length: 100 }, () =>
+      makeGenerationJob({ createdAt: '2026-09-02T10:00:00Z', metadata: { shot: 2 } }),
+    )
+    const serveTwoPages = () =>
+      server.use(
+        http.get('*/api/generations', ({ request }) => {
+          const params = new URL(request.url).searchParams
+          // 帧上的图片任务与编辑器的编辑链走同一端点，这里都给空。
+          if (params.get('kind') !== 'video') return HttpResponse.json({ items: [] })
+          const before = params.get('before')
+          return HttpResponse.json({ items: before === null ? newer : [editableJob] })
+        }),
+      )
+
+    it('抽屉列出更早那页的本组记录', async () => {
+      provide()
+      serveTwoPages()
+      await renderReader()
+      await screen.findByRole('region', { name: '镜头组 1' })
+
+      await userEvent.click(screen.getByRole('button', { name: '生成记录' }))
+
+      const records = await screen.findByRole('complementary', { name: '生成记录' })
+      expect(await within(records).findByText(/历史版参考锁定/)).toBeVisible()
+    })
+
+    it('带着更早那页的 ?video= 进来，编辑器照样打开', async () => {
+      provide()
+      serveTwoPages()
+      await renderReader(`/?shot=1&content=scene:1&video=${editableJob.id}`)
+
+      expect(await screen.findByRole('button', { name: '编辑模型' })).toBeVisible()
+      expect(screen.queryByText(/找不到这条视频记录/)).not.toBeInTheDocument()
+    })
+  })
+
   it('只读时生成、正文编辑与历史回填的入口全部收起，不写工作区', async () => {
     const files = provide()
     server.use(http.get('*/api/generations', () => HttpResponse.json({ items: [editableJob] })))

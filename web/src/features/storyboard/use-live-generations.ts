@@ -3,7 +3,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { use, useEffect } from 'react'
 import { TranscriptConnectionContext } from '@/shared/transcript/transcript-context'
-import { conversationVideosQueryKey } from './conversation-videos/conversation-videos.api'
 import { imageEditConversationKey } from './image-edit/image-edit.api'
 import { storyboardQueryKeys } from './storyboard.api'
 import { videoEditConversationKey } from './video-editor/video-editor.api'
@@ -20,6 +19,7 @@ export const useLiveGenerations = (conversationId: string): void => {
         update.kind === 'reconnected' ||
         (update.kind === 'generation' && update.conversationId === conversationId)
       if (!relevant) return
+      // 分镜页与需求单面板的视频列表共用这一个键。
       void queryClient.invalidateQueries({
         queryKey: storyboardQueryKeys.generations(conversationId),
       })
@@ -27,8 +27,6 @@ export const useLiveGenerations = (conversationId: string): void => {
       void queryClient.invalidateQueries({ queryKey: imageEditConversationKey(conversationId) })
       // 视频编辑链的三条记录（切片、编辑、成片）都走生成队列，跳转也在这个前缀下重拉。
       void queryClient.invalidateQueries({ queryKey: videoEditConversationKey(conversationId) })
-      // 需求单面板的视频列表读的是同一段对话的出片。
-      void queryClient.invalidateQueries({ queryKey: conversationVideosQueryKey(conversationId) })
     })
   }, [connection, conversationId, queryClient])
 }
