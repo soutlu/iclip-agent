@@ -1,5 +1,5 @@
 import { useCallback } from 'react'
-import { useLogout, useUser } from '@/shared/auth'
+import { useLogout, userDisplayName, useUser } from '@/shared/auth'
 import { cn } from '@/shared/lib/utils'
 import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 
@@ -37,8 +37,7 @@ export function CueUserMenu({ align = 'bottom-end', className = '' }: CueUserMen
     logoutMutation.mutate()
   }, [logoutMutation])
 
-  // SSO 自动建号的用户没有 username，优先展示 SSO 同步来的 displayName。
-  const userLabel = user?.displayName || user?.username || '用户'
+  const userLabel = userDisplayName(user)
   const departments = user?.departments ?? []
   const hasProfileDetails = Boolean(user?.jobTitle || user?.city || departments.length)
   // 头像依次使用 SSO 图片、用户名首字母和通用轮廓。

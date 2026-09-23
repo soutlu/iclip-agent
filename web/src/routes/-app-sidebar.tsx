@@ -2,15 +2,15 @@ import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
 import { CueUserMenu } from '@/features/auth'
 import { ConversationSearchDialog, useLiveConversations } from '@/features/conversations'
-import { canAuditAll, hasPermission, PERMISSION, useUser } from '@/shared/auth'
+import { canAuditAll, hasPermission, PERMISSION, userDisplayName, useUser } from '@/shared/auth'
 import { Icon, type IconName } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { useLoginPrompt } from './-login-prompt'
 import { SidebarConversations } from './-sidebar-conversations'
 
-// 侧栏行共用 ui-state 与 ui-focus，尺寸由调用方控制。
-const SIDEBAR_ROW_CLASS =
+// 侧栏操作行（导航、登录、重试）共用 ui-state 与 ui-focus，尺寸由调用方控制；对话行另见 conversations 的 SIDEBAR_ROW_CLASS。
+const SIDEBAR_ACTION_CLASS =
   'flex ui-state cursor-pointer items-center gap-3 rounded-sm px-3 py-2.5 ui-focus text-body text-on-surface'
 
 type AppSidebarProps = {
@@ -171,7 +171,7 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
             读取登录状态失败
           </p>
           <button
-            className={cn(SIDEBAR_ROW_CLASS, 'mt-2')}
+            className={cn(SIDEBAR_ACTION_CLASS, 'mt-2')}
             disabled={session.isFetching}
             onClick={() => void session.refetch()}
             type="button"
@@ -192,13 +192,13 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
           <>
             <CueUserMenu align="top-start" />
             <span className="min-w-0 flex-1 truncate text-body text-on-surface">
-              {user.displayName || user.username || '用户'}
+              {userDisplayName(user)}
             </span>
           </>
         ) : (
           <button
             aria-label="登录"
-            className={cn(SIDEBAR_ROW_CLASS, 'group min-w-0 flex-1 py-1.5')}
+            className={cn(SIDEBAR_ACTION_CLASS, 'group min-w-0 flex-1 py-1.5')}
             onClick={requireLogin}
             type="button"
           >
@@ -244,7 +244,7 @@ function SidebarAction({
       aria-label={label}
       aria-keyshortcuts={shortcut}
       className={cn(
-        SIDEBAR_ROW_CLASS,
+        SIDEBAR_ACTION_CLASS,
         'group w-full disabled:cursor-not-allowed disabled:opacity-50',
         active && 'bg-state-active font-medium',
       )}

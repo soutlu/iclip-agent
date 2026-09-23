@@ -63,7 +63,7 @@ describe('DialogSurface 对文件拖放', () => {
   })
 })
 
-// bare 的契约就是不输出那几个表面类，jsdom 不跑 Tailwind，类名是这里唯一的可观察边界。
+// 表面样式本身由视觉验收覆盖；这里只看变体标记与接口：调用方类名透传、bare 不当成 DOM 属性。
 describe('DialogSurface 的无表面变体', () => {
   const surfaceOf = (bare: boolean) => {
     render(
@@ -76,29 +76,14 @@ describe('DialogSurface 的无表面变体', () => {
     return screen.getByRole('dialog', { name: '需求详情' })
   }
 
-  it('默认画圆角、底色与阴影', () => {
-    const dialog = surfaceOf(false)
-    for (const className of [
-      'rounded-2xl',
-      'bg-surface-container-lowest',
-      'shadow-[var(--shadow-3)]',
-      'overflow-hidden',
-    ]) {
-      expect(dialog).toHaveClass(className)
-    }
+  it('默认不标变体', () => {
+    expect(surfaceOf(false)).not.toHaveAttribute('data-variant')
   })
 
-  it('bare 只去掉表面，定位与调用方类名照旧，prop 不落到 DOM 上', () => {
+  it('bare 标成无表面变体，调用方类名照旧，prop 不落到 DOM 上', () => {
     const dialog = surfaceOf(true)
-    for (const className of [
-      'rounded-2xl',
-      'bg-surface-container-lowest',
-      'shadow-[var(--shadow-3)]',
-      'overflow-hidden',
-    ]) {
-      expect(dialog).not.toHaveClass(className)
-    }
-    expect(dialog).toHaveClass('layer-popup', 'fixed', 'task-detail-dialog')
+    expect(dialog).toHaveAttribute('data-variant', 'bare')
+    expect(dialog).toHaveClass('task-detail-dialog')
     expect(dialog).not.toHaveAttribute('bare')
   })
 })
