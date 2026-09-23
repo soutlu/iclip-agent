@@ -43,15 +43,18 @@ const UNGROUPED = 'ungrouped'
 /** 改对话（重命名、删除、拖动归属）要有 agent:run；用到的组件自己读，不逐层传。 */
 const useCanWrite = () => hasPermission(useUser().data, PERMISSION.agentRun)
 
-/** 任务区和合集内容使用服务端分页，合集列表在前端切片；拖动改归属后由 mutation 刷新拓扑。 */
+/**
+ * 任务区和合集内容使用服务端分页，合集列表在前端切片；拖动改归属后由 mutation 刷新拓扑。
+ * 登录态的加载与失败由应用侧栏处理，它只在登录身份就绪后渲染这里。
+ */
 export function SidebarConversations() {
   const queryClient = useQueryClient()
-  const session = useUser()
-  const canRead = hasPermission(session.data, PERMISSION.agentRead)
+  const user = useUser().data
+  const canRead = hasPermission(user, PERMISSION.agentRead)
   const canWrite = useCanWrite()
-  const canManageCollections = hasPermission(session.data, PERMISSION.collectionsWrite)
-  const canReadCollections = hasPermission(session.data, PERMISSION.collectionsRead)
-  const canReadTasks = hasPermission(session.data, PERMISSION.tasksRead)
+  const canManageCollections = hasPermission(user, PERMISSION.collectionsWrite)
+  const canReadCollections = hasPermission(user, PERMISSION.collectionsRead)
+  const canReadTasks = hasPermission(user, PERMISSION.tasksRead)
   const [state, setState] = useState<ConversationListState>('all')
   const topology = useSidebarTopology(canRead, state)
   useRecordOpenedConversation(topology.data)
@@ -121,13 +124,6 @@ export function SidebarConversations() {
     (topology.data?.ungrouped.items ?? []).some((one) => one.activity.busy) ||
     allCollections.some((one) => one.page.items.some((row) => row.activity.busy))
 
-  if (session.isPending) return <SidebarFeedback>正在确认登录状态…</SidebarFeedback>
-  if (session.isError)
-    return (
-      <SidebarFeedback error loading={session.isFetching} onRetry={() => void session.refetch()}>
-        读取登录状态失败
-      </SidebarFeedback>
-    )
   if (!canRead) return <SidebarFeedback>当前账号没有查看对话权限</SidebarFeedback>
   if (topology.isPending) return <SidebarFeedback>正在加载对话…</SidebarFeedback>
   if (topology.isError)

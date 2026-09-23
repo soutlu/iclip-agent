@@ -2,15 +2,20 @@
 
 import { z } from 'zod'
 
-/** 快捷预设往前数的天数；预设取值、标签与天数都从这张表推。 */
+/** 快捷预设往前数的天数；预设取值、标签、查询串取值与日历上的预设 chip 都从这张表推，按表内顺序排。 */
 const PRESET_DAYS = { '7d': 7, '30d': 30 } as const
 
 type DateRangePresetDays = keyof typeof PRESET_DAYS
 
-export type DateRangePreset = DateRangePresetDays | 'all' | 'custom'
+/** 带天数的快捷预设，按表内顺序。Object.keys 只给 string[]，键的类型由上面的字面量表担保。 */
+export const DATE_RANGE_DAY_PRESETS = Object.keys(PRESET_DAYS) as readonly DateRangePresetDays[]
 
-const isPresetDays = (range: DateRangePreset): range is DateRangePresetDays =>
-  Object.hasOwn(PRESET_DAYS, range)
+const DATE_RANGE_PRESETS = [...DATE_RANGE_DAY_PRESETS, 'all', 'custom'] as const
+
+export type DateRangePreset = (typeof DATE_RANGE_PRESETS)[number]
+
+export const isDateRangeDayPreset = (value: string): value is DateRangePresetDays =>
+  Object.hasOwn(PRESET_DAYS, value)
 
 export interface DateRange {
   range: DateRangePreset
@@ -23,19 +28,22 @@ export const UNBOUNDED_RANGE: DateRange = { range: 'all', since: null, until: nu
 
 /** 快捷预设往前数的天数；非预设返回 null，供日历高亮这段区间。 */
 export function dateRangePresetDays(range: DateRangePreset): number | null {
-  return isPresetDays(range) ? PRESET_DAYS[range] : null
+  return isDateRangeDayPreset(range) ? PRESET_DAYS[range] : null
 }
 
 const DAY_MS = 24 * 60 * 60_000
 
 const LOCAL_DATE = /^(\d{4})-(\d{2})-(\d{2})$/
 
-/** 范围两端的时刻：预设按此刻往前数整天；自定义包含结束日全天，按用户本地时区算。 */
+/**
+ * 范围两端的时刻：预设按此刻往前数 N×24 小时；自定义包含结束日全天，按用户本地时区算。
+ * 日历上的预设高亮是含今天在内的 N 个整日，与这里的起点差一个部分日，只是展示口径。
+ */
 export function dateRangeBounds(
   value: DateRange,
   now: Date = new Date(),
 ): { since: Date | null; until: Date | null } {
-  if (isPresetDays(value.range)) {
+  if (isDateRangeDayPreset(value.range)) {
     return { since: new Date(now.getTime() - PRESET_DAYS[value.range] * DAY_MS), until: null }
   }
   if (value.range === 'custom') {
@@ -75,7 +83,7 @@ export function formatLocalDate(date: Date): string {
 /** 筛选触发器与日历共用的日期说明；非当年或跨年区间保留年份。 */
 export function dateRangeLabel(value: DateRange): string {
   if (value.range === 'all') return '时间'
-  if (isPresetDays(value.range)) return `近 ${PRESET_DAYS[value.range]} 天`
+  if (isDateRangeDayPreset(value.range)) return `近 ${PRESET_DAYS[value.range]} 天`
 
   const since = value.since === null ? null : parseLocalDate(value.since)
   const until = value.until === null ? null : parseLocalDate(value.until)
@@ -90,7 +98,7 @@ export function dateRangeLabel(value: DateRange): string {
 
 /** 时间范围在查询串里的三个字段，拼进各页自己的 search schema。 */
 export const dateRangeSearchFields = {
-  range: z.enum(['7d', '30d', 'all', 'custom']).optional().catch(undefined),
+  range: z.enum(DATE_RANGE_PRESETS).optional().catch(undefined),
   since: z.string().regex(LOCAL_DATE).optional().catch(undefined),
   until: z.string().regex(LOCAL_DATE).optional().catch(undefined),
 }

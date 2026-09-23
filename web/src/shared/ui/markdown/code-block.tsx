@@ -1,7 +1,6 @@
-import { isValidElement, useState, type ReactNode } from 'react'
-import { copyText } from '@/shared/lib/clipboard'
+import { isValidElement, type ReactNode } from 'react'
 import { IconButton } from '@/shared/ui/button'
-import { toast } from '@/shared/ui/toast'
+import { useCopyFeedback } from '@/shared/ui/copy-feedback'
 
 const textOf = (node: ReactNode): string => {
   if (node === null || node === undefined || typeof node === 'boolean') return ''
@@ -21,17 +20,7 @@ const readCode = (node: ReactNode): { language: string | undefined; text: string
 
 export function CodeBlock({ children }: { children?: ReactNode }) {
   const { language, text } = readCode(children)
-  const [copied, setCopied] = useState(false)
-
-  const copy = async () => {
-    try {
-      await copyText(text)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1200)
-    } catch {
-      toast.error('复制失败')
-    }
-  }
+  const { copied, copy } = useCopyFeedback()
 
   return (
     <div className="overflow-hidden rounded-sm border-[0.5px] border-chat-hairline bg-chat-code-block-bg shadow-[var(--shadow-xs)]">
@@ -40,7 +29,7 @@ export function CodeBlock({ children }: { children?: ReactNode }) {
         <IconButton
           label="复制代码"
           name={copied ? 'check' : 'copy'}
-          onClick={() => void copy()}
+          onClick={() => void copy(text)}
           size="xs"
         />
       </div>

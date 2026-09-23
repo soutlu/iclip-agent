@@ -50,9 +50,7 @@ export const useLiveConversations = (enabled = true): void => {
       if (update.kind === 'generation') {
         // 别人的对话不在自己的侧栏里，不为它改行也不为它重拉。
         const conversationId = update.conversationId
-        if (conversationId === null) return
-        const owner = ownerOf(queryClient, conversationId)
-        if (owner !== undefined && owner !== userId) return
+        if (conversationId === null || ownedByOther(queryClient, conversationId, userId)) return
 
         // 对话里还有出片任务在动就谈不上收尾，与后端受理时抹掉标记同步。
         queryClient.setQueriesData({ queryKey: conversationsQueryKeys.all }, (data: unknown) =>
@@ -86,9 +84,8 @@ export const useLiveConversations = (enabled = true): void => {
 
       if (update.kind !== 'activity') return
 
-      // 别人的对话不在自己的侧栏里，不为它重拉拓扑；认不出属主的按自己的处理。
-      const owner = ownerOf(queryClient, update.conversationId)
-      if (owner !== undefined && owner !== userId) return
+      // 别人的对话不在自己的侧栏里，不为它重拉拓扑。
+      if (ownedByOther(queryClient, update.conversationId, userId)) return
 
       if (!update.busy && update.lastTurnReason === 'completed') {
         // 运行完成后重拉拓扑以获取 lastRunId，供未读标记比较；额外分页随之清除。
@@ -97,10 +94,8 @@ export const useLiveConversations = (enabled = true): void => {
       }
 
       // 状态变化可能改变筛选归属，仅让服务端重算非 all 列表。
-      queryClient.removeQueries({ predicate: (query) => filtered(query.queryKey, 'more') })
-      void queryClient.invalidateQueries({
-        predicate: (query) => filtered(query.queryKey, 'sidebar'),
-      })
+      queryClient.removeQueries(conversationsQueryKeys.filteredLists('more'))
+      void queryClient.invalidateQueries(conversationsQueryKeys.filteredLists('sidebar'))
     })
 
     return () => {
@@ -136,14 +131,15 @@ const auditRowOf = (queryClient: QueryClient, conversationId: string): Conversat
   return undefined
 }
 
-const filtered = (queryKey: readonly unknown[], bucket: 'more' | 'sidebar') =>
-  queryKey[0] === 'conversations' && queryKey[1] === bucket && queryKey.at(-1) !== 'all'
-
-/** 在所有会话缓存里找这段对话的属主；哪份缓存都没有它时返回 undefined。 */
-const ownerOf = (queryClient: QueryClient, conversationId: string): string | undefined => {
+/** 会话缓存里认得出这段对话、且属主不是当前用户；哪份缓存都没有它时按自己的对话处理。 */
+const ownedByOther = (
+  queryClient: QueryClient,
+  conversationId: string,
+  userId: string | null,
+): boolean => {
   for (const [, data] of queryClient.getQueriesData({ queryKey: conversationsQueryKeys.all })) {
     const row = findConversationRow(data, conversationId)
-    if (row !== undefined) return row.ownerUserId
+    if (row !== undefined) return row.ownerUserId !== userId
   }
-  return undefined
+  return false
 }

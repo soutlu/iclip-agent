@@ -12,9 +12,11 @@ import {
 import { zhCN } from 'react-day-picker/locale'
 import { Icon } from '@/shared/icons'
 import {
+  DATE_RANGE_DAY_PRESETS,
   dateRangeLabel,
   dateRangePresetDays,
   formatLocalDate,
+  isDateRangeDayPreset,
   parseLocalDate,
   UNBOUNDED_RANGE,
   type DateRange,
@@ -181,7 +183,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
     }
     setDraftStart(null)
     setEditingCustom(false)
-    if (range === '7d' || range === '30d') {
+    if (isDateRangeDayPreset(range)) {
       onChange(value.range === range ? CLEARED_RANGE : { range, since: null, until: null })
       return
     }
@@ -221,7 +223,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
         type="single"
         value={activeRange}
       >
-        {(['7d', '30d', 'custom'] as const).map((range) => (
+        {[...DATE_RANGE_DAY_PRESETS, 'custom' as const].map((range) => (
           <FilterChip
             className="min-w-0 flex-1 justify-center border-0 bg-transparent px-1 text-body font-normal data-[state=on]:bg-top-layer data-[state=on]:shadow-[var(--shadow-1)]"
             key={range}
@@ -244,6 +246,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
           modifiers={{
             endpoint: [start, end].filter((date): date is Date => date !== null),
             inRange: fullRange,
+            // 高亮含今天在内的 N 个整日；实际筛选从此刻往前数 N×24 小时（见 dateRangeBounds），差一个部分日。
             preset:
               presetDays === null ? undefined : { from: addDays(today, 1 - presetDays), to: today },
             rangeEnd: fullRange?.to,

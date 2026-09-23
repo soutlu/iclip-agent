@@ -33,7 +33,7 @@ export function FileReader({ conversationId, onBack, path }: FileReaderProps) {
     if (file.data === undefined) return
     try {
       await copyText(file.data.file.content)
-      toast.success('已复制')
+      toast('已复制')
     } catch {
       toast.error('复制失败')
     }

@@ -13,14 +13,17 @@ import {
 } from './cue-auth.api'
 import type { CueAuthUser, CueLoginRequest } from './cue-auth.types'
 
+/** 会话域查询键的首段：以它开头的缓存跟着登录流程走，换账号时不随业务缓存清掉。 */
+export const AUTH_QUERY_KEY_ROOT = 'auth'
+
 // 会话唯一事实源：GET /users/me 的 TanStack Query 缓存。
-export const USER_QUERY_KEY = ['auth', 'current-user'] as const
+export const USER_QUERY_KEY = [AUTH_QUERY_KEY_ROOT, 'current-user'] as const
 
 // SSO 整页跳转期间暂存站内返回路径。
 const SSO_NEXT_STORAGE_KEY = 'cue_sso_next'
 
 const BUSINESS_QUERIES: QueryFilters = {
-  predicate: (query) => query.queryKey[0] !== 'auth',
+  predicate: (query) => query.queryKey[0] !== AUTH_QUERY_KEY_ROOT,
 }
 
 /** 身份改变前丢弃旧账号的数据，也阻止尚未完成的查询重新写回缓存。 */

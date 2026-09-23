@@ -180,6 +180,48 @@ describe('useLiveConversations', () => {
     expect(invalidated(queryClient, AUDIT_KEY)).toBe(true)
   })
 
+  describe('忙闲变化与筛选列表', () => {
+    const OPEN_SIDEBAR_KEY = conversationsQueryKeys.sidebar('open')
+    const OPEN_MORE_KEY = conversationsQueryKeys.more('ungrouped', 'cursor-1', 'open')
+
+    const seedFiltered = (queryClient: QueryClient, row: Conversation) => {
+      seedCaches(queryClient, row)
+      queryClient.setQueryData(OPEN_SIDEBAR_KEY, {
+        collections: [],
+        ungrouped: { items: [row], nextCursor: null },
+        ungroupedCount: 1,
+      })
+      queryClient.setQueryData(OPEN_MORE_KEY, [row])
+    }
+
+    it('自己的对话只让非 all 的筛选重算：丢掉筛选下的额外分页，重拉筛选下的拓扑', async () => {
+      const row = conversationRow()
+      const { queryClient, socket } = await mount()
+      seedFiltered(queryClient, row)
+
+      socket.deliver(activityFrame(row.id, { busy: true }))
+      await settle()
+
+      expect(invalidated(queryClient, OPEN_SIDEBAR_KEY)).toBe(true)
+      expect(queryClient.getQueryData(OPEN_MORE_KEY)).toBeUndefined()
+      expect(invalidated(queryClient, SIDEBAR_KEY)).toBe(false)
+      expect(queryClient.getQueryData(MORE_KEY)).toBeDefined()
+    })
+
+    it('别人的对话只就地补丁，不动自己的筛选列表', async () => {
+      const row = conversationRow({ ownerUserId: crypto.randomUUID() })
+      const { queryClient, socket } = await mount()
+      seedFiltered(queryClient, row)
+
+      socket.deliver(activityFrame(row.id, { busy: true }))
+      await settle()
+
+      expect(rowIn(queryClient, OPEN_SIDEBAR_KEY)?.activity.busy).toBe(true)
+      expect(invalidated(queryClient, OPEN_SIDEBAR_KEY)).toBe(false)
+      expect(queryClient.getQueryData(OPEN_MORE_KEY)).toBeDefined()
+    })
+  })
+
   it('只有待办变化的帧就地补丁就够，不重拉全部对话页', async () => {
     const row = conversationRow({
       activity: {

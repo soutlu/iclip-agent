@@ -4,6 +4,7 @@ import {
   useQuery,
   useQueryClient,
   type QueryClient,
+  type QueryFilters,
 } from '@tanstack/react-query'
 import { useRef } from 'react'
 import { z } from 'zod'
@@ -52,6 +53,7 @@ export const conversationListStateSchema = zReadSidebarConversationsGetQuery.sha
 
 export type ConversationListState = z.output<typeof conversationListStateSchema>
 
+const SIDEBAR_KEY = ['conversations', 'sidebar'] as const
 const MORE_KEY = ['conversations', 'more'] as const
 const AUDIT_KEY = ['conversations', 'audit'] as const
 
@@ -68,7 +70,15 @@ export const conversationsQueryKeys = {
   search: (keyword: string) => ['conversations', 'search', keyword] as const,
   /** 未传 state 时作为所有筛选的缓存键前缀。 */
   sidebar: (state?: ConversationListState): readonly string[] =>
-    state === undefined ? ['conversations', 'sidebar'] : ['conversations', 'sidebar', state],
+    state === undefined ? SIDEBAR_KEY : [...SIDEBAR_KEY, state],
+  /**
+   * 按 all 以外的状态筛选的侧栏拓扑或额外分页，对话状态一变它们的归属就可能不同。
+   * state 是 sidebar(state) 与 more(…) 的末位，改这两种键的布局要连这里一起改。
+   */
+  filteredLists: (list: 'more' | 'sidebar'): QueryFilters => ({
+    queryKey: list === 'sidebar' ? SIDEBAR_KEY : MORE_KEY,
+    predicate: ({ queryKey }) => queryKey.at(-1) !== 'all',
+  }),
 }
 
 /**
