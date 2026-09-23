@@ -16,7 +16,7 @@ from pydantic_ai.models.openai import OpenAIChatModelSettings
 _logger = structlog.stdlib.get_logger(__name__)
 
 TITLE_SETTINGS = OpenAIChatModelSettings(openai_reasoning_effort="low")
-"""显式覆盖模型级思考设置；GLM-5.3-Flash 的最低可用档位为 low。"""
+"""显式覆盖模型级思考设置，起标题固定用 low；部分模型不接受更低的档位。"""
 
 GenerateTitle = Callable[[str], Awaitable[str | None]]
 """从用户输入生成标题，失败返回 None。"""

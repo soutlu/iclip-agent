@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final, cast
+from typing import Any, Final, NotRequired, TypedDict, cast
 
 import yaml
 from pydantic_ai import Agent, AgentSpec
@@ -15,7 +15,7 @@ from pydantic_ai.tools import DeferredToolRequests
 from pydantic_ai_harness.step_persistence import StepPersistence, StepStore
 from pydantic_ai_harness.subagents import SubAgent, SubAgents
 
-from iclip.harness.models import BuiltModels
+from iclip.harness.models import BuiltModels, thinking_effort_of
 from iclip.platform.transcript.display import AgentCallDisplay, DisplayFn, ToolDisplay
 
 AgentCapabilities = tuple[AgentCapability[Any], ...]
@@ -59,6 +59,16 @@ class AgentDefinition:
     instructions: Path | None = None
     capabilities: AgentCapabilities = ()
     subagents: tuple[SubAgentDefinition, ...] = ()
+
+
+class SubAgentProfile(TypedDict):
+    """子代理档案：原样写进子运行的 metadata（str→str），实时任务卡与历史都按这几个键读。"""
+
+    agent_name: str
+    model: str
+    """供应方模型 id。"""
+    thinking_effort: NotRequired[str]
+    """配了思考档位才有。"""
 
 
 def _read_spec(path: Path) -> AgentSpec:
@@ -122,18 +132,18 @@ def _load_agent(
 
 def subagent_profiles(
     definitions: Sequence[AgentDefinition], models: BuiltModels
-) -> Mapping[str, Mapping[str, str]]:
+) -> Mapping[str, SubAgentProfile]:
     """每个子代理一份档案：名字、模型 id、思考档位。
 
     同一份既写进子运行的落库 metadata，也交给镜像标在任务上，实时与历史读到的字符串才相同。
     """
 
-    profiles: dict[str, Mapping[str, str]] = {}
+    profiles: dict[str, SubAgentProfile] = {}
     for definition in definitions:
         for sub in definition.subagents:
             model = _pick_model(models, sub.model, declared_by=f"子 agent {sub.name}")
-            profile = {"agent_name": sub.name, "model": model.model_name}
-            effort = _thinking_effort(model)
+            profile: SubAgentProfile = {"agent_name": sub.name, "model": model.model_name}
+            effort = thinking_effort_of(model)
             if effort is not None:
                 profile["thinking_effort"] = effort
             # 档案按子代理名查，同名不同配置会让一份盖掉另一份，启动时就拦住。
@@ -143,21 +153,13 @@ def subagent_profiles(
     return profiles
 
 
-def _thinking_effort(model: Model) -> str | None:
-    """思考档位只在 OpenAI 方言的 settings 里；没配就没有。"""
-
-    settings = cast("Mapping[str, object] | None", model.settings)
-    effort = None if settings is None else settings.get("openai_reasoning_effort")
-    return effort if isinstance(effort, str) else None
-
-
 def _build_subagents(
     definitions: Sequence[SubAgentDefinition],
     step_store: StepStore,
     usage_ledger: AgentCapability[Any],
     models: BuiltModels,
     mirror: AgentCapability[Any],
-    profiles: Mapping[str, Mapping[str, str]],
+    profiles: Mapping[str, SubAgentProfile],
 ) -> SubAgents[Any]:
     return SubAgents(
         agents=[
@@ -171,7 +173,8 @@ def _build_subagents(
                     usage_ledger=usage_ledger,
                     accepts_deferred=False,
                     extra=sub.capabilities,
-                    persistence_metadata=profiles[sub.name],
+                    # 档案的值全是字符串，按 str→str 落库。
+                    persistence_metadata=cast("Mapping[str, str]", profiles[sub.name]),
                 ),
                 timeout_seconds=sub.timeout_seconds,
                 max_calls=sub.max_calls,
@@ -267,6 +270,7 @@ __all__ = [
     "AgentMap",
     "AgentRegistry",
     "SubAgentDefinition",
+    "SubAgentProfile",
     "build_agent_registry",
     "delegate_display_table",
     "subagent_profiles",

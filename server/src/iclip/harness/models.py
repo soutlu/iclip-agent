@@ -117,6 +117,14 @@ def _model_settings(spec: ModelSpec) -> OpenAIChatModelSettings | None:
     return OpenAIChatModelSettings(openai_reasoning_effort=spec.thinking)
 
 
+def thinking_effort_of(model: Model) -> str | None:
+    """读回 _model_settings 写进模型的思考档位；没配返回 None。"""
+
+    settings = cast("Mapping[str, object] | None", model.settings)
+    effort = None if settings is None else settings.get("openai_reasoning_effort")
+    return effort if isinstance(effort, str) else None
+
+
 def build_model(spec: ModelSpec) -> Model:
     """构造 Model，拒绝无效 provider 或配置组合。"""
 
@@ -164,4 +172,5 @@ __all__ = [
     "build_model",
     "build_models",
     "rebuild_models",
+    "thinking_effort_of",
 ]

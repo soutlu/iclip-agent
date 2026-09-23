@@ -35,6 +35,7 @@ from pydantic_ai.tools import DeferredToolRequests
 from pydantic_ai.ui import UIEventStream
 from pydantic_ai_harness.compaction import estimate_context_tokens
 
+from iclip.harness.agents import SubAgentProfile
 from iclip.harness.context_compaction import compaction_only
 from iclip.harness.transcript.from_messages import (
     ORPHAN_TOOL_ERROR,
@@ -386,13 +387,13 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         yield (FrameUpsertOp(turn_id=self.turn_id, step_id=self._step_id, frame=card),)
 
     def note_subagent(
-        self, tool_call_id: str, child_run_id: str, profile: Mapping[str, str]
+        self, tool_call_id: str, child_run_id: str, profile: SubAgentProfile
     ) -> OpsBatch:
         """把 delegate_task 派出的子运行记到父卡上，并开一条 subagent 任务。
 
         卡必定已在：FunctionToolCallEvent 先于工具执行到达；不在就是投影漏了事件，直接报错。
         一张卡只指向它最后一次派出的子运行：崩溃续跑会重放同一次调用，账本上也只记最后那个。
-        profile 是子代理落库 metadata 的那份字典，历史侧从运行记录读回的是同一份。
+        profile 是子代理落库 metadata 的那份档案，历史侧从运行记录读回的是同一份。
         """
 
         card = self._tool_cards[tool_call_id]
