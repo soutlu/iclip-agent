@@ -48,14 +48,16 @@ _JPEG: Final = "image/jpeg"
 
 @dataclass(frozen=True, slots=True)
 class GenerationPolicy:
-    """按配置的 dev、pro 顺序重试失败生成；已有成功结果时不自动升级渠道。"""
+    """按配置的 dev、pro 顺序重试失败生成；已有成功结果时不自动升级渠道。
 
-    poll_interval_seconds: float = 5.0
-    dev_attempts: int = 2
-    pro_attempts: int = 1
-    backoff_seconds: float = 5.0
-    backoff_factor: float = 3.0
-    total_timeout_seconds: float = 1800.0
+    各字段的默认值与校验只在 ``shot_video`` 配置段一处，这里全部由组合根显式传入。"""
+
+    poll_interval_seconds: float
+    dev_attempts: int
+    pro_attempts: int
+    backoff_seconds: float
+    backoff_factor: float
+    total_timeout_seconds: float
 
     def channels(self) -> tuple[ImageChannel, ...]:
         dev: tuple[ImageChannel, ...] = ("dev",) * self.dev_attempts

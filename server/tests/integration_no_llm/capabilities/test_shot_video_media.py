@@ -69,7 +69,14 @@ DOCUMENT = (
     "**[00:01.500-00:03.000]** 特写…… |\n"
 )
 
-FAST = GenerationPolicy(poll_interval_seconds=0.001, backoff_seconds=0.001, backoff_factor=1.0)
+FAST = GenerationPolicy(
+    poll_interval_seconds=0.001,
+    dev_attempts=2,
+    pro_attempts=1,
+    backoff_seconds=0.001,
+    backoff_factor=1.0,
+    total_timeout_seconds=1800.0,
+)
 
 STORE_DOWN = "OSS 写入失败（试了 3 次）: Read timed out"
 """对象存储重试耗尽后，由组合根映射的错误消息。"""

@@ -28,8 +28,10 @@ from iclip.domains.generation.schemas import ImageGenerationIn
 from iclip.domains.generation.service import GenerationService
 from iclip.domains.identity.public import Principal
 from iclip.harness.agents import AgentCapabilities, delegate_display_table
+from iclip.harness.media import image_info_url
 from iclip.harness.skills import skill_display_table
 from iclip.platform.file_store.store import FileSpace, FileStore
+from iclip.platform.http import validation_error_detail
 from iclip.platform.material_ledger.store import MaterialLedger
 from iclip.platform.object_store.layout import MEDIA_PATHS
 from iclip.platform.object_store.store import ObjectStoreUnavailable, PublicObjectStore
@@ -69,7 +71,7 @@ class GenerationsAdapter:
             )
             return _job_view(await self._service.submit_image(principal, payload))
         except ValidationError as exc:
-            raise InvalidImageRequest(_first_problem(exc)) from exc
+            raise InvalidImageRequest(validation_error_detail(exc.errors())) from exc
         except ValidationFailed as exc:
             # 受理层按所选模型的能力拒绝，收成能力协议错误，工具才能让模型改参数。
             raise InvalidImageRequest(str(exc)) from exc
@@ -90,14 +92,18 @@ _IMAGE_MEDIA_TYPES: Mapping[str, str] = {
 class OssMediaProbe:
     """通过 OSS image/info 查询尺寸、大小与格式，无需下载像素。
 
-    对外错误使用固定文案，避免 HTTP 异常回显带参数的地址。"""
+    查询地址由 ``harness.media`` 构造；对外错误使用固定文案，避免回显带参数的地址。"""
 
     def __init__(self, client: httpx.AsyncClient) -> None:
         self._client = client
 
     async def image_info(self, url: str) -> ImageInfo:
         try:
-            response = await self._client.get(f"{url}?x-oss-process=image/info")
+            info_url = image_info_url(url)
+        except ValueError as exc:
+            raise MediaProbeFailed("不是能挂 OSS 处理参数的地址") from exc
+        try:
+            response = await self._client.get(info_url)
         except httpx.HTTPError as exc:
             raise MediaProbeFailed("地址访问不到") from exc
         if response.status_code >= 400:
@@ -148,14 +154,6 @@ def _job_view(job: GenerationJob) -> ImageJob:
         error_code=job.error_code,
         error_message=job.error_message,
     )
-
-
-def _first_problem(exc: ValidationError) -> str:
-    """提取首个字段校验错误供调用方修正。"""
-
-    first = exc.errors()[0]
-    where = ".".join(str(part) for part in first["loc"]) or "参数"
-    return f"{where}: {first['msg']}"
 
 
 def build_capability_table(

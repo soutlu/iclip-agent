@@ -54,6 +54,8 @@ from iclip.domains.audit.schemas import (
 _VIDEOS: Final = """
 videos AS (
     SELECT g.id, g.conversation_id, g.status, g.created_at, g.submitted_at, g.finished_at,
+           -- 成片：出成了且有完成时刻；各口径只引用这一列。
+           (g.status = 'completed' AND g.finished_at IS NOT NULL) AS delivered,
            (g.metadata->>'shot')::int AS shot,
            g.request->>'user_name' AS user_name,
            c.task_id
@@ -87,7 +89,7 @@ shots AS (
            count(*) AS attempts,
            min(v.created_at) AS first_at,
            max(v.created_at) AS last_at,
-           count(*) = 1 AND bool_and(v.status = 'completed') AS one_take,
+           count(*) = 1 AND bool_and(v.delivered) AS one_take,
            (array_agg(v.user_name ORDER BY v.created_at, v.id))[1] AS user_name
     FROM videos v
     GROUP BY v.conversation_id, v.shot, v.task_id
@@ -113,7 +115,7 @@ cycles AS (
     FROM (
         SELECT v.conversation_id, max(v.finished_at) AS delivered_at
         FROM videos v
-        WHERE v.status = 'completed' AND v.finished_at IS NOT NULL
+        WHERE v.delivered
         GROUP BY v.conversation_id
     ) d
     JOIN person p ON p.conversation_id = d.conversation_id
@@ -170,7 +172,7 @@ completed AS (
            {_spread("extract(epoch FROM v.finished_at - v.created_at)", "video")},
            {_spread("extract(epoch FROM v.finished_at - v.submitted_at)", "upstream")}
     FROM videos v
-    WHERE v.status = 'completed' AND v.finished_at IS NOT NULL
+    WHERE v.delivered
     {_WINDOW.format(anchor="v.finished_at")}
     {_FILTERS.format(t="v")}
     GROUP BY 1
@@ -440,7 +442,7 @@ task_stuck AS (
 deleted AS (
     SELECT 'deleted', p.deleted_at, 'deleted:' || p.conversation_id,
            (SELECT count(*) FROM videos v
-            WHERE v.conversation_id = p.conversation_id AND v.status = 'completed')::float8,
+            WHERE v.conversation_id = p.conversation_id AND v.delivered)::float8,
            NULL::float8,
            p.conversation_id, p.task_id, p.user_name, NULL::int, NULL::uuid
     FROM person p
@@ -451,7 +453,7 @@ deleted AS (
 no_task AS (
     SELECT 'no_task', y.delivered_at, 'no_task:' || y.conversation_id,
            (SELECT count(*) FROM videos v
-            WHERE v.conversation_id = y.conversation_id AND v.status = 'completed')::float8,
+            WHERE v.conversation_id = y.conversation_id AND v.delivered)::float8,
            NULL::float8,
            y.conversation_id, NULL::uuid, y.user_name, NULL::int, NULL::uuid
     FROM windowed_cycles y

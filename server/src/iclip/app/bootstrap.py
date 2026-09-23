@@ -39,6 +39,7 @@ from iclip.app.generation_live import AnnouncingGenerationRepository
 from iclip.app.logging import configure_logging
 from iclip.capabilities.shot_document import SHOTS_PATH
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
+from iclip.capabilities.workspace.scope import parse_namespace
 from iclip.common.errors import NotFound
 from iclip.config import (
     ObjectStoreEnv,
@@ -130,16 +131,11 @@ def _object_store(
     )
 
 
-_SOCKET_TIMEOUT_MARGIN = 5.0
-"""socket 超时比阻塞等待多留的余量（秒）。"""
-
-
 def _namespace_owner(namespace: str) -> tuple[uuid.UUID, uuid.UUID] | None:
     """从工作区命名空间解析属主与对话；非对话命名空间返回 None。"""
 
-    owner, _, conversation_id = namespace.partition("/")
     try:
-        return uuid.UUID(owner), uuid.UUID(conversation_id)
+        return parse_namespace(namespace)
     except ValueError:
         return None
 
@@ -368,8 +364,11 @@ def build_app(
         await conversations.service.clear_completed(conversation_id, owner)
 
     # 镜头能力依赖生成服务，须先于 Agent 装配。
-    generation = (
-        _generation_module(
+    generation: GenerationModule | None = None
+    if settings.media_generation is not None:
+        if public_objects is None:
+            raise RuntimeError("媒体生成已启用却没有对象存储；resolve_settings 应当已拒绝这种配置")
+        generation = _generation_module(
             settings.media_generation,
             active_engine,
             act_as=identity.act_as,
@@ -379,9 +378,6 @@ def build_app(
             queue_connector=queue_connector,
             live=live_connections,
         )
-        if settings.media_generation is not None and public_objects is not None
-        else None
-    )
 
     # step store、工作区与 identity 共用同一个 engine（表在 agent_runtime schema）。
     step_store = PgStepStore(
@@ -400,6 +396,19 @@ def build_app(
         return tuple(
             CollectionInfo(id=item.id, name=item.name, updated_at=item.updated_at) for item in found
         )
+
+    def on_activity(conversation_id: str, owner: uuid.UUID, state: ActivityState) -> None:
+        """同步向属主连接广播活动变化，避免 await 使连续状态通知乱序。"""
+
+        live_connections.announce_activity(
+            owner,
+            uuid.UUID(conversation_id),
+            busy=state.busy,
+            pending_interaction=state.pending_interaction,
+            last_turn_reason=state.last_turn_reason,
+        )
+
+    job_queue = JobQueue(active_engine, on_activity=on_activity)
 
     async def activities_of(
         conversation_ids: Sequence[uuid.UUID],
@@ -426,17 +435,6 @@ def build_app(
         """票据表里的对话 id 是文本，转回对话域的 uuid；None 是全平台。"""
 
         return frozenset(uuid.UUID(one) for one in await job_queue.busy_conversation_ids(owner))
-
-    def on_activity(conversation_id: str, owner: uuid.UUID, state: ActivityState) -> None:
-        """同步向属主连接广播活动变化，避免 await 使连续状态通知乱序。"""
-
-        live_connections.announce_activity(
-            owner,
-            uuid.UUID(conversation_id),
-            busy=state.busy,
-            pending_interaction=state.pending_interaction,
-            last_turn_reason=state.last_turn_reason,
-        )
 
     capability_table = build_capability_table(
         workspace_store=announcing_workspace_store,
@@ -465,7 +463,6 @@ def build_app(
         source=reload_source,
     )
 
-    job_queue = JobQueue(active_engine, on_activity=on_activity)
     # 显示、续跑与分叉共用历史投影。
     transcript_history = TranscriptHistory(step_store, job_queue, tool_displays, DELEGATE_TOOL)
 
@@ -644,12 +641,7 @@ def build_app(
             allow_headers=["*"],
         )
 
-    app.state.identity = identity
     app.state.agent_layer = agent_layer
-    app.state.conversations = conversations
-    app.state.generation = generation
-    app.state.collections = collections
-    app.state.tasks = tasks
     return app
 
 

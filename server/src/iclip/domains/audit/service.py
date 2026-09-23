@@ -21,7 +21,7 @@ from iclip.domains.audit.models import (
 from iclip.domains.audit.repository import AuditReports
 from iclip.domains.audit.schemas import AnomaliesOut, AuditConversationsOut, SummaryOut
 from iclip.domains.identity.public import MANAGE_PERMISSION, Principal
-from iclip.platform.paging import check_limit, decode_cursor, encode_cursor
+from iclip.platform.paging import BAD_CURSOR, check_limit, decode_cursor, encode_cursor
 
 _ANOMALY_KINDS: Final[frozenset[str]] = frozenset(get_args(AnomalyKind))
 
@@ -72,7 +72,7 @@ def _anomaly_after(cursor: str | None) -> AnomalyCursor | None:
     parsed = decode_cursor(cursor)
     kind, separator, rest = parsed.key.partition(":")
     if not separator or not rest or kind not in _ANOMALY_KINDS:
-        raise ValidationFailed("cursor 不是一个有效的翻页位置")
+        raise ValidationFailed(BAD_CURSOR)
     return AnomalyCursor(at=parsed.at, ref=parsed.key)
 
 
