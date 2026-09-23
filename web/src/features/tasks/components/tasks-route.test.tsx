@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { delay, http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { server } from '@/testing/mocks/server'
+import { ApiError } from '@/shared/api/client'
 import { zTaskInputsOutput } from '@/shared/api/generated/zod.gen'
 import { mockAuthUser, mockTasks } from '@/testing/mocks/handlers'
 import { renderWithProviders } from '@/testing/render'
@@ -659,7 +660,7 @@ describe('TasksRoute', () => {
     const user = userEvent.setup()
     await renderLoggedIn(async (draft) => {
       sent.push(draft)
-      if (sent.length === 1) throw new Error('启动连接失败，可重试')
+      if (sent.length === 1) throw new ApiError(503, '启动连接失败，可重试')
     })
     const mine = screen.getByRole('region', { name: '我的需求单' })
     await user.click(await within(mine).findByText(task.title))

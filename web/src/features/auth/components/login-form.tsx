@@ -1,5 +1,6 @@
 import type { ChangeEvent, FormEvent } from 'react'
 import { useState } from 'react'
+import { errorMessageOf } from '@/shared/api/client'
 import { sanitizeCueAuthNextPath, startSsoLogin, useLogin } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
 import { Button, IconButton } from '@/shared/ui/button'
@@ -66,7 +67,7 @@ export function LoginForm({ ssoEnabled, initialErrorMessage, onSuccess }: LoginF
       })
       onSuccess()
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '登录失败，请稍后重试')
+      setErrorMessage(errorMessageOf(error, '登录失败，请稍后重试'))
     }
   }
 
@@ -78,7 +79,7 @@ export function LoginForm({ ssoEnabled, initialErrorMessage, onSuccess }: LoginF
       // SSO 完成后返回发起登录的站内路径。
       await startSsoLogin(sanitizeCueAuthNextPath(window.location.pathname))
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '飞书登录暂不可用，请稍后重试')
+      setErrorMessage(errorMessageOf(error, '飞书登录暂不可用，请稍后重试'))
       setSsoSubmitting(false)
     }
   }

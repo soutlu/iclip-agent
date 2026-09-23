@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState, type ReactNode } from 'react'
 import { hasPermission, PERMISSION, useUser } from '@/shared/auth'
-import { ApiError } from '@/shared/api/client'
+import { errorMessageOf } from '@/shared/api/client'
 import { Button, IconButton } from '@/shared/ui/button'
 import { cn } from '@/shared/lib/utils'
 import {
@@ -109,7 +109,7 @@ export function TaskDialog({
       setCreationDraft(null)
       onOpenChange(false)
     } catch (cause) {
-      setStartError(cause instanceof Error ? cause.message : '创作启动失败，请重试')
+      setStartError(errorMessageOf(cause, '创作启动失败，请重试'))
     } finally {
       sendingRef.current = false
       setSending(false)
@@ -185,7 +185,7 @@ export function TaskDialog({
                   {error ? (
                     <div className="flex flex-col items-start gap-3">
                       <p className="text-body-sm text-error" role="alert">
-                        {error instanceof ApiError ? error.message : '读取需求单失败，请重试'}
+                        {errorMessageOf(error, '读取需求单失败，请重试')}
                       </p>
                       <Button onClick={() => void refetch()} variant="outlined">
                         重试
@@ -234,7 +234,7 @@ function TaskDialogForm({ onOpenChange, onPreview, task }: TaskDialogFormProps) 
   const invalidateTasks = () => queryClient.invalidateQueries({ queryKey: tasksQueryKeys.all })
 
   const showError = (error: unknown) => {
-    toast.error(error instanceof ApiError ? error.message : '操作失败，请重试')
+    toast.error(errorMessageOf(error, '操作失败，请重试'))
   }
 
   const createMutation = useMutation({

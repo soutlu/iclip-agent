@@ -2,6 +2,7 @@
 
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { errorMessageOf } from '@/shared/api/client'
 import { ASPECT_RATIOS } from '@/shared/lib/aspect-ratio'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
@@ -176,7 +177,8 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
   }, [position, shots.length])
 
   if (file.isPending && document === null) return <ReaderNotice text="正在读取分镜…" />
-  if (file.isError && document === null) return <ReaderNotice text={file.error.message} />
+  if (file.isError && document === null)
+    return <ReaderNotice text={errorMessageOf(file.error, '读取分镜失败')} />
   const shot = shots[position - 1]
   if (document === null || shot === undefined) {
     return <ReaderNotice text="文件格式不对，读不出镜头组" />
@@ -418,7 +420,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
                   <Button onClick={closeSheet} size="md" variant="ghost">
                     关闭生成记录
                   </Button>
-                  <ReaderNotice text={generations.error.message} />
+                  <ReaderNotice text={errorMessageOf(generations.error, '读取生成任务失败')} />
                 </>
               ) : generations.isPending ? (
                 <>

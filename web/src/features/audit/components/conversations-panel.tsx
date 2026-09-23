@@ -2,6 +2,7 @@
 
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
+import { errorMessageOf } from '@/shared/api/client'
 import { Icon } from '@/shared/icons'
 import { formatDateTime } from '@/shared/lib/date-time'
 import { cn } from '@/shared/lib/utils'
@@ -23,7 +24,12 @@ export function ConversationsPanel({ scope, nameOf, taskTitleOf }: Conversations
 
   if (query.isPending) return <ListPending label="正在读取对话明细" />
   if (query.isError) {
-    return <ListError message={query.error.message} onRetry={() => void query.refetch()} />
+    return (
+      <ListError
+        message={errorMessageOf(query.error, '读取对话明细失败')}
+        onRetry={() => void query.refetch()}
+      />
+    )
   }
   if (rows.length === 0) return <ListEmpty>这个范围里没有出过片的对话</ListEmpty>
 

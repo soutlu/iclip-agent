@@ -72,11 +72,14 @@ export const useConversationAgents = (enabled: boolean) =>
   })
 
 /** 服务端按标题搜索当前用户的全部对话，按最近活动排序。 */
-export const searchConversations = async (keyword: string): Promise<Conversation[]> =>
+export const searchConversations = async (
+  keyword: string,
+  signal: AbortSignal,
+): Promise<Conversation[]> =>
   apiFetch(
     `/conversations/search?q=${encodeURIComponent(keyword)}&limit=${SEARCH_LIMIT}`,
     conversationsPageSchema,
-    { cache: 'no-store', fallbackErrorMessage: '搜索对话失败' },
+    { signal, cache: 'no-store', fallbackErrorMessage: '搜索对话失败' },
   )
 
 /** 分组、计数和首页数据来自同一服务端拓扑，避免不同查询时间点造成不一致。 */

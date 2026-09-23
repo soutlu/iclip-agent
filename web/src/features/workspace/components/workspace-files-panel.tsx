@@ -1,6 +1,7 @@
 /** 文件页只有两个画面：列表与阅读。正在看的文件路径放查询参数 file，刷新与分享都保留。 */
 
 import { useNavigate, useSearch } from '@tanstack/react-router'
+import { errorMessageOf } from '@/shared/api/client'
 import { useWorkspaceFiles, type ArtifactRendererProps } from '@/shared/workbench'
 import { FileList } from './file-list'
 import { FileReader } from './file-reader'
@@ -26,7 +27,7 @@ export function WorkspaceFilesPanel({ conversationId }: ArtifactRendererProps) {
   }
   return (
     <FileList
-      error={files.error?.message}
+      error={files.isError ? errorMessageOf(files.error, '读取工作区文件失败') : undefined}
       files={files.data?.files}
       onOpen={show}
       pending={files.isPending}

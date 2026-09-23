@@ -1,7 +1,7 @@
 /** 审批与工具卡共用 display 合同；两个正式按钮，数字键 1 / 2 是快捷方式。 */
 
 import { useEffect, useRef, useState } from 'react'
-import { ApiError } from '@/shared/api/client'
+import { ApiError, errorMessageOf } from '@/shared/api/client'
 import type { ToolCallFrame } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
@@ -56,7 +56,7 @@ export function ApprovalCard({
       } else if (error instanceof ApiError && error.status === 404) {
         toast.error('这张卡已经不在等了')
       } else {
-        toast.error(error instanceof Error ? error.message : '提交决定失败')
+        toast.error(errorMessageOf(error, '提交决定失败'))
       }
     } finally {
       setSending(false)

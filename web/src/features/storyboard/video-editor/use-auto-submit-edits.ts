@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
+import { errorMessageOf } from '@/shared/api/client'
 import type { VideoEditMetadata } from '../generation-metadata'
 import { actualEditStart, type PendingEdit } from './edit-chain'
 import type { EditorReference } from './editor-composer'
@@ -60,7 +61,7 @@ export const useAutoSubmitEdits = ({
           queryClient.invalidateQueries({ queryKey: videoEditConversationKey(conversationId) }),
         )
         .catch((error: unknown) => {
-          onError(error instanceof Error ? error.message : '视频编辑提交失败')
+          onError(errorMessageOf(error, '视频编辑提交失败'))
         })
     }
   }, [pending, drafts, conversationId, taskId, rootJobId, onError, queryClient])

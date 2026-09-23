@@ -1,6 +1,7 @@
 /** 工作台引用按 prefix 逐行拼到正文前；附件入口由 uploads:write 权限控制。 */
 
 import { useEffect, useRef, useState } from 'react'
+import { errorMessageOf } from '@/shared/api/client'
 import { hasPermission, PERMISSION, useUser } from '@/shared/auth'
 import type { ComposerHandle, ComposerPart, ComposerSubmission } from '@/shared/ui/composer'
 import { Composer } from '@/shared/ui/composer'
@@ -80,7 +81,7 @@ export function ConversationComposer({
       selection.clear()
     } catch (error) {
       composerRef.current?.restore(submission)
-      toast.error(error instanceof Error ? error.message : '发送失败')
+      toast.error(errorMessageOf(error, '发送失败'))
     } finally {
       setSending(false)
     }

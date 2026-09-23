@@ -6,6 +6,7 @@
 
 import { useQueryClient } from '@tanstack/react-query'
 import { useMemo, useRef, useState } from 'react'
+import { errorMessageOf } from '@/shared/api/client'
 import { useMediaDownload } from '@/shared/api/media-download'
 import { videoSnapshotUrl } from '@/shared/lib/media-url'
 import { mintUuid } from '@/shared/lib/uuid'
@@ -305,7 +306,7 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
       )
     } catch (error) {
       setDrafts(({ [editId]: _dropped, ...rest }) => rest)
-      setOperationError(error instanceof Error ? error.message : '切片任务提交失败')
+      setOperationError(errorMessageOf(error, '切片任务提交失败'))
     } finally {
       setOperation('idle')
     }
@@ -329,7 +330,7 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
       )
       toast.success('已提交合成，完成后会成为新版本')
     } catch (error) {
-      setOperationError(error instanceof Error ? error.message : '合成任务提交失败')
+      setOperationError(errorMessageOf(error, '合成任务提交失败'))
     } finally {
       setOperation('idle')
     }
@@ -462,10 +463,18 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
                 references={references}
               />
               <EditorNotices
-                chainError={chainQuery.isError ? chainQuery.error.message : undefined}
+                chainError={
+                  chainQuery.isError
+                    ? errorMessageOf(chainQuery.error, '读取编辑记录失败')
+                    : undefined
+                }
                 clipDurationMissing={clipDurationMissing}
                 composeBlocked={composeBlocked}
-                modelsError={modelsQuery.isError ? modelsQuery.error.message : undefined}
+                modelsError={
+                  modelsQuery.isError
+                    ? errorMessageOf(modelsQuery.error, '读取视频模型失败')
+                    : undefined
+                }
                 onReloadChain={() => void chainQuery.refetch()}
                 onReloadModels={() => void modelsQuery.refetch()}
                 operationError={operationError}

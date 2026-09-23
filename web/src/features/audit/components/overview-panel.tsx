@@ -1,5 +1,6 @@
 /** 总览：结果 → 效率 → 消耗 → 问题，一屏看完；人和需求单两张排行表放在下面下钻。 */
 
+import { errorMessageOf } from '@/shared/api/client'
 import { Icon } from '@/shared/icons'
 import { Button } from '@/shared/ui/button'
 import { InlineAlert } from '@/shared/ui/inline-alert'
@@ -121,7 +122,12 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
   const pending = current.isPending
 
   if (current.isError) {
-    return <ListError message={current.error.message} onRetry={() => void current.refetch()} />
+    return (
+      <ListError
+        message={errorMessageOf(current.error, '读取审计汇总失败')}
+        onRetry={() => void current.refetch()}
+      />
+    )
   }
 
   // 后端补齐了空期：计数是 0、比率与分布是 null，null 交给迷你趋势断开，不当 0 画。

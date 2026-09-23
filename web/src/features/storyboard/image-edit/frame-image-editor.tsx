@@ -1,5 +1,6 @@
 import { useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import { useMemo, useRef, useState } from 'react'
+import { errorMessageOf } from '@/shared/api/client'
 import { uploadMediaFile } from '@/shared/api/media-upload'
 import { mintUuid } from '@/shared/lib/uuid'
 import { Button, IconButton } from '@/shared/ui/button'
@@ -424,7 +425,7 @@ export function FrameImageEditor({
               {modelsQuery.isError ? (
                 <InlineAlert
                   action={{ label: '重新加载模型', onClick: () => void modelsQuery.refetch() }}
-                  message={modelsQuery.error.message}
+                  message={errorMessageOf(modelsQuery.error, '读取图片模型失败')}
                 />
               ) : null}
               {drafts.error !== null ? (
@@ -436,7 +437,7 @@ export function FrameImageEditor({
               {jobsQuery.isError ? (
                 <InlineAlert
                   action={{ label: '重试', onClick: () => void jobsQuery.refetch() }}
-                  message={jobsQuery.error.message}
+                  message={errorMessageOf(jobsQuery.error, '读取图片编辑记录失败')}
                 />
               ) : null}
               {operationError !== null ? <InlineAlert message={operationError} /> : null}

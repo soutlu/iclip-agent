@@ -8,6 +8,7 @@ import {
   useStartConversation,
 } from '@/features/conversations'
 import { HomeRoute } from '@/features/home'
+import { errorMessageOf } from '@/shared/api/client'
 import { hasPermission, PERMISSION, useUser } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
 import type { ComposerSubmission } from '@/shared/ui/composer'
@@ -58,14 +59,18 @@ export function HomePage() {
       return false
     }
     if (!validAgent || agentId === null || agents.isError) {
-      toast.error(agents.error?.message ?? '请先选择可用的 Agent')
+      toast.error(
+        agents.isError
+          ? errorMessageOf(agents.error, '读取 Agent 列表失败')
+          : '请先选择可用的 Agent',
+      )
       return false
     }
     try {
       await start.mutateAsync({ agentId, collectionId, parts })
       return true
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '发送失败，请重试')
+      toast.error(errorMessageOf(error, '发送失败，请重试'))
       return false
     }
   }
@@ -103,7 +108,10 @@ export function HomePage() {
             <MenuSurface align="end">
               {agents.isError ? (
                 <>
-                  <InlineAlert className="max-w-64 px-3 py-2" message={agents.error.message} />
+                  <InlineAlert
+                    className="max-w-64 px-3 py-2"
+                    message={errorMessageOf(agents.error, '读取 Agent 列表失败')}
+                  />
                   <MenuItem onSelect={() => void agents.refetch()}>重新加载 Agent</MenuItem>
                 </>
               ) : agents.data?.items.length ? (
@@ -124,7 +132,11 @@ export function HomePage() {
         collectionPicker={
           <CollectionPicker
             disabled={!canReadCollections || start.isPending}
-            error={collectionsQuery.isError ? collectionsQuery.error.message : null}
+            error={
+              collectionsQuery.isError
+                ? errorMessageOf(collectionsQuery.error, '读取合集失败')
+                : null
+            }
             loading={canReadCollections && collectionsQuery.isPending}
             onChange={chooseCollection}
             onCreate={

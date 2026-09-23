@@ -5,6 +5,7 @@
 
 import { useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
+import { errorMessageOf } from '@/shared/api/client'
 import type { Shot } from './shot-document'
 import { storyboardQueryKeys, submitVideoGeneration, useVideoModels } from './storyboard.api'
 import { DEFAULT_GENERATE_AUDIO, type VideoGenerationOptions } from './video-generation-options'
@@ -44,10 +45,7 @@ export const useVideoGeneration = (conversationId: string) => {
         queryKey: storyboardQueryKeys.generations(conversationId),
       })
     } catch (error) {
-      setFailure({
-        index: shot.index,
-        message: error instanceof Error ? error.message : '视频提交失败',
-      })
+      setFailure({ index: shot.index, message: errorMessageOf(error, '视频提交失败') })
     } finally {
       submittingRef.current.delete(shot.index)
       setSubmitting((current) => current.filter((index) => index !== shot.index))

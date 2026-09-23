@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { z } from 'zod'
-import { apiFetch } from '@/shared/api/client'
+import { apiFetch, errorMessageOf } from '@/shared/api/client'
 import { zUploadConfirmedOut, zUploadTicketOut } from '@/shared/api/generated/zod.gen'
 
 /** image / video 可提交给 prompt；file 不被上传签名接受，停留在 error。 */
@@ -177,7 +177,7 @@ export const useComposerAttachments = () => {
       })
     } catch (error) {
       patch(entry.attId, {
-        error: error instanceof Error ? error.message : '上传失败',
+        error: errorMessageOf(error, '上传失败'),
         progress: undefined,
         status: 'error',
       })

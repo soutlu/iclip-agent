@@ -2,6 +2,7 @@ import { useDraggable } from '@dnd-kit/core'
 import { useParams } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
+import { errorMessageOf } from '@/shared/api/client'
 import { hasPermission, PERMISSION, useUser } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
 import { formatRelativeTime } from '@/shared/lib/relative-time'
@@ -75,7 +76,7 @@ export function SidebarConversationRow({
     if (title && title !== conversation.title) {
       rename.mutate(
         { conversationId: conversation.id, title },
-        { onError: (error) => toast.error(error.message) },
+        { onError: (error) => toast.error(errorMessageOf(error, '重命名失败')) },
       )
     }
   }
@@ -163,7 +164,7 @@ export function SidebarConversationRow({
                 onSelect={() =>
                   completion.mutate(
                     { completed: !completed, conversationId: conversation.id },
-                    { onError: (error) => toast.error(error.message) },
+                    { onError: (error) => toast.error(errorMessageOf(error, '标记完成失败')) },
                   )
                 }
               >
@@ -175,7 +176,7 @@ export function SidebarConversationRow({
                 icon="delete"
                 onSelect={() =>
                   remove.mutate(conversation.id, {
-                    onError: (error) => toast.error(error.message),
+                    onError: (error) => toast.error(errorMessageOf(error, '删除失败')),
                   })
                 }
               >

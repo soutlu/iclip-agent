@@ -1,3 +1,4 @@
+import { errorMessageOf } from '@/shared/api/client'
 import { copyText } from '@/shared/lib/clipboard'
 import { toast } from '@/shared/ui/toast'
 
@@ -7,6 +8,6 @@ export const copyWithToast = async (text: string, message: string) => {
     await copyText(text)
     toast(message)
   } catch (error) {
-    toast.error(error instanceof Error ? error.message : '复制失败')
+    toast.error(errorMessageOf(error, '复制失败'))
   }
 }
