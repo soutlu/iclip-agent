@@ -14,7 +14,7 @@
 | `harness/` | 通用 Agent 装配、运行驱动、消息持久化、上下文压缩与 transcript 投影；不解释业务身份和业务规则 |
 | `capabilities/` | 面向模型的类型化工具，连接 Agent 引擎与业务能力 |
 | `platform/` | 共用技术协议及适配器：数据库与行归属、对象存储、工作区文件存储、素材台账、ffmpeg 媒体处理、HTTP 错误映射、翻页、transcript 类型 |
-| `common/` | 跨层共用的纯规则：领域错误分类、工具入参的 JSON 文本归一化、地址形状判定、镜头组规则（时间线连续、`@ImageN` 引用、参考图上限）与生成记录的种类、状态词表 |
+| `common/` | 跨层共用的纯规则：领域错误分类、工具入参的 JSON 文本归一化、地址形状判定、镜头组规则（时间线连续、`@ImageN` 引用、参考图上限）、出片正文的拼装与反拆，以及生成记录的种类、状态词表 |
 | `config/` | 配置声明、环境变量定义与启动期解析 |
 | `app/` | 组合根及跨模块适配 |
 | `main.py` / `asgi.py` | CLI / ASGI 入口 |
@@ -73,6 +73,7 @@ HTTP 与 WebSocket 由 `PrincipalMiddleware` 统一解析身份。中间件只�
 | `iclip` 爆款视频快照 | `domains/inspirations/infra_sql.py`；数据随迁移灌入，运行时只读不刷新 |
 | PDM 款目录外部库 | `domains/products/catalog_pg.py`，独立连接池设置会话级只读 |
 | 审计报表（跨 `iclip` 与 `agent_runtime` 五张表的只读聚合） | `domains/audit/reports_pg.py`；不建表、不写入，列或状态词被改动时由它的集成测试先红 |
+| 资料库（跨生成记录、对话、用户三张表的只读聚合） | `domains/library/reports_pg.py`；同上，每次请求现算按镜分组与卡面，数据到十万级再换成随出片完成更新的读表 |
 
 对话分叉横跨上表前四行：对话领域服务的分叉用例按顺序调三个端口写工作区与素材、出片记录、种子快照，最后自己落对话行；端口由 [app/conversation_fork.py](../server/src/iclip/app/conversation_fork.py) 接到文件存储、生成域与 agent 引擎上，只回报事实，冲突与否由用例判。四个存储各开各的事务，没有统一回滚，靠这个顺序保证中途失败只留下寻址不到的孤儿数据。
 

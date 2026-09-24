@@ -382,3 +382,14 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - `GET /audit/summary` 返回 `overall`（整个筛选范围一格）、`users[]`（每人一行，成片件数多的在前；只跑过没出片的人也占一行）、`tasks[]`（每张有动静的需求单一行，带 `title`；没挂需求单的对话不在这里）。给 `bucket`（`day` / `week` / `month`）时多返回 `series[]`，每期一行带 `periodStart`，按 `timezone`（IANA 名，缺省 `UTC`）切：给了 `since` 时从 `since` 所在期到 `until`（缺省此刻）所在期每期都有一行，没动静的期计数为 0、比率与分布为 `null`；没给 `since` 只列有数据的期。不给 `bucket` 时 `series` 为 `null`。时区名不认识是 `422`。另带 `attemptDistribution[]`：整个筛选范围的出片次数分档计数（`attempts` 次的镜有 `shots` 个），次数少的在前、不封顶、只给全体一档（`users[]` / `tasks[]` / `series[]` 的行上没有）；次数是这个镜名下的全部出片记录数。锚点同每镜次数。还带 `anomalyCounts[]`：整个筛选范围里每种异常各几条（`kind`、`count`），按 `GET /audit/anomalies` 的缺省阈值判定，只列出现过的种类，多的在前、同数按种类名。
 - `GET /audit/conversations` 列有成片的对话，最后成片晚的排前面；时间窗作用在最后成片时刻上，每行的 `metrics`、`shots[]`（镜号、次数、是否一次通过 `oneTake`、首末时刻）与 `usage[]`（按模型）都是这段对话的全量。`userName` 是这段对话归属的人，`startedAt` 是首次运行（没有运行就是对话创建）。属主删掉的对话照列，`deletedAt` 非空。翻页 `limit` 与 `cursor`，规则同 §6 审计列表。
 - `GET /audit/anomalies` 列异常，按发生时刻倒序，翻页同上。`kind` 可重复给以只看某几种：`retry`（单镜生成次数超过 `retryOver`，缺省 2）、`idle`（有运行、无成片、最近活动距今超过 `idleHours`，缺省 24）、`slow`（交付周期超过筛选范围内的 P90）、`stuck`（视频停在 `submitted` 超过 `stuckHours`，缺省 1）、`spend`（对话总 token 超过筛选范围内的 P95）、`task_stuck`（需求单挂了至少 `taskConversations` 段对话、缺省 3，且没有成片）、`deleted`（属主删掉的对话，`value` 是它的成片数）、`no_task`（有成片却没挂需求单的对话）、`missing_shot`（独立记录的视频却没带数字 `metadata.shot`，调用方接入退化的信号；编辑链上的衍生记录本来就不带镜号，不算）。每行带 `kind`、`at`、`value`、`threshold` 与按需带的 `conversationId` / `taskId` / `userName` / `shot` / `generationId`。P90 / P95 按当前筛选范围现算，样本少时会抖。
+
+## 13. 资料库 (Library)
+
+全站成功出片连同出片时脚本的三个只读端点，都要 `generation:read`。收录口径、卡与卡面的定义见 [CONTEXT.md「资料库」](../docs/CONTEXT.md#术语)。
+
+- **看得到全站，拿不到别人的对话**：任何持 `generation:read` 的人都能看到全部卡与脚本；`conversationId` 只对来源对话的属主与治理者（`users:manage`）给出，其余人恒为 `null`。对话标题 `title` 照给，不挂对话的出片为 `null`。
+- `GET /library/videos` 按卡面时刻（`face.createdAt`）倒序，翻页 `limit` 与 `cursor`，规则同 §6。筛选：`userName`（归属的人）、`since` / `until`（左闭右开，作用在卡面时刻上）、`orientation`（`portrait` / `landscape`，按请求里的 `aspectRatio` 判，认不出比例的两边都不算）、`q`（按字面包含匹配卡面那次出片的正文与对话标题，不区分大小写；首尾空白去掉后为空即不筛）。`total` 是当前筛选下的卡数，只在第一页（不带 `cursor`）给，翻页时为 `null`。
+- 卡上 `id` 是卡面那次出片的 id，`face` 是卡面放的那条（`kind` 为 `take` 或 `master`；成片没有水印版，`watermarkOutputUrl` 为 `null`，`durationMs` 是量出来的时长），`take` 是卡面那次出片的参数、脚本与名下成片，`takeCount` 是这一镜成功出过几次。
+- `take.prompt` 是发给模型的原文；`take.script` 是镜头组（`globalSettings` 加 `timeline[]`，每镜 `start`、`end`、`prompt`、`imageIndexes`），为 `null` 表示纯文本。`imageIndexes` 指向 `referenceImageUrls` 的第 N 张。画面尺寸不在数据里，占位比例按 `aspectRatio`。
+- `GET /library/videos/{id}` 返回这一镜：`video`（卡本身）、`takes[]`（全部成功出片，早的在前，各带名下成片）、`siblings[]`（同一段对话的其他镜，镜号小的在前）。`id` 可以是这一镜里任何一次出片；不在资料库里的（没成、衍生记录、已删对话、分叉拷贝、不存在）一律 `404`。
+- `GET /library/authors` 列名下有卡的人与卡数（`userName`、`count`），多的在前、同数按名字，不受筛选影响。

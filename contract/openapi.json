@@ -1806,6 +1806,66 @@
         "title": "ErrorModel",
         "type": "object"
       },
+      "FaceOut": {
+        "additionalProperties": false,
+        "description": "卡面放哪一条：这一镜最新的成片，没有成片就是最新一次出片。",
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "durationMs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Durationms"
+          },
+          "jobId": {
+            "format": "uuid",
+            "title": "Jobid",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "take",
+              "master"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "outputUrl": {
+            "title": "Outputurl",
+            "type": "string"
+          },
+          "watermarkOutputUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Watermarkoutputurl"
+          }
+        },
+        "required": [
+          "kind",
+          "jobId",
+          "outputUrl",
+          "watermarkOutputUrl",
+          "durationMs",
+          "createdAt"
+        ],
+        "title": "FaceOut",
+        "type": "object"
+      },
       "FrameTarget": {
         "additionalProperties": false,
         "properties": {
@@ -2419,6 +2479,242 @@
           "ids"
         ],
         "title": "ItemsRemoveOp",
+        "type": "object"
+      },
+      "LibraryAuthorOut": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "userName": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "userName",
+          "count"
+        ],
+        "title": "LibraryAuthorOut",
+        "type": "object"
+      },
+      "LibraryAuthorsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryAuthorOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "LibraryAuthorsOut",
+        "type": "object"
+      },
+      "LibraryVideoDetailOut": {
+        "additionalProperties": false,
+        "properties": {
+          "siblings": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryVideoOut"
+            },
+            "title": "Siblings",
+            "type": "array"
+          },
+          "takes": {
+            "items": {
+              "$ref": "#/components/schemas/TakeOut"
+            },
+            "title": "Takes",
+            "type": "array"
+          },
+          "video": {
+            "$ref": "#/components/schemas/LibraryVideoOut"
+          }
+        },
+        "required": [
+          "video",
+          "takes",
+          "siblings"
+        ],
+        "title": "LibraryVideoDetailOut",
+        "type": "object"
+      },
+      "LibraryVideoOut": {
+        "additionalProperties": false,
+        "description": "资料库的一张卡：一镜，即（对话，镜号）下的全部成功出片；没有镜号的出片一条一张。",
+        "properties": {
+          "agentId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agentid"
+          },
+          "conversationId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversationid"
+          },
+          "face": {
+            "$ref": "#/components/schemas/FaceOut"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "shotIndex": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shotindex"
+          },
+          "take": {
+            "$ref": "#/components/schemas/TakeOut"
+          },
+          "takeCount": {
+            "title": "Takecount",
+            "type": "integer"
+          },
+          "taskId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Taskid"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "id",
+          "shotIndex",
+          "conversationId",
+          "title",
+          "agentId",
+          "taskId",
+          "takeCount",
+          "face",
+          "take"
+        ],
+        "title": "LibraryVideoOut",
+        "type": "object"
+      },
+      "LibraryVideosOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryVideoOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextcursor"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor",
+          "total"
+        ],
+        "title": "LibraryVideosOut",
+        "type": "object"
+      },
+      "MasterOut": {
+        "additionalProperties": false,
+        "description": "挂在一次出片名下的成片（视频编辑确认合成的那条）。",
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "durationMs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Durationms"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "outputUrl": {
+            "title": "Outputurl",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "outputUrl",
+          "durationMs",
+          "createdAt"
+        ],
+        "title": "MasterOut",
         "type": "object"
       },
       "MetaMergeOp": {
@@ -3138,6 +3434,62 @@
         "title": "RunStatusOut",
         "type": "object"
       },
+      "ScriptCutOut": {
+        "additionalProperties": false,
+        "description": "一镜：起止秒、正文、正文里引用的参考图编号（``@ImageN`` 的 N，按首次出现顺序）。",
+        "properties": {
+          "end": {
+            "title": "End",
+            "type": "number"
+          },
+          "imageIndexes": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Imageindexes",
+            "type": "array"
+          },
+          "prompt": {
+            "title": "Prompt",
+            "type": "string"
+          },
+          "start": {
+            "title": "Start",
+            "type": "number"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "prompt",
+          "imageIndexes"
+        ],
+        "title": "ScriptCutOut",
+        "type": "object"
+      },
+      "ScriptOut": {
+        "additionalProperties": false,
+        "description": "结构化的镜头组：全局设定加逐镜时间线。",
+        "properties": {
+          "globalSettings": {
+            "title": "Globalsettings",
+            "type": "string"
+          },
+          "timeline": {
+            "items": {
+              "$ref": "#/components/schemas/ScriptCutOut"
+            },
+            "title": "Timeline",
+            "type": "array"
+          }
+        },
+        "required": [
+          "globalSettings",
+          "timeline"
+        ],
+        "title": "ScriptOut",
+        "type": "object"
+      },
       "ShotOut": {
         "additionalProperties": false,
         "properties": {
@@ -3536,6 +3888,149 @@
           "anomalyCounts"
         ],
         "title": "SummaryOut",
+        "type": "object"
+      },
+      "TakeOut": {
+        "additionalProperties": false,
+        "description": "一次成功出片。参数与脚本照出片那一刻的请求。",
+        "properties": {
+          "aspectRatio": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aspectratio"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "generateAudio": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generateaudio"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "masters": {
+            "items": {
+              "$ref": "#/components/schemas/MasterOut"
+            },
+            "title": "Masters",
+            "type": "array"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "outputUrl": {
+            "title": "Outputurl",
+            "type": "string"
+          },
+          "prompt": {
+            "title": "Prompt",
+            "type": "string"
+          },
+          "referenceImageUrls": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Referenceimageurls",
+            "type": "array"
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution"
+          },
+          "script": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScriptOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seconds"
+          },
+          "userName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          },
+          "watermarkOutputUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Watermarkoutputurl"
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "userName",
+          "model",
+          "aspectRatio",
+          "seconds",
+          "resolution",
+          "generateAudio",
+          "outputUrl",
+          "watermarkOutputUrl",
+          "prompt",
+          "script",
+          "referenceImageUrls",
+          "masters"
+        ],
+        "title": "TakeOut",
         "type": "object"
       },
       "TaskCreateIn": {
@@ -6132,7 +6627,7 @@
       },
       "VideoShotIn": {
         "additionalProperties": false,
-        "description": "结构化的镜头组：全局设定加逐镜时间线。发给模型的正文由服务端按 shot_prompt 的规则拼。",
+        "description": "结构化的镜头组：全局设定加逐镜时间线。发给模型的正文由服务端按 common.shot_prompt 的规则拼。",
         "properties": {
           "global_settings": {
             "maxLength": 4000,
@@ -9878,6 +10373,258 @@
         "summary": "Search Videos",
         "tags": [
           "inspirations"
+        ]
+      }
+    },
+    "/library/authors": {
+      "get": {
+        "description": "名下有卡的人与各自的卡数，多的排前面；给按人筛选用。",
+        "operationId": "authors_library_authors_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryAuthorsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": [
+              "generation:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "generation:read"
+            ]
+          }
+        ],
+        "summary": "Authors",
+        "tags": [
+          "library"
+        ]
+      }
+    },
+    "/library/videos": {
+      "get": {
+        "description": "全站的成功出片，一镜一张卡，卡面时刻晚的排前面。\n\n时间窗 ``[since, until)`` 作用在卡面时刻上；``q`` 按字面包含匹配卡面那次出片的正文与\n对话标题。``total`` 只在第一页给。来源对话只交给对话属主与治理者。",
+        "operationId": "videos_library_videos_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "userName",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 150,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Username"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "orientation",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "portrait",
+                    "landscape"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Orientation"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryVideosOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": [
+              "generation:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "generation:read"
+            ]
+          }
+        ],
+        "summary": "Videos",
+        "tags": [
+          "library"
+        ]
+      }
+    },
+    "/library/videos/{video_id}": {
+      "get": {
+        "description": "这次出片所在那一镜：卡片本身、全部成功出片与名下成片、同一段对话的其他镜。\n\n``video_id`` 可以是这一镜里任何一次出片的 id；不在资料库里的是 ``404``。",
+        "operationId": "video_library_videos__video_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "video_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Video Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryVideoDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": [
+              "generation:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "generation:read"
+            ]
+          }
+        ],
+        "summary": "Video",
+        "tags": [
+          "library"
         ]
       }
     },
