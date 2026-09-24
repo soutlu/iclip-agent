@@ -17,6 +17,12 @@
   max-width: none;
 }
 
+/* 定高、宽随原图比例的缩略图：图片到达前按方块占位，到达后换回原图比例，不从一道竖线撑开。 */
+.task-card-reference-image,
+.task-media-image {
+  aspect-ratio: auto 1 / 1;
+}
+
 .task-card-reference-strip {
   scrollbar-width: none;
 }

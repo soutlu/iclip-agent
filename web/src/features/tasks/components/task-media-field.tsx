@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { errorMessageOf } from '@/shared/api/client'
 import { MEDIA_IMAGE_ACCEPT, MEDIA_VIDEO_ACCEPT, uploadMediaFile } from '@/shared/api/media-upload'
 import { Icon } from '@/shared/icons'
-import { videoSnapshotUrl } from '@/shared/lib/media-url'
+import { imageThumbnailUrl, videoSnapshotUrl } from '@/shared/lib/media-url'
 import { cn } from '@/shared/lib/utils'
 import { useFileDropTarget } from '@/shared/ui/file-drop'
 import { MediaFallback } from '@/shared/ui/media-fallback'
@@ -162,14 +162,15 @@ export function TaskMediaField({
                 onClick={() => setPreview({ kind, name: `${name} ${index + 1}`, url })}
                 type="button"
               >
+                {/* 按 2 倍的 96px 高取缩略图；灯箱仍用原图。超宽图受容器宽度限制时在框内完整显示。 */}
                 <img
                   alt={`${name} ${index + 1}`}
                   className={cn(
-                    'block h-auto w-auto max-w-full',
-                    compact ? 'max-h-20' : 'max-h-24',
+                    'task-media-image block w-auto max-w-full object-contain',
+                    compact ? 'h-20' : 'h-24',
                   )}
                   draggable={false}
-                  src={url}
+                  src={imageThumbnailUrl(url, 'resize,h_192/format,webp')}
                 />
               </button>
             )}

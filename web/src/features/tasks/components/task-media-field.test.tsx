@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -92,6 +92,30 @@ describe('TaskMediaField', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('视频确认失败')
     expect(changes).toEqual([[assetUrl]])
     expect(screen.getByRole('button', { name: '预览参考视频 1' })).toBeVisible()
+  })
+
+  it('OSS 图片在字段里取缩略图，放大预览仍是原图', async () => {
+    const user = userEvent.setup()
+    const imageUrl = 'https://bkt.oss-cn-shenzhen.aliyuncs.com/tasks/model.jpg'
+    await renderWithProviders(
+      <TaskMediaField
+        kind="image"
+        label="模特参考图"
+        onChange={(urls) => changes.push(urls)}
+        value={[imageUrl]}
+      />,
+    )
+
+    expect(screen.getByRole('img', { name: '模特参考图 1' })).toHaveAttribute(
+      'src',
+      `${imageUrl}?x-oss-process=image/resize,h_192/format,webp`,
+    )
+    await user.click(screen.getByRole('button', { name: '预览模特参考图 1' }))
+    const dialog = screen.getByRole('dialog', { name: '模特参考图 1' })
+    expect(within(dialog).getByRole('img', { name: '模特参考图 1' })).toHaveAttribute(
+      'src',
+      imageUrl,
+    )
   })
 
   it('视频可打开真实播放器，媒体移除按钮支持键盘操作', async () => {
