@@ -3,12 +3,13 @@ import { errorMessageOf } from '@/shared/api/client'
 import { hasPermission, PERMISSION, useUser } from '@/shared/auth'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/field'
-import { ListEmpty, ListError, ListPending, LoadMoreFooter } from '@/shared/ui/list-state'
+import { ListEmpty, ListError, LoadMoreFooter } from '@/shared/ui/list-state'
 import type { TaskCreationStarter } from '../task-creation'
 import { canEditTaskField } from '../task-permissions'
 import { useTasksPages, type Task } from '../tasks.api'
 import { RenameTaskDialog } from './rename-task-dialog'
 import { TaskCard } from './task-card'
+import { TaskCardSkeletons } from './task-card-skeletons'
 import { TaskDialog } from './task-dialog'
 import { TaskHero } from './task-hero'
 
@@ -89,7 +90,7 @@ export function TasksRoute({ creation, relatedContent }: TasksRouteProps = {}) {
             </div>
             {/* 翻页失败时 isError 也为真，已读取的卡片照常显示，错误只落在页脚。 */}
             {myTasks.isPending ? (
-              <ListPending label="正在读取我的需求单" />
+              <TaskCardSkeletons count={3} label="正在读取我的需求单" />
             ) : myTasks.isError && !myTasks.isFetchNextPageError ? (
               <ListError
                 message={errorMessageOf(myTasks.error, '读取我的需求单失败')}
@@ -147,7 +148,7 @@ export function TasksRoute({ creation, relatedContent }: TasksRouteProps = {}) {
           <section aria-label="全部需求单" className="flex flex-col gap-4">
             <h2 className="text-title-lg font-semibold text-on-surface">全部需求单</h2>
             {allTasks.isPending ? (
-              <ListPending label="正在读取全部需求单" />
+              <TaskCardSkeletons count={6} label="正在读取全部需求单" />
             ) : allTasks.isError && !allTasks.isFetchNextPageError ? (
               <ListError
                 message={errorMessageOf(allTasks.error, '读取需求单列表失败')}
