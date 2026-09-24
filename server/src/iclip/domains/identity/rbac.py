@@ -22,7 +22,6 @@ PERMISSIONS: tuple[str, ...] = (
     "uploads:write",
     "generation:read",
     "generation:submit",
-    "analytics:read",
     MANAGE_PERMISSION,
     ACT_AS_PERMISSION,
     "api_keys:issue",
@@ -40,7 +39,6 @@ _VIEWER = frozenset(
     }
 )
 _EDITOR = frozenset(PERMISSIONS) - {
-    "analytics:read",
     MANAGE_PERMISSION,
     ACT_AS_PERMISSION,
     "api_keys:issue",

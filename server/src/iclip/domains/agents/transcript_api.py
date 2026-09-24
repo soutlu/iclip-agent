@@ -348,7 +348,7 @@ def create_transcript_router(
     @router.post("/prompts", response_model=Prompt)
     async def submit(
         conversation_id: ConversationId,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
         body: PromptSubmission,
     ) -> Prompt:
         """发一条消息。``prompt_id`` 由客户端铸，重发同一个不会多起一次运行。
@@ -371,7 +371,7 @@ def create_transcript_router(
     @router.get("/prompts", response_model=PromptQueueOut)
     async def queue_view(
         conversation_id: ConversationId,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
     ) -> PromptQueueOut:
         await _readable(principal, conversation_id)
         return await transcripts.queue_view(conversation_id)
@@ -379,7 +379,7 @@ def create_transcript_router(
     @router.get("/status", response_model=RunStatusOut)
     async def run_status(
         conversation_id: ConversationId,
-        principal: Annotated[Principal, Depends(require_permission("agent:read"))],
+        principal: Annotated[Principal, require_permission("agent:read")],
     ) -> RunStatusOut:
         """这段对话跑没跑完、有没有出错。只读，凭 API key 可单独轮询。"""
 
@@ -390,7 +390,7 @@ def create_transcript_router(
     async def abort(
         conversation_id: ConversationId,
         prompt_id: ProtocolId,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
     ) -> None:
         """停掉一条消息。排队的直接撤，在跑的发第一方取消让它自己收尾。"""
 
@@ -401,7 +401,7 @@ def create_transcript_router(
     async def regenerate(
         conversation_id: ConversationId,
         turn_id: ProtocolId,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
         body: RegenerateBody | None = None,
     ) -> Prompt:
         """重新生成最后一轮：把它从历史里抹掉重跑一次，答复是重跑那条的记录。
@@ -421,7 +421,7 @@ def create_transcript_router(
     @outer.post("/conversations/{conversation_id}:abort", status_code=204)
     async def abort_conversation(
         conversation_id: ConversationId,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
     ) -> None:
         """停掉整段对话：排着的全撤，在跑的发第一方取消。
 
@@ -435,7 +435,7 @@ def create_transcript_router(
     @router.post("/prompts:steer", status_code=204)
     async def steer(
         conversation_id: ConversationId,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
         body: SteerRequest,
     ) -> None:
         """把排队中的几条插进正在跑的那一轮，不必等它跑完。"""
@@ -447,7 +447,7 @@ def create_transcript_router(
     async def approve(
         conversation_id: ConversationId,
         interaction_id: ProtocolId,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
         body: ApprovalRequest,
     ) -> None:
         """对一张审批卡点同意或拒绝。
@@ -462,7 +462,7 @@ def create_transcript_router(
     @router.get("/transcript", response_model=TranscriptPage)
     async def page(
         conversation_id: ConversationId,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
         agent_id: AgentId = MAIN_AGENT_ID,
         before_turn: Annotated[str | None, Query()] = None,
         after_turn: Annotated[str | None, Query()] = None,
@@ -498,7 +498,7 @@ def create_transcript_router(
     @router.get("/transcript/ops", response_model=OpsCatchup)
     async def catchup(
         conversation_id: ConversationId,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
         since_seq: Annotated[int, Query(ge=0)],
         agent_id: AgentId = MAIN_AGENT_ID,
     ) -> OpsCatchup:

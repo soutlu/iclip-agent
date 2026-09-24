@@ -1,4 +1,4 @@
-"""审计用例层：鉴权、参数校验、游标往返，以及领域模型上派生比率的口径。不连库。"""
+"""审计用例层：参数校验、游标往返，以及领域模型上派生比率的口径。不连库。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from iclip.common.errors import PermissionDenied, ValidationFailed
+from iclip.common.errors import ValidationFailed
 from iclip.domains.audit.models import (
     AnomalyCursor,
     AnomalyKind,
@@ -33,19 +33,8 @@ from iclip.domains.audit.schemas import (
     UserMetricsOut,
 )
 from iclip.domains.audit.service import AuditService
-from iclip.domains.identity.public import Principal
 
 NOW = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
-
-
-def principal(*permissions: str) -> Principal:
-    return Principal(
-        kind="user", user_id=uuid.uuid4(), permissions=frozenset(permissions), audit_label="tester"
-    )
-
-
-GOVERNOR = principal("users:manage", "agent:read")
-EDITOR = principal("agent:read", "generation:read")
 
 
 def report(conversation_id: uuid.UUID, delivered_at: datetime) -> ConversationAuditOut:
@@ -146,20 +135,12 @@ class RecordingReports:
         return ANOMALY_COUNT_ROWS
 
 
-async def test_only_governors_may_read() -> None:
-    service = AuditService(RecordingReports())
-
-    for call in (service.summary, service.conversations, service.anomalies):
-        with pytest.raises(PermissionDenied):
-            await call(EDITOR)
-
-
 async def test_summary_normalises_the_window_and_only_buckets_on_request() -> None:
     reports = RecordingReports()
     service = AuditService(reports)
 
-    plain = await service.summary(GOVERNOR, since=datetime(2026, 9, 1), until=datetime(2026, 9, 2))
-    bucketed = await service.summary(GOVERNOR, bucket="day", timezone="Asia/Shanghai")
+    plain = await service.summary(since=datetime(2026, 9, 1), until=datetime(2026, 9, 2))
+    bucketed = await service.summary(bucket="day", timezone="Asia/Shanghai")
 
     assert plain.series is None and bucketed.series == []
     assert plain.attempt_distribution == list(ATTEMPT_ROWS)
@@ -179,9 +160,9 @@ async def test_inverted_window_and_unknown_timezone_are_rejected() -> None:
     service = AuditService(RecordingReports())
 
     with pytest.raises(ValidationFailed, match="since"):
-        await service.summary(GOVERNOR, since=NOW, until=NOW)
+        await service.summary(since=NOW, until=NOW)
     with pytest.raises(ValidationFailed, match="timezone"):
-        await service.summary(GOVERNOR, bucket="day", timezone="Mars/Olympus")
+        await service.summary(bucket="day", timezone="Mars/Olympus")
 
 
 async def test_conversation_cursor_round_trips_and_only_appears_on_a_full_page() -> None:
@@ -191,11 +172,11 @@ async def test_conversation_cursor_round_trips_and_only_appears_on_a_full_page()
     )
     service = AuditService(reports)
 
-    full = await service.conversations(GOVERNOR, limit=2)
-    short = await service.conversations(GOVERNOR, limit=4)
+    full = await service.conversations(limit=2)
+    short = await service.conversations(limit=4)
     assert full.next_cursor is not None and short.next_cursor is None
 
-    await service.conversations(GOVERNOR, limit=2, cursor=full.next_cursor)
+    await service.conversations(limit=2, cursor=full.next_cursor)
     _, (_, _, after) = reports.calls[-1]
     assert after == ConversationCursor(
         delivered_at=NOW - timedelta(hours=1), conversation_id=ids[1]
@@ -211,10 +192,10 @@ async def test_anomaly_cursor_keeps_a_ref_with_colons() -> None:
     )
     service = AuditService(reports)
 
-    page = await service.anomalies(GOVERNOR, limit=1, kinds=["retry"])
+    page = await service.anomalies(limit=1, kinds=["retry"])
     assert page.next_cursor is not None
 
-    await service.anomalies(GOVERNOR, limit=1, cursor=page.next_cursor)
+    await service.anomalies(limit=1, cursor=page.next_cursor)
     _, (_, _, kinds, after) = reports.calls[-1]
     assert after == AnomalyCursor(at=NOW, ref=reports.anomaly_rows[0].ref)
     assert kinds is None, "不给 kinds 就是全部，不能把上一页的筛选带过来"
@@ -225,9 +206,9 @@ async def test_malformed_cursors_are_422(cursor: str) -> None:
     service = AuditService(RecordingReports())
 
     with pytest.raises(ValidationFailed, match="cursor"):
-        await service.conversations(GOVERNOR, cursor=cursor)
+        await service.conversations(cursor=cursor)
     with pytest.raises(ValidationFailed, match="cursor"):
-        await service.anomalies(GOVERNOR, cursor=cursor)
+        await service.anomalies(cursor=cursor)
 
 
 @pytest.mark.parametrize("ref", ["fabricated:x", "retry", "retry:"])
@@ -237,16 +218,16 @@ async def test_anomaly_cursor_rejects_a_ref_this_list_never_issued(ref: str) -> 
     service = AuditService(RecordingReports())
 
     with pytest.raises(ValidationFailed, match="cursor"):
-        await service.anomalies(GOVERNOR, cursor=f"{NOW.isoformat()}|{ref}")
+        await service.anomalies(cursor=f"{NOW.isoformat()}|{ref}")
 
 
 async def test_limit_out_of_range_is_422() -> None:
     service = AuditService(RecordingReports())
 
     with pytest.raises(ValidationFailed, match="limit"):
-        await service.conversations(GOVERNOR, limit=0)
+        await service.conversations(limit=0)
     with pytest.raises(ValidationFailed, match="limit"):
-        await service.anomalies(GOVERNOR, limit=101)
+        await service.anomalies(limit=101)
 
 
 def test_metrics_derive_ratios_and_go_blank_on_zero_denominators() -> None:

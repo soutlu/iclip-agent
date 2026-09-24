@@ -31,6 +31,7 @@ from iclip.domains.identity.infra_sql import (
     User,
     get_user_row_by_username,
 )
+from iclip.domains.identity.middleware import SESSION_COOKIE, SESSION_COOKIE_NAME
 
 _MIN_PASSWORD_LENGTH = 8
 
@@ -40,7 +41,6 @@ class CookieAuthSettings:
     """identity 自持的会话认证运行设置；组合根从 RuntimeConfig 映射而来。"""
 
     secret: str
-    cookie_name: str
     lifetime_seconds: int
     cookie_secure: bool
 
@@ -119,12 +119,20 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
 
 def build_cookie_transport(auth: CookieAuthSettings) -> CookieTransport:
-    return CookieTransport(
-        cookie_name=auth.cookie_name,
+    """会话 cookie 的写出与清除。
+
+    fastapi-users 建 logout 路由时读 ``transport.scheme`` 作依赖，换成合同里的 ``SessionCookie``，
+    合同就只有这一个 cookie scheme；它读同一个 cookie、缺失时同样给 ``None``，logout 行为不变。
+    """
+
+    transport = CookieTransport(
+        cookie_name=SESSION_COOKIE_NAME,
         cookie_max_age=auth.lifetime_seconds,
         cookie_secure=auth.cookie_secure,
         cookie_samesite="lax",
     )
+    transport.scheme = SESSION_COOKIE
+    return transport
 
 
 def build_jwt_strategy(auth: CookieAuthSettings) -> JWTStrategy[User, uuid.UUID]:

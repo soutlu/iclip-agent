@@ -1,4 +1,4 @@
-"""审计报表用例：只有治理者能看；把查询参数整理成筛选范围，负责游标与参数校验。"""
+"""审计报表用例：把查询参数整理成筛选范围，负责游标与参数校验。治理者权限由路由声明。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Final, get_args
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from iclip.common.errors import PermissionDenied, ValidationFailed
+from iclip.common.errors import ValidationFailed
 from iclip.domains.audit.models import (
     DEFAULT_THRESHOLDS,
     AnomalyCursor,
@@ -20,7 +20,6 @@ from iclip.domains.audit.models import (
 )
 from iclip.domains.audit.repository import AuditReports
 from iclip.domains.audit.schemas import AnomaliesOut, AuditConversationsOut, SummaryOut
-from iclip.domains.identity.public import MANAGE_PERMISSION, Principal
 from iclip.platform.paging import BAD_CURSOR, check_limit, decode_cursor, encode_cursor
 
 _ANOMALY_KINDS: Final[frozenset[str]] = frozenset(get_args(AnomalyKind))
@@ -80,14 +79,8 @@ class AuditService:
     def __init__(self, reports: AuditReports) -> None:
         self._reports = reports
 
-    @staticmethod
-    def _require_governor(principal: Principal) -> None:
-        if not principal.has(MANAGE_PERMISSION):
-            raise PermissionDenied("只有治理者能看审计报表")
-
     async def summary(
         self,
-        principal: Principal,
         *,
         since: datetime | None = None,
         until: datetime | None = None,
@@ -98,7 +91,6 @@ class AuditService:
     ) -> SummaryOut:
         """全体一格、每人一行、每单一行；给了 ``bucket`` 再按 ``timezone`` 的日 / 周 / 月切一条序列。"""
 
-        self._require_governor(principal)
         scope = _scope(since=since, until=until, user_name=user_name, task_id=task_id)
         series = None
         if bucket is not None:
@@ -117,7 +109,6 @@ class AuditService:
 
     async def conversations(
         self,
-        principal: Principal,
         *,
         since: datetime | None = None,
         until: datetime | None = None,
@@ -128,7 +119,6 @@ class AuditService:
     ) -> AuditConversationsOut:
         """有成片的对话，最后成片晚的排前面。满页才给下一页游标。"""
 
-        self._require_governor(principal)
         check_limit(limit)
         scope = _scope(since=since, until=until, user_name=user_name, task_id=task_id)
         items = await self._reports.conversations(
@@ -142,7 +132,6 @@ class AuditService:
 
     async def anomalies(
         self,
-        principal: Principal,
         *,
         since: datetime | None = None,
         until: datetime | None = None,
@@ -155,7 +144,6 @@ class AuditService:
     ) -> AnomaliesOut:
         """异常按发生时刻倒序。``kinds`` 为空即全部种类。"""
 
-        self._require_governor(principal)
         check_limit(limit)
         scope = _scope(since=since, until=until, user_name=user_name, task_id=task_id)
         items = await self._reports.anomalies(

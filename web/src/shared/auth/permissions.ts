@@ -22,6 +22,6 @@ type PermissionHolder = { permissions: readonly string[] } | null | undefined
 export const hasPermission = (user: PermissionHolder, permission: Permission): boolean =>
   user?.permissions.includes(permission) ?? false
 
-/** 看别人的对话：全部对话与审计的接口同时要 users:manage 与 agent:read（合同 §6、§12）。 */
+/** 看别人的对话：全部对话接口要 users:manage 与 agent:read，审计报表只要 users:manage，这里合起来判；各端点权限见合同 openapi 的 `security`。 */
 export const canAuditAll = (user: PermissionHolder): boolean =>
   hasPermission(user, PERMISSION.usersManage) && hasPermission(user, PERMISSION.agentRead)

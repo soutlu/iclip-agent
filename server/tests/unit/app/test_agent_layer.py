@@ -51,11 +51,13 @@ def model(context_window: int | None = None) -> ModelSection:
     )
 
 
-def config(models: dict[str, ModelSection], *, cookie_name: str = "iclip_session") -> RuntimeConfig:
+def config(
+    models: dict[str, ModelSection], *, session_lifetime_seconds: int = 604800
+) -> RuntimeConfig:
     return RuntimeConfig(
         app=AppSection(name="t"),
         db=DbSection(schema="iclip"),
-        security=SecuritySection(session_cookie_name=cookie_name),
+        security=SecuritySection(session_lifetime_seconds=session_lifetime_seconds),
         sso=SsoSection(app_name="iclip"),
         ops=OpsSection(log_level="WARNING"),
         models=models,
@@ -199,7 +201,7 @@ def test_reload_with_undeclared_model_keeps_the_old_layer(base_env: None, tmp_pa
 def test_reload_refuses_changes_outside_the_hot_sections(base_env: None, tmp_path: Path) -> None:
     layer, source, _ = build(tmp_path)
     before = layer.current
-    source.config = config({"m": model(context_window=1000)}, cookie_name="other_cookie")
+    source.config = config({"m": model(context_window=1000)}, session_lifetime_seconds=3600)
 
     layer.reload()
 
@@ -227,7 +229,7 @@ async def test_healthz_reports_reload_state(base_env: None, tmp_path: Path) -> N
     layer, source, client = build(tmp_path)
     async with client:
         fresh = await client.get("/healthz")
-        source.config = config({"m": model(context_window=1000)}, cookie_name="other_cookie")
+        source.config = config({"m": model(context_window=1000)}, session_lifetime_seconds=3600)
         layer.reload()
         refused = await client.get("/healthz")
 

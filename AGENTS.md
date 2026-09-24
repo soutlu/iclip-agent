@@ -29,7 +29,7 @@
 ## 2. 合同与实现边界
 
 - 领域术语与不变量以 [docs/CONTEXT.md](docs/CONTEXT.md) 为准，两端共用。
-- 对外端点、字段、状态码由后端定义，以 [contract/openapi.json](contract/openapi.json) 为准；它表达不了的约定写在 [contract/conventions.md](contract/conventions.md)。
+- 对外端点、字段、状态码与端点权限由后端定义，以 [contract/openapi.json](contract/openapi.json) 为准，端点权限只在路由上声明、不在文档里手抄；它表达不了的约定写在 [contract/conventions.md](contract/conventions.md)。
 - 修改端点的顺序：后端实现 → `make contract` → 在 `web/` 执行 `pnpm contract:generate`。前端消费生成类型与 zod，不手写端点 schema。
 - 全局视觉与 token 以 [design-system.html](design-system.html) 为准。token 先改规范，再同步运行时 CSS，通过 `pnpm lint:design`；验收截图放 `.artifacts/design-qa/`。
 - 不通过忽略类型错误、关闭 lint 或放宽检查配置消除失败；先修正实现。
