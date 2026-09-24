@@ -749,6 +749,7 @@ export const zScriptOut = z.object({
  */
 export const zShotOut = z.object({
   attempts: z.int(),
+  effective: z.boolean(),
   firstAt: z.iso.datetime(),
   lastAt: z.iso.datetime(),
   oneTake: z.boolean(),
@@ -1121,6 +1122,17 @@ export const zToolFrame = z.object({
 })
 
 /**
+ * TrackingEventIn
+ *
+ * 一条事件。主语按事件名规定：``video.downloaded`` 必带 ``jobId``、不带 ``conversationId``。
+ */
+export const zTrackingEventIn = z.object({
+  conversationId: z.uuid().nullish(),
+  jobId: z.uuid().nullish(),
+  name: z.literal('video.downloaded'),
+})
+
+/**
  * TranscriptMeta
  */
 export const zTranscriptMeta = z.object({
@@ -1259,8 +1271,11 @@ export const zMetricsOut = z.object({
   cycleSeconds: zSpreadOut.nullable(),
   deliveredConversations: z.int(),
   deliveredOrphanConversations: z.int(),
+  deliveredShots: z.int(),
   deliveredTasks: z.int(),
   deliveries: z.int().readonly(),
+  effectiveRate: z.number().nullable(),
+  effectiveShots: z.int(),
   oneTakeRate: z.number().nullable(),
   oneTakeShots: z.int(),
   producers: z.int(),
@@ -2424,6 +2439,13 @@ export const zWithdrawTaskTasksTaskIdWithdrawPostPath = z.object({
  * Successful Response
  */
 export const zWithdrawTaskTasksTaskIdWithdrawPostResponse = zTaskEnvelope
+
+export const zRecordEventTrackingEventsPostBody = zTrackingEventIn
+
+/**
+ * Successful Response
+ */
+export const zRecordEventTrackingEventsPostResponse = z.void()
 
 export const zSignUploadUploadsSignPostBody = zUploadSignIn
 
