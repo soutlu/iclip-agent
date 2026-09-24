@@ -76,7 +76,7 @@ HTTP 与 WebSocket 由 `PrincipalMiddleware` 统一解析身份。中间件只�
 | 审计报表（跨 `iclip` 与 `agent_runtime` 六张表的只读聚合） | `domains/audit/reports_pg.py`；不建表、不写入，列或状态词被改动时由它的集成测试先红 |
 | 资料库（跨生成记录、对话、用户三张表的只读聚合） | `domains/library/reports_pg.py`；同上，每次请求现算按镜分组与卡面，数据到十万级再换成随出片完成更新的读表 |
 
-对话分叉横跨上表前四行：对话领域服务的分叉用例按顺序调三个端口写工作区与素材、出片记录、种子快照，最后自己落对话行；端口由 [app/conversation_fork.py](../server/src/iclip/app/conversation_fork.py) 接到文件存储、生成域与 agent 引擎上，只回报事实，冲突与否由用例判。四个存储各开各的事务，没有统一回滚，靠这个顺序保证中途失败只留下寻址不到的孤儿数据。
+对话分叉横跨上表前四行：对话领域服务的分叉用例按顺序调两个端口写工作区与素材、种子快照，最后自己落对话行；端口由 [app/conversation_fork.py](../server/src/iclip/app/conversation_fork.py) 接到文件存储与 agent 引擎上，只回报事实，冲突与否由用例判。四处写入各开各的事务，没有统一回滚，靠这个顺序保证中途失败只留下寻址不到的孤儿数据。出片记录不拷，副本按血缘继承：生成域按对话读记录时经同一文件里的适配器问对话域要祖先与边界、主体读不读得到这段对话，递归查询只在对话的 Postgres 仓储上，不进对话仓储协议。
 
 表结构只经 [Alembic 迁移](../server/migrations/versions/) 演进，命令见 [AGENTS.md](../AGENTS.md)。新增表与迁移的对账范围、人工核对要求见 [测试规范](test-design.md#3-postgres-测试环境)。
 

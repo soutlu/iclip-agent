@@ -68,15 +68,15 @@ class Seed:
 
     c1 镜 1：A（结构化 shot）、B（只有拼好的正文），A 名下有成片 M，M 比 B 晚，卡面是 M；
     c1 镜 2：C 失败、D 成了；c2：E 成了，另有它的参考片段与编辑结果；c3 已删：F；
-    c4 分叉自 c1：A 与 M 的拷贝（同地址）加分叉后新出的 G；H：钥匙直提的纯文本横版。
+    c4 分叉自 c1：在 c4 里剪继承来的 A 得到成片 N（比 M 晚），加分叉后新出的 G；
+    H：钥匙直提的纯文本横版。
     """
 
     def __init__(self) -> None:
         self.nina, self.leo = uuid.uuid4(), uuid.uuid4()
         self.c1, self.c2, self.c3, self.c4 = (uuid.uuid4() for _ in range(4))
         self.a, self.b, self.c, self.d, self.e = (uuid.uuid4() for _ in range(5))
-        self.f, self.g, self.h, self.m = (uuid.uuid4() for _ in range(4))
-        self.a_copy, self.m_copy = uuid.uuid4(), uuid.uuid4()
+        self.f, self.g, self.h, self.m, self.n = (uuid.uuid4() for _ in range(5))
 
     async def plant(self, engine: AsyncEngine) -> None:
         async with engine.begin() as conn:
@@ -198,26 +198,15 @@ class Seed:
                 url_name="f",
             )
 
-            await self._video(
-                conn,
-                self.a_copy,
-                self.c4,
-                owner=self.leo,
-                user_name=NINA,
-                shot=1,
-                created_at=at(0),
-                url_name="a",
-                request={"shot": SHOT_ONE, "prompt": SHOT_ONE_PROMPT},
-            )
             await self._clip(
                 conn,
-                self.m_copy,
+                self.n,
                 self.c4,
-                root=self.a_copy,
+                root=self.a,
                 purpose=MASTER,
-                created_at=at(90),
-                url_name="m",
-                duration_ms=7040,
+                created_at=at(100),
+                url_name="n",
+                duration_ms=6500,
             )
             await self._video(
                 conn,
@@ -377,13 +366,13 @@ def reports(engine: AsyncEngine) -> PgLibraryReports:
     return PgLibraryReports(engine)
 
 
-async def test_one_card_per_shot_with_failures_derivatives_deletions_and_fork_copies_left_out(
+async def test_one_card_per_shot_with_failures_derivatives_and_deletions_left_out(
     reports: PgLibraryReports, seed: Seed
 ) -> None:
     rows = await reports.videos(Scope(), limit=20, after=None)
 
     cards = [(row.video.id, row.video.take_count, row.video.face.kind) for row in rows]
-    # 卡面时刻倒序：G 120、M 90（c1 镜 1，卡面那次出片是 A）、E 40、D 30、H 10
+    # 卡面时刻倒序：G 120、N 100（c1 镜 1，卡面那次出片是 A）、E 40、D 30、H 10
     assert cards == [
         (seed.g, 1, "take"),
         (seed.a, 2, "master"),
@@ -397,13 +386,16 @@ async def test_one_card_per_shot_with_failures_derivatives_deletions_and_fork_co
 async def test_the_master_is_the_face_and_the_take_keeps_its_own_script(
     reports: PgLibraryReports, seed: Seed
 ) -> None:
+    """成片按原作号挂到那次出片上：在分叉副本里剪的 N 也是 A 的一版，比 M 晚，成了卡面。"""
+
     row = await reports.card_of(seed.b)
 
     assert row is not None
     video = row.video
     assert video.id == seed.a and video.shot_index == 1
-    assert video.face.output_url == url("m") and video.face.watermark_output_url is None
-    assert video.face.duration_ms == 7040 and video.face.created_at == at(90)
+    assert video.face.job_id == seed.n and video.face.output_url == url("n")
+    assert video.face.watermark_output_url is None
+    assert video.face.duration_ms == 6500 and video.face.created_at == at(100)
     assert video.title == "春夏凉鞋合集" and video.agent_id == "storyboard"
     assert row.conversation_owner == seed.nina and video.conversation_id == seed.c1
     assert video.take.script is not None
@@ -411,7 +403,7 @@ async def test_the_master_is_the_face_and_the_take_keeps_its_own_script(
         "空地面停一拍。",
         "踩入 @Image1 夹趾凉鞋。",
     ]
-    assert [master.output_url for master in video.take.masters] == [url("m")]
+    assert [master.output_url for master in video.take.masters] == [url("m"), url("n")]
 
 
 async def test_takes_of_a_shot_come_oldest_first_with_parsed_and_plain_scripts(
@@ -445,7 +437,7 @@ async def test_siblings_are_the_other_shots_of_the_same_conversation(
 async def test_things_outside_the_library_have_no_card(
     reports: PgLibraryReports, seed: Seed
 ) -> None:
-    for outside in (seed.c, seed.f, seed.a_copy, uuid.uuid4()):
+    for outside in (seed.c, seed.f, seed.n, uuid.uuid4()):
         assert await reports.card_of(outside) is None
         assert await reports.takes_of(outside) == []
 
@@ -459,8 +451,8 @@ async def test_filters_by_person_orientation_window_and_keyword(
     assert await ids(Scope(user_name=LEO)) == [seed.g, seed.e]
     assert await ids(Scope(orientation="landscape")) == [seed.h]
     assert seed.h not in await ids(Scope(orientation="portrait"))
-    # 时间窗作用在卡面时刻上：c1 镜 1 的卡面是 90 分钟时的成片
-    assert await ids(Scope(since=at(85), until=at(100))) == [seed.a]
+    # 时间窗作用在卡面时刻上：c1 镜 1 的卡面是 100 分钟时的成片
+    assert await ids(Scope(since=at(95), until=at(110))) == [seed.a]
     assert await ids(Scope(q="凉鞋合集")) == [seed.g, seed.a, seed.d]
     assert await ids(Scope(q="100%")) == [seed.e]
     assert await ids(Scope(q="100_")) == []

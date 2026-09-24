@@ -343,8 +343,8 @@ export const zConversationFilesOut = z.object({
  *
  * 从源对话的第 ``turn`` 轮分叉出一段新对话，归调用者所有。
  *
- * 对话 id 由服务端铸：分叉先把工作区、素材与出片记录拷进新命名空间，最后才落对话行，
- * 没有可供幂等重放的位置。
+ * 对话 id 由服务端铸：分叉先把工作区与素材拷进新命名空间，最后才落对话行，没有可供幂等
+ * 重放的位置。出片记录不拷，副本按血缘继承。
  */
 export const zConversationForkIn = z.object({
   agentId: z.string().min(1).max(128).nullish(),

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Final
 
 from sqlalchemy import (
@@ -22,6 +23,7 @@ from sqlalchemy import (
     and_,
     false,
     func,
+    literal,
     or_,
     select,
     update,
@@ -265,6 +267,33 @@ class SqlConversationRepository:
         if row is None:
             raise NotFound("没有这段对话")
         return _row(row)
+
+    async def ancestry(self, conversation_id: uuid.UUID) -> tuple[tuple[uuid.UUID, datetime], ...]:
+        """沿 ``forked_from`` 往上的每个祖先，配上这条链上它的下一级对话的建立时刻，近的在前；
+        不是分叉来的给空。
+
+        不看删除标记：源对话删成墓碑，副本从它那里继承的出片照旧在。只有组合根接生成域时用，
+        不在仓储协议上。"""
+
+        start = (
+            select(
+                _ROWS.forked_from.label("ancestor"),
+                _ROWS.created_at.label("boundary"),
+                literal(1).label("depth"),
+            )
+            .where(_ROWS.id == conversation_id, _ROWS.forked_from.is_not(None))
+            .cte("lineage", recursive=True)
+        )
+        parent = conversations_table.alias("parent")
+        lineage = start.union_all(
+            select(parent.c.forked_from, parent.c.created_at, start.c.depth + 1).where(
+                parent.c.id == start.c.ancestor, parent.c.forked_from.is_not(None)
+            )
+        )
+        statement = select(lineage.c.ancestor, lineage.c.boundary).order_by(lineage.c.depth)
+        async with self._engine.connect() as conn:
+            rows = (await conn.execute(statement)).all()
+        return tuple((ancestor, boundary) for ancestor, boundary in rows)
 
     async def list_for_owner(
         self, *, owner: uuid.UUID, limit: int, title_contains: str | None = None

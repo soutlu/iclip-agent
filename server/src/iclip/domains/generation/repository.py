@@ -12,6 +12,7 @@ from iclip.domains.generation.models import (
     GenerationKind,
     GenerationStatus,
     InFlightPhase,
+    Inheritance,
 )
 
 
@@ -22,8 +23,12 @@ class GenerationRepository(Protocol):
         """插入一行新 job。"""
         ...
 
-    async def get(self, job_id: uuid.UUID, *, owner: uuid.UUID | None) -> GenerationJob:
-        """读取可见任务；owner=None 取消属主过滤，不可见时抛 NotFound。"""
+    async def get(
+        self, job_id: uuid.UUID, *, owner: uuid.UUID | None, inherited: Inheritance = ()
+    ) -> GenerationJob:
+        """读取可见任务；owner=None 取消属主过滤，不可见时抛 NotFound。
+
+        ``inherited`` 给了，经这组边界对继承来的记录不看属主也读得到（规则见 ``Inheritance``）。"""
         ...
 
     async def list_for_owner(
@@ -37,30 +42,14 @@ class GenerationRepository(Protocol):
         task_id: uuid.UUID | None = None,
         root_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
+        inherited: Inheritance = (),
     ) -> tuple[GenerationJob, ...]:
         """按创建时间倒序列出；``conversation_id`` / ``task_id`` 给了就只要那段对话、那张需求单下面的，
         ``root_job_id`` 给了就只要那条出片名下的衍生记录，``metadata`` 给了就只要坐标包含这些键值的
-        （JSONB ``@>``）。"""
-        ...
+        （JSONB ``@>``）。
 
-    async def copy_completed_to_fork(
-        self,
-        *,
-        source_conversation_id: uuid.UUID,
-        target_conversation_id: uuid.UUID,
-        owner: uuid.UUID,
-        task_id: uuid.UUID | None,
-    ) -> int:
-        """把源对话已完成的记录复制到副本名下，返回复制了几条。
-
-        只取 ``completed``：只有它带输出地址，其余状态拷过去是死行。独立记录与它们名下的
-        编辑结果、成片都拷，衍生记录的 ``root_job_id`` 换成新根的 id，副本里的版本树因此完整；
-        只有参考片段不拷——它是切给模型看的中间素材，桶上配了过期规则，成片一出就没用。
-        新行换新 id 与新对话，属主记复制的人（结果条按属主可见性查），``api_key_id`` 清空
-        （这次不是钥匙发起的）。``request``（含 ``user_name``）、``metadata`` 与四个时间戳原样
-        保留：坐标是结果条的定位键，时间戳决定同一坐标下哪条算最新，改了就把副本后来自己出的
-        片压下去。
-        """
+        ``inherited`` 是 ``conversation_id`` 那段对话的继承边界对：按属主收敛的那段对话自己的记录
+        之外，再并上经它继承来的记录（不看属主）；其余筛选与 ``before`` 锚点对两者一视同仁。"""
         ...
 
     async def mark_submitting(self, job_id: uuid.UUID) -> GenerationJob:

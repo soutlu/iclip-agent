@@ -31,7 +31,7 @@ class LibraryReports(Protocol):
         ...
 
     async def card_of(self, video_id: uuid.UUID) -> CardRow | None:
-        """这次出片所在的那张卡；它不在资料库里（没成、已删对话、分叉拷贝等）就是 ``None``。"""
+        """这次出片所在的那张卡；它不在资料库里（没成、衍生记录、已删对话等）就是 ``None``。"""
         ...
 
     async def takes_of(self, video_id: uuid.UUID) -> Sequence[TakeOut]:

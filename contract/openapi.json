@@ -1312,7 +1312,7 @@
       },
       "ConversationForkIn": {
         "additionalProperties": false,
-        "description": "从源对话的第 ``turn`` 轮分叉出一段新对话，归调用者所有。\n\n对话 id 由服务端铸：分叉先把工作区、素材与出片记录拷进新命名空间，最后才落对话行，\n没有可供幂等重放的位置。",
+        "description": "从源对话的第 ``turn`` 轮分叉出一段新对话，归调用者所有。\n\n对话 id 由服务端铸：分叉先把工作区与素材拷进新命名空间，最后才落对话行，没有可供幂等\n重放的位置。出片记录不拷，副本按血缘继承。",
         "properties": {
           "agentId": {
             "anyOf": [
@@ -9890,7 +9890,7 @@
     },
     "/generations": {
       "get": {
-        "description": "给了 ``conversationId`` / ``taskId`` / ``rootJobId`` 就只列那段对话、那张需求单、那条出片\n名下的记录，可见性口径不变。\n\n``metadata`` 在查询串里是一段 JSON 对象，按包含匹配筛（分镜页拿它按镜头组、按帧查）。",
+        "description": "给了 ``conversationId`` / ``taskId`` / ``rootJobId`` 就只列那段对话、那张需求单、那条出片\n名下的记录。按对话列时含这段对话经分叉继承的记录（调用方读得到这段对话才算），其余\n可见性口径不变。\n\n``metadata`` 在查询串里是一段 JSON 对象，按包含匹配筛（分镜页拿它按镜头组、按帧查）。",
         "operationId": "list_generations_generations_get",
         "parameters": [
           {

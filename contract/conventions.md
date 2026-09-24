@@ -199,7 +199,8 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - 体是 `{ turn, title?, agentId?, collectionId? }`。`turn` 从 1 数，这一轮含在副本里；`agentId` 不给就沿用源的，给了就换一个用于对照试跑；`title` 不给就是源标题加「（分叉 · 第 N 轮）」，并按用户自定义记，自动起名不再碰它。
 - 源看不见是 `404`，`turn` 越界或源从没跑过是 `422`，源还有没跑完的消息（在跑、等审批或排队）是 `409`。
 - 答复形状同 `POST /conversations`，行上多两个字段：`forkedFrom`（源对话 id）与 `forkTurn`（分叉自第几轮），不是分叉来的对话两个都是 `null`。副本再分叉时 `forkedFrom` 指它的直接上游。会话页首屏另从 `GET /transcript` 的顶层拿 `forked_from` 与 `fork_turn`（照 §5 的协议命名，与 `owner_user_id`、`deleted_at` 同一处）。
-- **拷过去的**：截到第 `turn` 轮的对话历史、工作区文件（版本从 1 起）、素材台账、已完成的出片连同它们名下已完成的编辑结果与成片（`rootJobId` 换成副本里新根的 id，见 §11「原作号」；便签里的 `baseEdit` 是 `editId` 不是记录 id，拷贝后照旧有效）。**不拷的**：运行记录（副本拿原 run id 回源查终态与子代理）、参考片段（切给模型看的中间素材，桶上配了过期规则）、未完成的记录（分叉那一刻进行中的编辑不继承）、源的需求单归属（挂上就等于替别人认领）。
+- **拷过去的**：截到第 `turn` 轮的对话历史、工作区文件（版本从 1 起）、素材台账。**不拷的**：运行记录（副本拿原 run id 回源查终态与子代理）、源的需求单归属（挂上就等于替别人认领）。
+- **出片记录不拷，副本继承**（哪些算继承见 [CONTEXT.md「继承」](../docs/CONTEXT.md#术语)）：读得到副本的调用者 `GET /generations?conversationId=副本` 时连同继承的一起列出，`before` 翻页照常；读不到副本就只按属主列，不另报 `404`。继承来的记录可以下载、可以当原作去剪（`rootJobId` 指祖先对话里那条，见 §11「原作号」），剪出来的记录记在副本名下。`GET /generations/{id}` 与 `GET /generations/video/{task_id}` 仍只按属主。
 - 继承来的轮 `:regenerate` 返回 `404`；副本上发过一条新消息之后，那一轮照常可重新生成。源对话里跨多次运行的一轮（审批后恢复、续跑）在副本里会拆成多轮显示。
 - 媒体字节不复制：两边的地址指向同一批对象，编辑只会按新任务 id 产出新地址，不覆盖也不删除。
 - 副本不进审计报表（见 §12）。
@@ -355,8 +356,8 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 ### 原作号
 
 - 每条生成记录带 `rootJobId`（视频端点的请求体里是 `root_job_id`）：空＝独立记录，非空＝所属独立记录的 id，术语见 [CONTEXT.md「生成任务」](../docs/CONTEXT.md#术语)。
-- 受理时核对：原作号指向的记录必须是调用方可见的、同一段对话里的独立记录；不存在、不可见、别的对话、本身是衍生记录，都是同一句 `422`，不创建任务、不入队。
-- 衍生记录不计审计口径（§12）；分叉时跟着根一起拷进副本，`rootJobId` 换成新根（§6）。`GET /generations?rootJobId=` 一次列出一条出片名下的全部衍生记录。
+- 受理时核对：原作号指向的记录必须是这段对话里调用方可见的、或这段对话继承的独立记录（继承的只在调用方读得到这段对话时才算，§6）；不存在、不可见、别的对话、本身是衍生记录，都是同一句 `422`，不创建任务、不入队。
+- 衍生记录不计审计口径（§12）。`GET /generations?rootJobId=` 一次列出一条出片名下的全部衍生记录；同时给 `conversationId` 时范围同那段对话的列表，分叉副本里连同继承的一起（§6）。
 
 ### 图片
 
@@ -369,7 +370,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 - 图片请求的 `prompt` 由调用方编译成最终文本，服务端原样存进请求快照，不解析也不改写。前端把引用写成 `@图片N` / `@标注N`，编号即图片在本次 `referenceImageUrls` 里的位置。
 - `metadata` 是调用方自己的坐标标签：JSON 对象，三种生成都收，服务端原样存、原样回读（`GenerationOut.metadata`）、不校验含义，序列化后不超过 2000 字符，超了 `422`。它不进 `request`，也不发上游。服务端只认其中 `shot` 一个键（审计按它数镜，见 §12），其余键不读。这个形状归前端定义（`web/src/features/storyboard/generation-metadata.ts`）。视频请求另收 `shot_index`（正整数，从 1 起，与分镜文件的 `shots[].index` 同一套编号）：它是 `metadata.shot` 的别名，受理时折进 `metadata`，不落 `request`、不发上游；不写 `metadata` 的调用方给它就够了。
-- `GET /generations` 的类型、对话、需求单、原作号（`rootJobId`）与 `metadata` 筛选在分页截断前执行，归属范围不因筛选扩大。`metadata` 在查询串里是一段 JSON 对象（如 `metadata={"shot":1,"frame":2}`），按 JSONB 包含匹配；不是 JSON 对象返回 `422`。使用上一页最后一项的 `id` 作为 `before` 继续读取；按创建时间与 ID 倒序，空列表表示读完。每条记录带 `taskId` 与 `watermarkOutputUrl`，图片的后者恒为 `null`。
+- `GET /generations` 的类型、对话、需求单、原作号（`rootJobId`）与 `metadata` 筛选在分页截断前执行，归属范围不因筛选扩大，唯一的例外是按对话列分叉副本时连同它继承的记录（§6）。`metadata` 在查询串里是一段 JSON 对象（如 `metadata={"shot":1,"frame":2}`），按 JSONB 包含匹配；不是 JSON 对象返回 `422`。使用上一页最后一项的 `id` 作为 `before` 继续读取；按创建时间与 ID 倒序，空列表表示读完。每条记录带 `taskId` 与 `watermarkOutputUrl`，图片的后者恒为 `null`。
 - 生成完成只产生候选图片。应用到参考帧须由用户确认，再经现有工作区文件版本校验保存；既有视频任务和视频结果不随候选生成或采用而改写。
 
 ## 12. 审计报表 (Audit)
@@ -391,5 +392,5 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - `GET /library/videos` 按卡面时刻（`face.createdAt`）倒序，翻页 `limit` 与 `cursor`，规则同 §6。筛选：`userName`（归属的人）、`since` / `until`（左闭右开，作用在卡面时刻上）、`orientation`（`portrait` / `landscape`，按请求里的 `aspectRatio` 判，认不出比例的两边都不算）、`q`（按字面包含匹配卡面那次出片的正文与对话标题，不区分大小写；首尾空白去掉后为空即不筛）。`total` 是当前筛选下的卡数，只在第一页（不带 `cursor`）给，翻页时为 `null`。
 - 卡上 `id` 是卡面那次出片的 id，`face` 是卡面放的那条（`kind` 为 `take` 或 `master`；成片没有水印版，`watermarkOutputUrl` 为 `null`，`durationMs` 是量出来的时长），`take` 是卡面那次出片的参数、脚本与名下成片，`takeCount` 是这一镜成功出过几次。
 - `take.prompt` 是发给模型的原文；`take.script` 是镜头组（`globalSettings` 加 `timeline[]`，每镜 `start`、`end`、`prompt`、`imageIndexes`），为 `null` 表示纯文本。`imageIndexes` 指向 `referenceImageUrls` 的第 N 张。画面尺寸不在数据里，占位比例按 `aspectRatio`。
-- `GET /library/videos/{id}` 返回这一镜：`video`（卡本身）、`takes[]`（全部成功出片，早的在前，各带名下成片）、`siblings[]`（同一段对话的其他镜，镜号小的在前）。`id` 可以是这一镜里任何一次出片；不在资料库里的（没成、衍生记录、已删对话、分叉拷贝、不存在）一律 `404`。
+- `GET /library/videos/{id}` 返回这一镜：`video`（卡本身）、`takes[]`（全部成功出片，早的在前，各带名下成片）、`siblings[]`（同一段对话的其他镜，镜号小的在前）。`id` 可以是这一镜里任何一次出片；不在资料库里的（没成、衍生记录、已删对话、不存在）一律 `404`。
 - `GET /library/authors` 列名下有卡的人与卡数（`userName`、`count`），多的在前、同数按名字，不受筛选影响。

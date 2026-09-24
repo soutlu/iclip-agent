@@ -152,7 +152,6 @@ def build(
         busy_conversation_ids=busy,
         fork_transcript=cast("ForkTranscript", object()),
         copy_workspace=_untouched,
-        copy_generations=_untouched,
     )
 
 
