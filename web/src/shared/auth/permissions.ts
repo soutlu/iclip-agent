@@ -1,4 +1,6 @@
-/** 权限词表：后端 `user.permissions` 里的字符串只在这里写一次，判定也只走这里的函数。 */
+/** 前端用到的权限：取值受合同 `Permission` 约束，判定只走这里的函数。 */
+
+import type { Permission as ContractPermission } from '@/shared/api/generated/types.gen'
 
 export const PERMISSION = {
   agentRead: 'agent:read',
@@ -12,7 +14,7 @@ export const PERMISSION = {
   tasksWrite: 'tasks:write',
   uploadsWrite: 'uploads:write',
   usersManage: 'users:manage',
-} as const
+} as const satisfies Record<string, ContractPermission>
 
 export type Permission = (typeof PERMISSION)[keyof typeof PERMISSION]
 
