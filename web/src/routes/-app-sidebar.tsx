@@ -29,6 +29,7 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
   const canRead = hasPermission(user, PERMISSION.agentRead)
   const canStart = hasPermission(user, PERMISSION.agentRun)
   const canReadTasks = hasPermission(user, PERMISSION.tasksRead)
+  const canReadLibrary = hasPermission(user, PERMISSION.generationRead)
   const canGovern = canAuditAll(user)
   // 全局帧订阅挂在侧栏顶层：折叠时对话区不渲染，全部对话页与会话页仍要靠它刷新列表缓存。
   useLiveConversations(canRead)
@@ -157,7 +158,14 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
             />
           </>
         ) : null}
-        <SidebarAction icon="library" label="资料库" onClick={user ? undefined : requireLogin} />
+        <SidebarAction
+          active={pathname === '/library'}
+          icon="library"
+          label="资料库"
+          disabled={session.isPending || Boolean(user && !canReadLibrary)}
+          onClick={user ? () => navigate({ to: '/library' }) : requireLogin}
+          title={user && !canReadLibrary ? '当前账号没有查看出片记录权限' : undefined}
+        />
       </nav>
 
       {/* 未登录时保留弹性空间，使账户区保持底部对齐。 */}

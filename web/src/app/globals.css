@@ -354,6 +354,7 @@
 @import '../shared/ui/status-badge/status-badge.css';
 @import '../features/auth/auth.css';
 @import '../features/tasks/tasks.css';
+@import '../features/library/library.css';
 @import '../features/conversations/conversations.css';
 @import '../features/storyboard/storyboard.css';
 @import '../features/storyboard/video-editor/video-editor.css';
