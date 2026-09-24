@@ -13,6 +13,7 @@ import { Route as ShellRouteImport } from './routes/_shell'
 import { Route as ShellIndexRouteImport } from './routes/_shell/index'
 import { Route as ShellAuditRouteImport } from './routes/_shell/audit'
 import { Route as ShellConversationsRouteImport } from './routes/_shell/conversations'
+import { Route as ShellLibraryRouteImport } from './routes/_shell/library'
 import { Route as ShellTasksRouteImport } from './routes/_shell/tasks'
 import { Route as ShellCConversationIdRouteImport } from './routes/_shell/c.$conversationId'
 import { Route as AuthSsoLandingRouteImport } from './routes/auth.sso.landing'
@@ -36,6 +37,11 @@ const ShellConversationsRoute = ShellConversationsRouteImport.update({
   path: '/conversations',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellLibraryRoute = ShellLibraryRouteImport.update({
+  id: '/library',
+  path: '/library',
+  getParentRoute: () => ShellRoute,
+} as any)
 const ShellTasksRoute = ShellTasksRouteImport.update({
   id: '/tasks',
   path: '/tasks',
@@ -56,6 +62,7 @@ export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
   '/audit': typeof ShellAuditRoute
   '/conversations': typeof ShellConversationsRoute
+  '/library': typeof ShellLibraryRoute
   '/tasks': typeof ShellTasksRoute
   '/c/$conversationId': typeof ShellCConversationIdRoute
   '/auth/sso/landing': typeof AuthSsoLandingRoute
@@ -63,6 +70,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/audit': typeof ShellAuditRoute
   '/conversations': typeof ShellConversationsRoute
+  '/library': typeof ShellLibraryRoute
   '/tasks': typeof ShellTasksRoute
   '/': typeof ShellIndexRoute
   '/c/$conversationId': typeof ShellCConversationIdRoute
@@ -73,6 +81,7 @@ export interface FileRoutesById {
   '/_shell': typeof ShellRouteWithChildren
   '/_shell/audit': typeof ShellAuditRoute
   '/_shell/conversations': typeof ShellConversationsRoute
+  '/_shell/library': typeof ShellLibraryRoute
   '/_shell/tasks': typeof ShellTasksRoute
   '/_shell/': typeof ShellIndexRoute
   '/_shell/c/$conversationId': typeof ShellCConversationIdRoute
@@ -84,6 +93,7 @@ export interface FileRouteTypes {
     | '/'
     | '/audit'
     | '/conversations'
+    | '/library'
     | '/tasks'
     | '/c/$conversationId'
     | '/auth/sso/landing'
@@ -91,6 +101,7 @@ export interface FileRouteTypes {
   to:
     | '/audit'
     | '/conversations'
+    | '/library'
     | '/tasks'
     | '/'
     | '/c/$conversationId'
@@ -100,6 +111,7 @@ export interface FileRouteTypes {
     | '/_shell'
     | '/_shell/audit'
     | '/_shell/conversations'
+    | '/_shell/library'
     | '/_shell/tasks'
     | '/_shell/'
     | '/_shell/c/$conversationId'
@@ -141,6 +153,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellConversationsRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/library': {
+      id: '/_shell/library'
+      path: '/library'
+      fullPath: '/library'
+      preLoaderRoute: typeof ShellLibraryRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/tasks': {
       id: '/_shell/tasks'
       path: '/tasks'
@@ -168,6 +187,7 @@ declare module '@tanstack/react-router' {
 interface ShellRouteChildren {
   ShellAuditRoute: typeof ShellAuditRoute
   ShellConversationsRoute: typeof ShellConversationsRoute
+  ShellLibraryRoute: typeof ShellLibraryRoute
   ShellTasksRoute: typeof ShellTasksRoute
   ShellIndexRoute: typeof ShellIndexRoute
   ShellCConversationIdRoute: typeof ShellCConversationIdRoute
@@ -176,6 +196,7 @@ interface ShellRouteChildren {
 const ShellRouteChildren: ShellRouteChildren = {
   ShellAuditRoute: ShellAuditRoute,
   ShellConversationsRoute: ShellConversationsRoute,
+  ShellLibraryRoute: ShellLibraryRoute,
   ShellTasksRoute: ShellTasksRoute,
   ShellIndexRoute: ShellIndexRoute,
   ShellCConversationIdRoute: ShellCConversationIdRoute,

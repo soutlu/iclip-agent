@@ -9,6 +9,7 @@ import {
 } from '@/shared/api/generated/zod.gen'
 import { PERMISSION } from '@/shared/auth/permissions'
 import { auditHandlers } from './audit'
+import { libraryHandlers } from './library'
 import { mockAuthUser, mockGovernor } from './auth-user'
 import {
   addMockCollection,
@@ -501,4 +502,6 @@ export const handlers = [
   ...transcriptHandlers,
 
   ...auditHandlers,
+
+  ...libraryHandlers,
 ]

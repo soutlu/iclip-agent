@@ -151,12 +151,25 @@ describe('AppSidebar', () => {
     expect(screen.getByRole('button', { name: '搜索' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '新建任务' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '需求单' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '资料库' })).toBeDisabled()
     expect(screen.getByText('当前账号没有查看对话权限')).toBeVisible()
     await user.keyboard('{Control>}k{/Control}')
     await user.keyboard('{Control>}{Alt>}n{/Alt}{/Control}')
 
     expect(screen.queryByRole('dialog', { name: '搜索对话' })).not.toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/tasks')
+  })
+
+  it('能看出片记录的账号点资料库去 /library', async () => {
+    loginAs(mockAuthUser)
+    const user = userEvent.setup()
+    const { router } = await renderSidebar()
+    await user.click(screen.getByRole('button', { name: '展开侧边栏' }))
+    await screen.findByRole('button', { name: '用户菜单' })
+
+    await user.click(screen.getByRole('button', { name: '资料库' }))
+
+    expect(router.state.location.pathname).toBe('/library')
   })
 
   it('只有带 users:manage 的账号看得到「全部对话」「审计」入口，分别去 /conversations 与 /audit', async () => {
