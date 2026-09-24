@@ -85,15 +85,6 @@ export const zAnomaliesOut = z.object({
 })
 
 /**
- * ApiKeyCreateIn
- */
-export const zApiKeyCreateIn = z.object({
-  expiresAt: z.iso.datetime().nullish(),
-  name: z.string(),
-  permissions: z.array(z.string()),
-})
-
-/**
  * ApiKeyCreatedOut
  */
 export const zApiKeyCreatedOut = z.object({
@@ -652,6 +643,31 @@ export const zNoticeFrame = z.object({
   level: z.enum(['error', 'warning', 'info']),
   message: z.string(),
   source: z.string().nullish(),
+})
+
+export const zPermission = z.enum([
+  'collections:read',
+  'collections:write',
+  'tasks:read',
+  'tasks:write',
+  'inspirations:read',
+  'uploads:write',
+  'generation:read',
+  'generation:submit',
+  'users:manage',
+  'users:act_as',
+  'api_keys:issue',
+  'agent:read',
+  'agent:run',
+])
+
+/**
+ * ApiKeyCreateIn
+ */
+export const zApiKeyCreateIn = z.object({
+  expiresAt: z.iso.datetime().nullish(),
+  name: z.string(),
+  permissions: z.array(zPermission),
 })
 
 /**
@@ -1251,7 +1267,7 @@ export const zUserEnvelope = z.object({
  * UserPatchIn
  */
 export const zUserPatchIn = z.object({
-  directPermissions: z.array(z.string()).nullish(),
+  directPermissions: z.array(zPermission).nullish(),
   isActive: z.boolean().nullish(),
   roles: z.array(z.string()).nullish(),
 })

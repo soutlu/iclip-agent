@@ -347,7 +347,7 @@
           },
           "permissions": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/Permission"
             },
             "title": "Permissions",
             "type": "array"
@@ -2839,6 +2839,24 @@
         ],
         "title": "PeriodMetricsOut",
         "type": "object"
+      },
+      "Permission": {
+        "enum": [
+          "collections:read",
+          "collections:write",
+          "tasks:read",
+          "tasks:write",
+          "inspirations:read",
+          "uploads:write",
+          "generation:read",
+          "generation:submit",
+          "users:manage",
+          "users:act_as",
+          "api_keys:issue",
+          "agent:read",
+          "agent:run"
+        ],
+        "type": "string"
       },
       "Prompt": {
         "additionalProperties": false,
@@ -5671,7 +5689,7 @@
             "anyOf": [
               {
                 "items": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/Permission"
                 },
                 "type": "array"
               },

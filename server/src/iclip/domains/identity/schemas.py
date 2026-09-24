@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
 from iclip.domains.identity.models import ApiKeyRecord, PmsDepartment, Principal, UserAccount
-from iclip.domains.identity.rbac import effective_permissions
+from iclip.domains.identity.rbac import Permission, effective_permissions
 
 
 class CamelModel(BaseModel):
@@ -61,13 +61,13 @@ class UsersPageOut(CamelModel):
 
 class UserPatchIn(CamelModel):
     roles: list[str] | None = None
-    direct_permissions: list[str] | None = None
+    direct_permissions: list[Permission] | None = None
     is_active: bool | None = None
 
 
 class ApiKeyCreateIn(CamelModel):
     name: str
-    permissions: list[str]
+    permissions: list[Permission]
     expires_at: datetime | None = None
 
 

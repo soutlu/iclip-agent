@@ -252,6 +252,7 @@ export type {
   PatchUserUsersUserIdPatchResponse,
   PatchUserUsersUserIdPatchResponses,
   PeriodMetricsOut,
+  Permission,
   Prompt,
   PromptQueueOut,
   PromptSubmission,

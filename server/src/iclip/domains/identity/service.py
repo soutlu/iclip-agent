@@ -19,12 +19,7 @@ from iclip.common.errors import (
 )
 from iclip.domains.identity.commands import CreateApiKey, UpdateUser
 from iclip.domains.identity.models import ApiKeyRecord, Principal, UserAccount
-from iclip.domains.identity.rbac import (
-    MANAGE_PERMISSION,
-    PERMISSIONS,
-    effective_permissions,
-    is_known_role,
-)
+from iclip.domains.identity.rbac import MANAGE_PERMISSION, effective_permissions, is_known_role
 from iclip.domains.identity.repository import ApiKeyRepository, UserRepository
 from iclip.domains.identity.visibility import visible_owner
 
@@ -129,9 +124,6 @@ class IdentityService:
             raise ValidationFailed(f"key 名称必须非空且不超过 {_MAX_KEY_NAME_LENGTH} 字符")
         if not command.permissions:
             raise ValidationFailed("key 至少授予一项权限")
-        unknown = command.permissions - set(PERMISSIONS)
-        if unknown:
-            raise ValidationFailed(f"未知权限: {', '.join(sorted(unknown))}")
         if not command.permissions <= principal.permissions:
             raise PermissionDenied("key 权限不能超出属主当前权限")
         if command.expires_at is not None and command.expires_at <= _now():
@@ -179,10 +171,6 @@ class IdentityService:
             unknown_roles = {role for role in patch.roles if not is_known_role(role)}
             if unknown_roles:
                 raise ValidationFailed(f"未知角色: {', '.join(sorted(unknown_roles))}")
-        if patch.direct_permissions is not None:
-            unknown = patch.direct_permissions - set(PERMISSIONS)
-            if unknown:
-                raise ValidationFailed(f"未知权限: {', '.join(sorted(unknown))}")
         if user_id == principal.user_id:
             if patch.roles is not None or patch.direct_permissions is not None:
                 raise SelfManagementForbidden("不能修改自己的授权")

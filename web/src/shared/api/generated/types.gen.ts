@@ -171,7 +171,7 @@ export type ApiKeyCreateIn = {
   /**
    * Permissions
    */
-  permissions: Array<string>
+  permissions: Array<Permission>
 }
 
 /**
@@ -1502,6 +1502,21 @@ export type PeriodMetricsOut = {
    */
   periodStart: string
 }
+
+export type Permission =
+  | 'collections:read'
+  | 'collections:write'
+  | 'tasks:read'
+  | 'tasks:write'
+  | 'inspirations:read'
+  | 'uploads:write'
+  | 'generation:read'
+  | 'generation:submit'
+  | 'users:manage'
+  | 'users:act_as'
+  | 'api_keys:issue'
+  | 'agent:read'
+  | 'agent:run'
 
 /**
  * Prompt
@@ -2937,7 +2952,7 @@ export type UserPatchIn = {
   /**
    * Directpermissions
    */
-  directPermissions?: Array<string> | null
+  directPermissions?: Array<Permission> | null
   /**
    * Isactive
    */

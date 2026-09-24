@@ -99,14 +99,10 @@ async def test_direct_grant_of_issue_permission_still_caps_key_at_owner_permissi
     assert record.permissions == {"collections:read"}
 
 
-async def test_issue_rejects_unknown_permission_and_empty_grant() -> None:
+async def test_issue_rejects_empty_grant() -> None:
     owner = make_account(roles=("root",))
     service, _, _ = make_service(owner)
     principal = service.principal_for_user(owner)
-    with pytest.raises(ValidationFailed):
-        await service.issue_api_key(
-            principal, CreateApiKey(name="k", permissions=frozenset({"root:all"}))
-        )
     with pytest.raises(ValidationFailed):
         await service.issue_api_key(principal, CreateApiKey(name="k", permissions=frozenset()))
 
