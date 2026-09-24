@@ -35,7 +35,7 @@
    悬停挂在整张卡的外层：参考条盖在封面底部且不在主按钮里，鼠标经过它时不能丢掉悬停。 */
 .task-card-cover-image {
   transition-property: opacity, scale;
-  transition-duration: var(--dur-s), var(--dur-m);
+  transition-duration: var(--dur-s);
   transition-timing-function: var(--ease);
 }
 

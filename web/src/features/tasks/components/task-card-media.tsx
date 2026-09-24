@@ -165,7 +165,10 @@ function ProductImage({
       }
       decoding="async"
       loading="lazy"
-      onLoad={compact ? onLoad : () => setLoadedSrc(src)}
+      onLoad={() => {
+        if (!compact) setLoadedSrc(src)
+        onLoad?.()
+      }}
       onError={() => setFailedSrc(src)}
       src={imageThumbnailUrl(src, compact ? REFERENCE_PROCESS : COVER_PROCESS)}
     />
