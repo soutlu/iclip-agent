@@ -77,6 +77,8 @@ from iclip.domains.identity.sso import SsoVerifier
 from iclip.domains.inspirations.infra_sql import PgInspirationVideos
 from iclip.domains.inspirations.module import build_inspirations_module
 from iclip.domains.inspirations.service import NoStyleDirectory
+from iclip.domains.library.module import build_library_module
+from iclip.domains.library.reports_pg import PgLibraryReports
 from iclip.domains.products.catalog_pg import PgStyleDirectory
 from iclip.domains.tasks.infra_sql import SqlTaskRepository
 from iclip.domains.tasks.module import build_tasks_module
@@ -466,8 +468,9 @@ def build_app(
     transcript_history = TranscriptHistory(step_store, job_queue, tool_displays, DELEGATE_TOOL)
 
     tasks = build_tasks_module(SqlTaskRepository(active_engine), act_as=identity.act_as)
-    # 审计报表跨模块只读聚合，直接查表。
+    # 审计报表与资料库跨模块只读聚合，直接查表。
     audit = build_audit_module(PgAuditReports(active_engine))
+    library = build_library_module(PgLibraryReports(active_engine))
     conversations = build_conversations_module(
         SqlConversationRepository(active_engine),
         act_as=identity.act_as,
@@ -617,6 +620,8 @@ def build_app(
     for router in tasks.routers:
         app.include_router(router)
     for router in audit.routers:
+        app.include_router(router)
+    for router in library.routers:
         app.include_router(router)
     app.include_router(
         create_transcript_router(
