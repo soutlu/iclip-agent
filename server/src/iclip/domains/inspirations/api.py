@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
 from iclip.domains.identity.public import Principal, require_permission
 from iclip.domains.inspirations.schemas import (
@@ -24,7 +24,7 @@ def create_inspirations_router(service: InspirationService) -> APIRouter:
     @router.post("/videos/search", response_model=VideoSearchOut)
     async def search_videos(
         body: VideoSearchIn,
-        _principal: Annotated[Principal, Depends(require_permission("inspirations:read"))],
+        _principal: Annotated[Principal, require_permission("inspirations:read")],
     ) -> VideoSearchOut:
         result = await service.search_videos(
             body.style_nos,

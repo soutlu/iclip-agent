@@ -1,6 +1,6 @@
 # 跨端合同约定 (API Conventions)
 
-> HTTP 端点与数据形状以 [`openapi.json`](openapi.json) 为准，生成流程见 [开发约定](../AGENTS.md)。本文补充跨端消费语义、认证、动态错误与 WebSocket 约定；领域术语和不变量见 [CONTEXT.md](../docs/CONTEXT.md)。
+> HTTP 端点、端点权限与数据形状以 [`openapi.json`](openapi.json) 为准，生成流程见 [开发约定](../AGENTS.md)。本文补充跨端消费语义、认证、动态错误与 WebSocket 约定；领域术语和不变量见 [CONTEXT.md](../docs/CONTEXT.md)。
 
 ## 1. 部署与路由路径
 
@@ -15,6 +15,8 @@
 - **登录态**：以 `GET /users/me` 为准；`401` 表示未登录或会话失效，前端不从 SSO 票据或本地标记推断已登录。
 - **机器端调用方**：基于 Bearer Token 的无状态调用（请求头携带 `Authorization: Bearer <token>`）。明文形态不构成合同，服务端按哈希查表认证，不从前缀判断。
   - 明文仅在成功创建的响应中返回一次；权限语义见 [CONTEXT.md](../docs/CONTEXT.md)。
+- **两种凭证同时出现**：请求带 `Authorization: Bearer` 时只按 Bearer 认证，不看会话 Cookie；Bearer 无效即按未登录处理，不回落到 Cookie。WebSocket 握手同一规则。
+- **端点权限**：每个 HTTP 操作的凭证与权限看 `openapi.json` 里该操作的 `security`。安全方案只有 `SessionCookie`（Cookie `iclip_session`）与 `BearerToken`（HTTP Bearer）；`security` 列出的各项之间是「或」，方案下的 scopes 就是所需权限名，列出多个须同时具备；两个方案都是空数组表示登录即可；没有 `security` 的操作公开；`POST /auth/logout` 只列 `SessionCookie`，只能凭会话登出。权限词汇见 [CONTEXT.md「角色」](../docs/CONTEXT.md#术语)。条件性权限（如 §7 的 `?scope=all`）、行级归属、WebSocket（§5）与替人办事不在 `security` 里，以本文各节为准。
 - **替人办事**：持 `users:act_as` 的 API key 在 `POST /conversations`（`userName`）、`POST /tasks`（`userName`）、`POST /conversations/{id}/prompts`（`user_name`）与 `POST /generations/*`（`user_name` / `userName`）的请求体里指名，那次请求的属主、创建者、认领人就是那个人，语义见 [CONTEXT.md「API Key」](../docs/CONTEXT.md#术语)。浏览器会话在这些字段里只能写自己的用户名，写别人是 `422`。
 
 ## 3. 数据载荷与格式 (Payload Formatting)
@@ -42,7 +44,7 @@
 
 ## 5. Agent 对话 (Transcript)
 
-agent 对话使用 kimi code 的 Transcript 协议，HTTP 端点挂在对话下面。该组 HTTP 读写与 WebSocket 建连均需 `agent:run`；写入限属主，治理者可读取其他用户的对话。
+agent 对话使用 kimi code 的 Transcript 协议，HTTP 端点挂在对话下面，各端点的权限见 [`openapi.json`](openapi.json) 的 `security`（§2）；WebSocket 建连需 `agent:run`。写入限属主，治理者可读取其他用户的对话。
 
 ### 字段名：这一面照协议原样，不套 §3
 
@@ -74,7 +76,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - `GET /conversations/{id}/prompts` 当前排程：`{active, queued}`。
 - `GET /conversations/{id}/status` 只回一个 `status`，给轮询的调用方用：`running` 含排队，
   `awaiting` 是不给审批决定就不会往下走，`completed` / `failed` / `aborted` 是上一轮的结果，
-  `idle` 是从没跑过。只要 `agent:read`，凭 API key 可单独调。
+  `idle` 是从没跑过。
 - 轮头部与用户文本块都带 `content`，就是发消息那串 part 原样、次序不动。
 - 图和视频只在 `content` 里，不另发附件实体，快照与分页里也没有 `attachments`。
 - 压缩不删除可见的历史轮次；压缩提示属于步骤内的块，不单独占一轮。模型窗口与完整历史的区别见 [CONTEXT.md](../docs/CONTEXT.md)。
@@ -165,8 +167,6 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ## 6. 对话 (Conversations)
 
-**权限**：会话列表、搜索、审计和工作区读取需要 `agent:read`；创建、修改、删除与工作区写入需要 `agent:run`。Transcript 的历史、消息队列与订阅另按 §5，需要 `agent:run`。
-
 - 对话 id 是 UUID，请求体、路径和 §5 的 WebSocket 帧带不带横线都收（`e1e53ab6ec97...` 与 `e1e53ab6-ec97-...` 指向同一段）；服务端一律以带横线的规范写法答复与存储，WS 帧上的 `session_id` 同样只发规范写法。不是 UUID 的写法在 REST 上是 `422`，在 WS 上与看不见的对话同一个待遇（订阅进 `ack` 的 `not_found`，原样带回问的那个串；文件订阅是 `40401`）。
 - `POST /conversations` 的 `id` 可由调用方给，缺省由服务端生成。带 `id` 重发同一个值**不新建第二段对话**，答复已有那一段并把状态码降为 `200`（新建仍 `201`）；这个 id 属于别人的对话时是 `404`，与按 id 读别人的对话一致。对话删除后 ID 仍保留，任何人重用都返回 `404`；新对话必须换一个 ID。
 - `GET /conversations` 返回自己的侧栏拓扑：合集及各自第一页对话、未分组合的第一页对话。合集与对话都按 §3 的排序规则，空合集也保留。
@@ -220,7 +220,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 治理者使用 `users:manage` 扩大读取范围，操作本身所需的 `agent:read` / `agent:run` 仍须具备。其他人的改名、换归属、删除、发消息路径返回 `404`；工作区覆盖写入返回 `403`。
 
-- `GET /conversations/audit` 列全平台的对话，排序按 §3。筛选 `ownerUserId`、`taskId`、`since`、`until`（后两个作用在 `createdAt` 上，与排序同一列；§12 的报表按各指标自己的事件时刻分期，同一段时间两边不是同一批对话）、`state`（四值同上）与 `deleted`（`live` 缺省只看活着的，`deleted` 只看属主删掉的，`all` 都看），可任意组合；没有 `users:manage` 是 `403`。
+- `GET /conversations/audit` 列全平台的对话，排序按 §3。筛选 `ownerUserId`、`taskId`、`since`、`until`（后两个作用在 `createdAt` 上，与排序同一列；§12 的报表按各指标自己的事件时刻分期，同一段时间两边不是同一批对话）、`state`（四值同上）与 `deleted`（`live` 缺省只看活着的，`deleted` 只看属主删掉的，`all` 都看），可任意组合。
 - 响应带两个真总数，都不随翻页变：`total` 是当前筛选下一共几段，`runningTotal` 是同一组属主 / 需求单 / 时间 / 删没删筛选下此刻在跑的几段（不受 `state` 影响）。
 - 已删对话是墓碑：行上 `deletedAt` 非空，只有带 `deleted` 的审计列表能列出它。治理者按 id 读它的 transcript、工作区文件与订阅都照常，`GET /transcript` 顶层多一个可选 `deleted_at`；属主与其他人读它都是 `404`；对话自身的写路径（改名、换归属、再删、发消息、改工作区文件）对谁都关着，一律 `404`，只有治理者对自己墓碑的工作区覆盖写入是 `403`（这个口子先读整行再判属主，分得出「看得见但不能改」；其余写路径是带属主条件的单条更新，分不出）。生成任务的 `conversationId` 只是归档标签，不校验对话，见 §11。
 - 翻页给 `limit` 与 `cursor`：`cursor` 原样回传响应里的 `nextCursor`，为 `null` 表示没有更多了。自己编一个形状不对的是 `422`。
@@ -234,15 +234,11 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ## 7. 合集 (Collections)
 
-**权限**：`GET /collections`、`GET /collections/{id}` 需要 `collections:read`；`POST /collections`、`PATCH /collections/{id}`、`DELETE /collections/{id}` 需要 `collections:write`。
-
 - 普通用户访问其他人的合集返回 `404`；治理者可读、改名和删除其他人的合集，不能据此取得其中对话的写权限。
 - `GET /collections` 默认只列自己的，排序按 §3；`?scope=all` 是治理者的全量视图，需要 `users:manage`，否则 `403`。翻页用 `limit` 与 `offset`。
 - **属主取自登录身份**，请求体里带 `ownerUserId` 一类字段一律 `422`。
 
 ## 8. 创作需求单 (Tasks)
-
-**权限**：`GET /tasks`、`GET /tasks/{id}` 需要 `tasks:read`；`POST /tasks`、`PUT /tasks/{id}`、`POST /tasks/{id}/publish`、`POST /tasks/{id}/confirm`、`POST /tasks/{id}/withdraw`、`DELETE /tasks/{id}` 需要 `tasks:write`。
 
 - **可见性**：需求单没有属主，谁有 `tasks:read` 谁就看得见全部；看得见但不让改返回 `403`，`404` 只意味着这张单子不存在。
 - `GET /tasks` 排序按 §3，翻页给 `limit` 与 `cursor`，返回 `{ items, nextCursor, total }`：`cursor` 原样回传上一页的 `nextCursor`（不透明字符串），为 `null` 表示没有更多了，形状不对是 `422`；`total` 是当前筛选下一共几张，不随翻页变。`ids` 可重复给，按 id 集合批量读取，与其他筛选一样只是条件，一次最多 100 个，多了是 `422`。
@@ -304,7 +300,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ## 9. 爆款视频查询 (Inspirations)
 
-`POST /inspirations/videos/search` 按款搜爆款视频，只读、零副作用。权限 `inspirations:read`。
+`POST /inspirations/videos/search` 按款搜爆款视频，只读、零副作用。
 
 - `styleNos` 使用 **PDM 款号**。WMS 编号只在数据入库时用于对齐数仓，不出现在接口上。
 - 只返回可下载的自家副本地址（`videoUrls`），按 `sortBy` 降序。**排序与截断都在服务端做**：换一个 `sortBy` 是换一批样本，不是把同一批本地重排。
@@ -317,8 +313,6 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 ## 10. 上传 (Uploads)
 
 上传分两步：`POST /uploads/sign` 领一个 `uploadId` 和一条限时直传地址，浏览器直接把字节 PUT 到对象存储，再 `POST /uploads/{uploadId}/confirm` 确认，拿回 `{ url, contentType, sizeBytes }`。服务端不登记上传，语义见 [CONTEXT.md「上传」](../docs/CONTEXT.md#术语)。
-
-**权限**：两步都需要 `uploads:write`。
 
 - **`upload.headers` 必须原样带上。** `Content-Type` 与审计用的 `x-oss-meta-*`（上传者、API key）都签进了签名里，少一个、改一个去 PUT 都会被对象存储拒掉（`403`）。
 - **`expiresAt` 之前必须发起上传**。过期后重新调用 `sign`，会拿到新的 `uploadId`。
@@ -380,7 +374,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ## 12. 审计报表 (Audit)
 
-治理者看产量、成功率、耗时与模型消耗的三个只读端点，都要 `users:manage`，否则 `403`。口径的定义见 [CONTEXT.md「审计口径」](../docs/CONTEXT.md#术语)。
+治理者看产量、成功率、耗时与模型消耗的三个只读端点，口径的定义见 [CONTEXT.md「审计口径」](../docs/CONTEXT.md#术语)。
 
 - **分叉出来的副本一律不计入**（口径见 [CONTEXT.md「审计口径」](../docs/CONTEXT.md#术语)），分叉见 §6。
 - 三个端点共用筛选 `since` / `until`（左闭右开）、`userName`、`taskId`。时间窗作用在各指标自己的锚点上：成片与视频耗时看完成时刻，每镜次数与一次通过看该镜首次出片时刻，运行看发起时刻，交付周期看最后成片时刻，模型用量整段对话按最后记账时刻归期。`since` 不早于 `until` 是 `422`。

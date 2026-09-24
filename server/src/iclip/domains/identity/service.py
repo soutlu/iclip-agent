@@ -120,12 +120,10 @@ class IdentityService:
     async def issue_api_key(
         self, principal: Principal, command: CreateApiKey
     ) -> tuple[ApiKeyRecord, str]:
-        """签发 key；明文只在返回值出现一次。"""
+        """签发 key；明文只在返回值出现一次。``api_keys:issue`` 由路由声明，这里管 key 不能签 key。"""
 
         if principal.kind != "user":
             raise PermissionDenied("API key 不能签发新的 API key")
-        if not principal.has("api_keys:issue"):
-            raise PermissionDenied("需要 api_keys:issue 权限")
         name = command.name.strip()
         if not name or len(name) > _MAX_KEY_NAME_LENGTH:
             raise ValidationFailed(f"key 名称必须非空且不超过 {_MAX_KEY_NAME_LENGTH} 字符")
@@ -166,10 +164,8 @@ class IdentityService:
         await self._api_keys.revoke(key_id, _now())
 
     async def list_users_page(
-        self, principal: Principal, *, page: int, page_size: int
+        self, *, page: int, page_size: int
     ) -> tuple[tuple[UserAccount, ...], int]:
-        if not principal.has(MANAGE_PERMISSION):
-            raise PermissionDenied("需要 users:manage 权限")
         if page < 1 or page_size < 1 or page_size > 200:
             raise ValidationFailed("分页参数无效")
         return await self._users.list_page(offset=(page - 1) * page_size, limit=page_size)
@@ -177,8 +173,8 @@ class IdentityService:
     async def update_user(
         self, principal: Principal, user_id: uuid.UUID, patch: UpdateUser
     ) -> UserAccount:
-        if not principal.has(MANAGE_PERMISSION):
-            raise PermissionDenied("需要 users:manage 权限")
+        """改他人的角色、直接授权与启用状态；``users:manage`` 由路由声明，这里管不能改自己。"""
+
         if patch.roles is not None:
             unknown_roles = {role for role in patch.roles if not is_known_role(role)}
             if unknown_roles:

@@ -309,7 +309,6 @@ def build_app(
         sessions,
         CookieAuthSettings(
             secret=settings.security.secret,
-            cookie_name=settings.security.cookie_name,
             lifetime_seconds=settings.security.lifetime_seconds,
             cookie_secure=settings.security.cookie_secure,
         ),

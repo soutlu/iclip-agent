@@ -54,7 +54,7 @@ lifespan 启动运行驱动与已启用的生成队列；关停时先停止后�
 
 ## 3. 身份与模块协作
 
-HTTP 与 WebSocket 由 `PrincipalMiddleware` 统一解析身份。中间件只解析，授权由入口与业务用例执行；WebSocket 入口另行校验 Origin，订阅时校验对话可见性。钥匙替人办事不在中间件里：建对话、建需求单、发消息、提交生成四个写入口拿到请求体后各调一次 [identity/acting.py](../server/src/iclip/domains/identity/acting.py) 的 `ActAs`，持 `users:act_as` 的 key 带 `user_name` 时就在这一步把主体换成那个人，下游照常只消费主体。帧的投递范围见 [conventions §5](../contract/conventions.md#5-agent-对话-transcript)。SSO callback 完成验证、账号关联与本地 cookie 签发；配置 PMS 时同步用户资料，失败即终止登录。后续普通请求不再调用 SSO/PMS。
+HTTP 与 WebSocket 由 `PrincipalMiddleware` 统一解析身份。中间件只解析，端点级权限在路由上以 `Security` 声明并随合同导出，行级归属与条件性判断在业务用例执行；WebSocket 入口另行校验 Origin，订阅时校验对话可见性。钥匙替人办事不在中间件里：建对话、建需求单、发消息、提交生成四个写入口拿到请求体后各调一次 [identity/acting.py](../server/src/iclip/domains/identity/acting.py) 的 `ActAs`，持 `users:act_as` 的 key 带 `user_name` 时就在这一步把主体换成那个人，下游照常只消费主体。帧的投递范围见 [conventions §5](../contract/conventions.md#5-agent-对话-transcript)。SSO callback 完成验证、账号关联与本地 cookie 签发；配置 PMS 时同步用户资料，失败即终止登录。后续普通请求不再调用 SSO/PMS。
 
 运行通过 `AgentRunDeps` 向工具传递可信主体与对话 ID，业务含义和权限约束见 [CONTEXT.md](CONTEXT.md)。harness 只传递 deps，不解包业务字段；工具所需服务由组合根闭包注入，不放进 deps。客户端 state 不作为运行身份或服务来源。
 

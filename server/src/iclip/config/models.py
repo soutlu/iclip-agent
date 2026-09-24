@@ -157,7 +157,6 @@ class DbSection(ConfigSection):
 
 
 class SecuritySection(ConfigSection):
-    session_cookie_name: str = "iclip_session"
     session_lifetime_seconds: int = 604800
     cookie_secure: bool = False
     cors_allow_origins: tuple[str, ...] = ()
@@ -401,7 +400,6 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
 @dataclass(frozen=True, slots=True)
 class ResolvedSecurity:
     secret: str
-    cookie_name: str
     lifetime_seconds: int
     cookie_secure: bool
     cors_allow_origins: tuple[str, ...]
@@ -673,7 +671,6 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
         db_schema=config.db.db_schema,
         security=ResolvedSecurity(
             secret=core.auth_secret,
-            cookie_name=config.security.session_cookie_name,
             lifetime_seconds=config.security.session_lifetime_seconds,
             cookie_secure=config.security.cookie_secure,
             cors_allow_origins=config.security.cors_allow_origins,

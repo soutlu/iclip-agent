@@ -85,16 +85,6 @@ async def test_issue_and_authenticate_round_trip() -> None:
     assert key_principal.permissions == {"collections:read"}
 
 
-async def test_issue_requires_api_keys_issue_permission() -> None:
-    owner = make_account(roles=("editor",))
-    service, _, _ = make_service(owner)
-    principal = service.principal_for_user(owner)
-    with pytest.raises(PermissionDenied):
-        await service.issue_api_key(
-            principal, CreateApiKey(name="k", permissions=frozenset({"collections:read"}))
-        )
-
-
 async def test_direct_grant_of_issue_permission_still_caps_key_at_owner_permissions() -> None:
     owner = make_account(roles=("viewer",), direct_permissions=frozenset({"api_keys:issue"}))
     service, _, _ = make_service(owner)

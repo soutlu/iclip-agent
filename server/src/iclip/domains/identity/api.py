@@ -96,11 +96,11 @@ def create_users_router(service: IdentityService) -> APIRouter:
 
     @router.get("/users", response_model=UsersPageOut)
     async def list_users(
-        principal: Annotated[Principal, Depends(require_permission(MANAGE_PERMISSION))],
+        _: Annotated[Principal, require_permission(MANAGE_PERMISSION)],
         page: Annotated[int, Query(ge=1)] = 1,
         page_size: Annotated[int, Query(alias="pageSize", ge=1, le=200)] = 50,
     ) -> UsersPageOut:
-        accounts, total = await service.list_users_page(principal, page=page, page_size=page_size)
+        accounts, total = await service.list_users_page(page=page, page_size=page_size)
         return UsersPageOut(
             items=[user_out(account) for account in accounts],
             total=total,
@@ -116,7 +116,7 @@ def create_users_router(service: IdentityService) -> APIRouter:
     async def patch_user(
         user_id: uuid.UUID,
         patch: UserPatchIn,
-        principal: Annotated[Principal, Depends(require_permission(MANAGE_PERMISSION))],
+        principal: Annotated[Principal, require_permission(MANAGE_PERMISSION)],
     ) -> UserEnvelope:
         try:
             account = await service.update_user(
@@ -145,7 +145,7 @@ def create_api_keys_router(service: IdentityService) -> APIRouter:
     @router.post("/api-keys", response_model=ApiKeyCreatedEnvelope, status_code=201)
     async def create_key(
         body: ApiKeyCreateIn,
-        principal: Annotated[Principal, Depends(require_authenticated)],
+        principal: Annotated[Principal, require_permission("api_keys:issue")],
     ) -> ApiKeyCreatedEnvelope:
         record, token = await service.issue_api_key(
             principal,

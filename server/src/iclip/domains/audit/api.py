@@ -6,12 +6,12 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
 from iclip.domains.audit.models import DEFAULT_THRESHOLDS, AnomalyKind, Bucket, Thresholds
 from iclip.domains.audit.schemas import AnomaliesOut, AuditConversationsOut, SummaryOut
 from iclip.domains.audit.service import AuditService
-from iclip.domains.identity.public import Principal, require_authenticated
+from iclip.domains.identity.public import MANAGE_PERMISSION, Principal, require_permission
 from iclip.platform.paging import DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT
 
 UserNameQuery = Annotated[str | None, Query(alias="userName", max_length=150)]
@@ -23,7 +23,7 @@ def create_audit_router(service: AuditService) -> APIRouter:
 
     @router.get("/summary", response_model=SummaryOut)
     async def summary(
-        principal: Annotated[Principal, Depends(require_authenticated)],
+        _: Annotated[Principal, require_permission(MANAGE_PERMISSION)],
         since: datetime | None = None,
         until: datetime | None = None,
         user_name: UserNameQuery = None,
@@ -37,7 +37,6 @@ def create_audit_router(service: AuditService) -> APIRouter:
         """
 
         return await service.summary(
-            principal,
             since=since,
             until=until,
             user_name=user_name,
@@ -48,7 +47,7 @@ def create_audit_router(service: AuditService) -> APIRouter:
 
     @router.get("/conversations", response_model=AuditConversationsOut)
     async def conversations(
-        principal: Annotated[Principal, Depends(require_authenticated)],
+        _: Annotated[Principal, require_permission(MANAGE_PERMISSION)],
         since: datetime | None = None,
         until: datetime | None = None,
         user_name: UserNameQuery = None,
@@ -62,7 +61,6 @@ def create_audit_router(service: AuditService) -> APIRouter:
         """
 
         return await service.conversations(
-            principal,
             since=since,
             until=until,
             user_name=user_name,
@@ -73,7 +71,7 @@ def create_audit_router(service: AuditService) -> APIRouter:
 
     @router.get("/anomalies", response_model=AnomaliesOut)
     async def anomalies(
-        principal: Annotated[Principal, Depends(require_authenticated)],
+        _: Annotated[Principal, require_permission(MANAGE_PERMISSION)],
         since: datetime | None = None,
         until: datetime | None = None,
         user_name: UserNameQuery = None,
@@ -96,7 +94,6 @@ def create_audit_router(service: AuditService) -> APIRouter:
         """
 
         return await service.anomalies(
-            principal,
             since=since,
             until=until,
             user_name=user_name,

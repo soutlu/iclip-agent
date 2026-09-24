@@ -9,7 +9,7 @@ import json
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 from pydantic import TypeAdapter, ValidationError
 
 from iclip.common.errors import ValidationFailed
@@ -46,7 +46,7 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
     @router.post("/video", response_model=VideoSubmitOut, status_code=202)
     async def submit_video(
         body: VideoGenerationIn,
-        principal: Annotated[Principal, Depends(require_permission("generation:submit"))],
+        principal: Annotated[Principal, require_permission("generation:submit")],
     ) -> VideoSubmitOut:
         """提交一次视频生成。请求体照上游异步接口，外加 conversation_id / task_id / metadata /
         root_job_id。
@@ -67,7 +67,7 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
     @router.post("/clips", response_model=GenerationEnvelope, status_code=202)
     async def submit_clip(
         body: ClipIn,
-        principal: Annotated[Principal, Depends(require_permission("generation:submit"))],
+        principal: Annotated[Principal, require_permission("generation:submit")],
     ) -> GenerationEnvelope:
         """提交一次本地视频加工：按 ``segments`` 的顺序裁出各段拼成一条，产物存进本系统的桶。
 
@@ -82,7 +82,7 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
     @router.post("/image", response_model=GenerationEnvelope, status_code=202)
     async def submit_image(
         body: ImageGenerationIn,
-        principal: Annotated[Principal, Depends(require_permission("generation:submit"))],
+        principal: Annotated[Principal, require_permission("generation:submit")],
     ) -> GenerationEnvelope:
         """提交一次图片生成。``userName`` 的规则与视频相同。"""
 
@@ -95,7 +95,7 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
 
     @router.get("", response_model=GenerationsPageOut)
     async def list_generations(
-        principal: Annotated[Principal, Depends(require_permission("generation:read"))],
+        principal: Annotated[Principal, require_permission("generation:read")],
         limit: Annotated[int, Query(ge=1, le=MAX_LIST_LIMIT)] = DEFAULT_LIST_LIMIT,
         conversation_id: Annotated[uuid.UUID | None, Query(alias="conversationId")] = None,
         task_id: Annotated[uuid.UUID | None, Query(alias="taskId")] = None,
@@ -131,7 +131,7 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
     # 带固定路径段的都要声明在 /{job_id} 之前，否则被路径参数吞掉。
     @router.get("/video-models", response_model=VideoModelsOut)
     async def list_video_models(
-        principal: Annotated[Principal, Depends(require_permission("generation:read"))],
+        principal: Annotated[Principal, require_permission("generation:read")],
     ) -> VideoModelsOut:
         """接入了哪几个视频模型与默认那个，来自运行配置。
 
@@ -142,7 +142,7 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
 
     @router.get("/image-models", response_model=ImageModelsOut)
     async def list_image_models(
-        principal: Annotated[Principal, Depends(require_permission("generation:read"))],
+        principal: Annotated[Principal, require_permission("generation:read")],
     ) -> ImageModelsOut:
         """列出接入了哪几家图片模型与各家支持的档位；受理层照同一份声明校验。"""
 
@@ -164,7 +164,7 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
     @router.get("/video/{task_id}", response_model=VideoTaskOut)
     async def get_video_task(
         task_id: uuid.UUID,
-        principal: Annotated[Principal, Depends(require_permission("generation:read"))],
+        principal: Annotated[Principal, require_permission("generation:read")],
     ) -> VideoTaskOut:
         """视频任务快照，照上游任务查询的形状。只认视频记录，可见性与 ``GET /generations/{id}`` 相同。"""
 
@@ -173,7 +173,7 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
     @router.get("/{job_id}", response_model=GenerationEnvelope)
     async def get_generation(
         job_id: uuid.UUID,
-        principal: Annotated[Principal, Depends(require_permission("generation:read"))],
+        principal: Annotated[Principal, require_permission("generation:read")],
     ) -> GenerationEnvelope:
         job = await service.get(principal, job_id)
         return GenerationEnvelope(generation=generation_out(job))

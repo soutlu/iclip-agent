@@ -569,7 +569,6 @@ class ConversationService:
 
     async def audit(
         self,
-        principal: Principal,
         *,
         owner_user_id: uuid.UUID | None = None,
         task_id: uuid.UUID | None = None,
@@ -583,10 +582,9 @@ class ConversationService:
         """治理者按建立时间倒序分页查询全平台对话，附当前筛选下的总数与在跑数。
 
         给了 ``owner_user_id`` 时占着的集合按该属主算，不给才算全平台；busy 集只取一次，
-        列表与两个计数才对得上。``deleted`` 决定属主删掉的墓碑收不收，这是唯一列得出墓碑的口。"""
+        列表与两个计数才对得上。``deleted`` 决定属主删掉的墓碑收不收，这是唯一列得出墓碑的口。
+        治理者权限由路由声明，本方法不判。"""
 
-        if not principal.has(MANAGE_PERMISSION):
-            raise PermissionDenied("只有治理者能查全部对话")
         check_limit(limit)
         scope = AuditFilter(
             owner=owner_user_id,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Query, Response
 
 from iclip.domains.identity.public import ActAs, Principal, require_permission
 from iclip.domains.tasks.models import TaskStatus
@@ -26,7 +26,7 @@ def create_tasks_router(service: TaskService, *, act_as: ActAs) -> APIRouter:
     @router.post("", response_model=TaskEnvelope, status_code=201)
     async def create_task(
         body: TaskCreateIn,
-        principal: Annotated[Principal, Depends(require_permission("tasks:write"))],
+        principal: Annotated[Principal, require_permission("tasks:write")],
         response: Response,
     ) -> TaskEnvelope:
         """建一张需求单。带 ``id`` 重发时不新建，答复已有那一张并把状态码降为 200。"""
@@ -39,7 +39,7 @@ def create_tasks_router(service: TaskService, *, act_as: ActAs) -> APIRouter:
 
     @router.get("", response_model=TasksPageOut)
     async def list_tasks(
-        principal: Annotated[Principal, Depends(require_permission("tasks:read"))],
+        principal: Annotated[Principal, require_permission("tasks:read")],
         status: TaskStatus | None = None,
         ids: Annotated[list[uuid.UUID] | None, Query()] = None,
         limit: Annotated[int, Query(ge=1, le=MAX_LIST_LIMIT)] = DEFAULT_LIST_LIMIT,
@@ -62,7 +62,7 @@ def create_tasks_router(service: TaskService, *, act_as: ActAs) -> APIRouter:
     @router.get("/{task_id}", response_model=TaskEnvelope)
     async def get_task(
         task_id: uuid.UUID,
-        _: Annotated[Principal, Depends(require_permission("tasks:read"))],
+        _: Annotated[Principal, require_permission("tasks:read")],
     ) -> TaskEnvelope:
         return TaskEnvelope(task=task_out(await service.get(task_id)))
 
@@ -70,7 +70,7 @@ def create_tasks_router(service: TaskService, *, act_as: ActAs) -> APIRouter:
     async def save_task(
         task_id: uuid.UUID,
         body: TaskIn,
-        principal: Annotated[Principal, Depends(require_permission("tasks:write"))],
+        principal: Annotated[Principal, require_permission("tasks:write")],
     ) -> TaskEnvelope:
         task = await service.update(principal, task_id, body)
         return TaskEnvelope(task=task_out(task))
@@ -78,7 +78,7 @@ def create_tasks_router(service: TaskService, *, act_as: ActAs) -> APIRouter:
     @router.post("/{task_id}/publish", response_model=TaskEnvelope)
     async def publish_task(
         task_id: uuid.UUID,
-        principal: Annotated[Principal, Depends(require_permission("tasks:write"))],
+        principal: Annotated[Principal, require_permission("tasks:write")],
     ) -> TaskEnvelope:
         task = await service.publish(principal, task_id)
         return TaskEnvelope(task=task_out(task))
@@ -86,21 +86,21 @@ def create_tasks_router(service: TaskService, *, act_as: ActAs) -> APIRouter:
     @router.post("/{task_id}/confirm", response_model=TaskEnvelope)
     async def confirm_task(
         task_id: uuid.UUID,
-        principal: Annotated[Principal, Depends(require_permission("tasks:write"))],
+        principal: Annotated[Principal, require_permission("tasks:write")],
     ) -> TaskEnvelope:
         return TaskEnvelope(task=task_out(await service.confirm(principal, task_id)))
 
     @router.post("/{task_id}/withdraw", response_model=TaskEnvelope)
     async def withdraw_task(
         task_id: uuid.UUID,
-        _: Annotated[Principal, Depends(require_permission("tasks:write"))],
+        _: Annotated[Principal, require_permission("tasks:write")],
     ) -> TaskEnvelope:
         return TaskEnvelope(task=task_out(await service.withdraw(task_id)))
 
     @router.delete("/{task_id}", status_code=204)
     async def delete_task(
         task_id: uuid.UUID,
-        principal: Annotated[Principal, Depends(require_permission("tasks:write"))],
+        principal: Annotated[Principal, require_permission("tasks:write")],
     ) -> Response:
         await service.delete(principal, task_id)
         return Response(status_code=204)

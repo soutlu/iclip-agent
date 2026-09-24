@@ -81,11 +81,7 @@ def build_identity_module(
                 return None
             return account_from_row(user)
 
-    resolver = PrincipalResolver(
-        cookie_name=auth.cookie_name,
-        read_session_user=read_session_user,
-        service=service,
-    )
+    resolver = PrincipalResolver(read_session_user=read_session_user, service=service)
 
     routers: list[Any] = [
         *create_account_routers(sessions, auth),
