@@ -1,4 +1,6 @@
-/** 资料库的一张卡：封面是按画幅占位的截帧小图；悬停片刻才挂视频预览、移开就卸掉，列表上平时不挂 <video>。 */
+/** 资料库的一张卡：封面是按画幅占位的截帧小图；悬停片刻才挂视频预览、移开就卸掉，列表上平时不挂 <video>。
+ *
+ * 点画面进详情；右上角的结构角标是故事板入口，指着某一帧时预览画面跳到那一镜。 */
 
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from '@/shared/icons'
@@ -10,14 +12,9 @@ import { useCopyFeedback } from '@/shared/ui/copy-feedback'
 import { Tag } from '@/shared/ui/tag'
 import type { LibraryVideo } from '../library.api'
 import { snapshotWidthFor } from '../library-layout'
-import {
-  aspectOf,
-  cardTitleOf,
-  cutCountOf,
-  durationSecondsOf,
-  formatClock,
-  openingTextOf,
-} from '../library-media'
+import { aspectOf, cardTitleOf, durationSecondsOf, openingTextOf } from '../library-media'
+import { AuthorAvatar } from './author-avatar'
+import { StoryboardBadge } from './library-storyboard'
 
 /** 悬停停留这么久才开始下载预览，扫过网格时不触发。 */
 const PREVIEW_DELAY_MS = 300
@@ -54,9 +51,11 @@ type LibraryCardProps = {
   /** 这一列的显示宽度，决定封面截多大。 */
   width: number
   onAuthor: (userName: string) => void
+  /** 进详情；从故事板点某一帧进来时带上起播秒数。 */
+  onOpen: (id: string, startAt: number | null) => void
 }
 
-export function LibraryCard({ video, width, onAuthor }: LibraryCardProps) {
+export function LibraryCard({ video, width, onAuthor, onOpen }: LibraryCardProps) {
   const { face, take } = video
   const aspect = aspectOf(take.aspectRatio)
   // 列宽量出来之前不请求封面，免得先按占位宽度截一张、量完再截一张。
@@ -65,12 +64,14 @@ export function LibraryCard({ video, width, onAuthor }: LibraryCardProps) {
       ? videoSnapshotUrl(face.outputUrl, snapshotWidthFor(width, window.devicePixelRatio || 1))
       : null
   const preview = usePreviewIntent()
+  // 故事板里正对准的那一刻；故事板收起时是 null。指针移到浮层上已离开画面，预览照样留着。
+  const [storyboardAt, setStoryboardAt] = useState<number | null>(null)
+  const showPreview = preview.active || (storyboardAt !== null && canAutoPreview())
   const { copied, copy } = useCopyFeedback()
   const [posterLoaded, setPosterLoaded] = useState(false)
   // 窄列（手机两列）上角标放不下：结构角标只留镜数，模型标签不显示。
   const compact = width > 0 && width < 220
-  const seconds = compact && cutCountOf(take) !== null ? null : durationSecondsOf(video)
-  const cuts = cutCountOf(take)
+  const seconds = durationSecondsOf(video)
   const title = cardTitleOf(video)
   const author = take.userName
 
@@ -100,7 +101,14 @@ export function LibraryCard({ video, width, onAuthor }: LibraryCardProps) {
             src={poster}
           />
         )}
-        {preview.active ? <PreviewVideo src={face.outputUrl} /> : null}
+        {showPreview ? <PreviewVideo seekTo={storyboardAt} src={face.outputUrl} /> : null}
+        <button
+          aria-label={`查看详情：${title}`}
+          className="absolute inset-0 cursor-pointer rounded-md ui-focus"
+          data-open-video={video.id}
+          onClick={() => onOpen(video.id, null)}
+          type="button"
+        />
 
         <div className="pointer-events-none absolute top-2 left-2 flex gap-1.5">
           {face.kind === 'master' ? <Tag variant="success">成片</Tag> : null}
@@ -108,27 +116,25 @@ export function LibraryCard({ video, width, onAuthor }: LibraryCardProps) {
             <span className="library-card-badge">{video.takeCount} 版</span>
           ) : null}
         </div>
-        {cuts === null && seconds === null ? null : (
-          <span className="library-card-badge pointer-events-none absolute top-2 right-2">
-            <Icon decorative name="grid" size="xs" />
-            {cuts === null ? null : `${cuts} 镜`}
-            {cuts !== null && seconds !== null ? (
-              <span aria-hidden className="library-card-badge-divider" />
-            ) : null}
-            {seconds === null ? null : formatClock(seconds)}
-          </span>
-        )}
+        <StoryboardBadge
+          compact={compact}
+          onFocusFrame={setStoryboardAt}
+          onPickFrame={(at) => onOpen(video.id, at)}
+          seconds={seconds}
+          video={video}
+        />
         {take.model === null || compact ? null : (
           <span className="library-card-badge library-card-hide-on-hover pointer-events-none absolute right-2 bottom-2">
             {take.model}
           </span>
         )}
 
-        <div className="library-card-hover absolute inset-x-0 bottom-0 flex flex-col gap-2 px-2.5 pt-10 pb-2.5 text-on-scrim">
+        {/* 悬停层不接点击，点它等于点画面；只有复制按钮自己接。 */}
+        <div className="library-card-hover pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-2 px-2.5 pt-10 pb-2.5 text-on-scrim">
           <p className="line-clamp-3 text-body-sm">{openingTextOf(take)}</p>
           <div className="flex justify-end">
             <IconButton
-              className="library-card-hover-button"
+              className="library-card-hover-button pointer-events-auto"
               label={copied ? '已复制完整提示词' : '复制完整提示词'}
               name={copied ? 'check' : 'copy'}
               onClick={() => void copy(take.prompt)}
@@ -148,12 +154,7 @@ export function LibraryCard({ video, width, onAuthor }: LibraryCardProps) {
               title={`只看 ${author} 的片子`}
               type="button"
             >
-              <span
-                aria-hidden
-                className="grid size-4.5 shrink-0 place-items-center rounded-full bg-surface-container-high text-caption text-on-surface"
-              >
-                {Array.from(author)[0]?.toLocaleUpperCase()}
-              </span>
+              <AuthorAvatar className="size-4.5 text-caption" name={author} />
               <span className="truncate">{author}</span>
             </button>
           )}
@@ -166,10 +167,10 @@ export function LibraryCard({ video, width, onAuthor }: LibraryCardProps) {
   )
 }
 
-/** 预览视频：挂上就静音循环播；卸载时清掉地址，浏览器随之中止下载、释放解码器。 */
-function PreviewVideo({ src }: { src: string }) {
+/** 预览视频：挂上就静音循环播；给了 `seekTo` 就停在那一刻，收回后接着播。卸载时清掉地址，浏览器随之中止下载、释放解码器。 */
+function PreviewVideo({ src, seekTo }: { src: string; seekTo: number | null }) {
   const ref = useRef<HTMLVideoElement>(null)
-  const [playing, setPlaying] = useState(false)
+  const [shown, setShown] = useState(false)
   const [progress, setProgress] = useState(0)
 
   useEffect(() => {
@@ -182,6 +183,18 @@ function PreviewVideo({ src }: { src: string }) {
     }
   }, [])
 
+  useEffect(() => {
+    const element = ref.current
+    if (element === null) return
+    if (seekTo !== null) {
+      element.pause()
+      element.currentTime = seekTo
+    } else if (element.paused && element.currentTime > 0) {
+      // 故事板收起、指针还在画面上：从停下的地方接着播。
+      void element.play().catch(() => undefined)
+    }
+  }, [seekTo])
+
   return (
     <>
       <video
@@ -189,11 +202,13 @@ function PreviewVideo({ src }: { src: string }) {
         autoPlay
         className={cn(
           'library-card-preview absolute inset-0 size-full object-contain',
-          playing && 'library-card-preview-playing',
+          shown && 'library-card-preview-playing',
         )}
         loop
         muted
-        onPlaying={() => setPlaying(true)}
+        onPlaying={() => setShown(true)}
+        // 故事板一挂上就停在某一帧，不经过播放，跳到位也算能看了。
+        onSeeked={() => setShown(true)}
         onTimeUpdate={(event) => {
           const { currentTime, duration } = event.currentTarget
           if (duration > 0) setProgress(currentTime / duration)

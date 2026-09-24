@@ -5,6 +5,7 @@ import type { z } from 'zod'
 import { apiFetch, errorMessageOf } from '@/shared/api/client'
 import {
   zLibraryAuthorsOut,
+  zLibraryVideoDetailOut,
   zLibraryVideosOut,
   type zVideosLibraryVideosGetQuery,
 } from '@/shared/api/generated/zod.gen'
@@ -14,6 +15,8 @@ import type { PickerSource } from '@/shared/ui/search-picker'
 export type LibraryVideosPage = z.output<typeof zLibraryVideosOut>
 export type LibraryVideo = LibraryVideosPage['items'][number]
 export type LibraryTake = LibraryVideo['take']
+export type LibraryScript = NonNullable<LibraryTake['script']>
+export type LibraryVideoDetail = z.output<typeof zLibraryVideoDetailOut>
 export type Orientation = NonNullable<z.output<typeof zVideosLibraryVideosGetQuery>['orientation']>
 
 /** 列表的筛选：人（归属用户名）、时间范围、画幅朝向与关键词。 */
@@ -61,6 +64,7 @@ export const librarySearchParams = (
 export const libraryQueryKeys = {
   all: ['library'] as const,
   videos: (scope: LibraryScope) => ['library', 'videos', scope] as const,
+  video: (id: string) => ['library', 'video', id] as const,
   authors: ['library', 'authors'] as const,
 }
 
@@ -77,6 +81,17 @@ export const useLibraryVideos = (scope: LibraryScope) =>
     initialPageParam: null as string | null,
     getNextPageParam: (last: LibraryVideosPage) => last.nextCursor,
     queryKey: libraryQueryKeys.videos(scope),
+  })
+
+/** 一条的详情：这一镜的全部版本与同一段对话的其他镜。按 id 单独取，分享来的链接未必在已读的列表里。 */
+export const useLibraryVideo = (id: string) =>
+  useQuery({
+    queryFn: ({ signal }) =>
+      apiFetch(`/library/videos/${encodeURIComponent(id)}`, zLibraryVideoDetailOut, {
+        fallbackErrorMessage: '读取这条片子失败',
+        signal,
+      }),
+    queryKey: libraryQueryKeys.video(id),
   })
 
 /** 按人筛选的候选：名下有卡的人，候选 id 与显示名都是归属用户名。 */

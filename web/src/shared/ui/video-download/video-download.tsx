@@ -5,10 +5,15 @@ import { IconButton } from '@/shared/ui/button'
 import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { TooltipContent, TooltipRoot, TooltipTrigger } from '@/shared/ui/tooltip'
 
-type GenerationDownloadProps = { url: string; watermarkUrl: string | null }
+type VideoDownloadProps = {
+  url: string
+  watermarkUrl: string | null
+  /** 叠在默认的描边小圆按钮上，如放大尺寸。 */
+  className?: string
+}
 
-/** 只有原片时点了就下；上游也给了水印版时先选哪一份。 */
-export function GenerationDownload({ url, watermarkUrl }: GenerationDownloadProps) {
+/** 生成视频的下载按钮：只有原片时点了就下；上游也给了水印版时先选哪一份。 */
+export function VideoDownload({ className, url, watermarkUrl }: VideoDownloadProps) {
   const { downloading, download } = useMediaDownload()
   const label = downloading ? '正在准备下载…' : '下载视频'
 
@@ -16,8 +21,9 @@ export function GenerationDownload({ url, watermarkUrl }: GenerationDownloadProp
     <IconButton
       aria-busy={downloading}
       className={cn(
-        'shrink-0 border-[0.5px] border-chat-hairline text-on-surface disabled:cursor-wait disabled:opacity-60',
+        'shrink-0 border-[0.5px] border-hairline text-on-surface disabled:cursor-wait disabled:opacity-60',
         downloading && '[&_svg]:animate-spin',
+        className,
       )}
       disabled={downloading}
       label={label}

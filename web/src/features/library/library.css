@@ -84,6 +84,75 @@
   }
 }
 
+/* 故事板角标：悬停或展开时压深一档并描边，提示它能点。 */
+.library-storyboard-badge {
+  transition:
+    background-color var(--dur-s) var(--ease),
+    box-shadow var(--dur-s) var(--ease);
+}
+
+.library-storyboard-badge:hover,
+.library-storyboard-badge[aria-expanded='true'] {
+  background-color: color-mix(in srgb, var(--color-scrim) 72%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-on-scrim) 50%, transparent);
+}
+
+/* 帧条只在条内横向滚：不吸附（吸附会和滚轮抢位置来回跳），滚到头也不带动页面。 */
+.library-storyboard,
+.library-storyboard-strip {
+  overscroll-behavior: contain;
+}
+
+.library-storyboard-strip {
+  scrollbar-width: thin;
+}
+
+.library-storyboard-thumb {
+  transition: box-shadow var(--dur-s) var(--ease);
+}
+
+.library-storyboard-frame:hover .library-storyboard-thumb,
+.library-storyboard-frame[data-current] .library-storyboard-thumb {
+  box-shadow: 0 0 0 2px var(--color-on-surface);
+}
+
+/* 详情的放映区：明暗主题下都是深底，上面的按钮与文字走 on-scrim。 */
+.library-viewer-stage {
+  background-color: color-mix(in srgb, var(--color-scrim) 92%, var(--color-on-scrim));
+  color: var(--color-on-scrim);
+}
+
+.library-viewer-faint {
+  color: color-mix(in srgb, var(--color-on-scrim) 55%, transparent);
+}
+
+.library-viewer-glass {
+  color: var(--color-on-scrim);
+  background-color: color-mix(in srgb, var(--color-on-scrim) 12%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.library-viewer-glass:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--color-on-scrim) 24%, transparent);
+}
+
+.library-viewer-version {
+  color: color-mix(in srgb, var(--color-on-scrim) 78%, transparent);
+  background-color: color-mix(in srgb, var(--color-on-scrim) 6%, transparent);
+  border: 1px solid transparent;
+  transition: background-color var(--dur-s) var(--ease);
+}
+
+.library-viewer-version:hover {
+  background-color: color-mix(in srgb, var(--color-on-scrim) 12%, transparent);
+}
+
+.library-viewer-version[aria-pressed='true'] {
+  color: var(--color-on-scrim);
+  background-color: color-mix(in srgb, var(--color-on-scrim) 16%, transparent);
+  border-color: color-mix(in srgb, var(--color-on-scrim) 50%, transparent);
+}
+
 /* 读取中的占位用原生多列排版，列宽与真卡的列数档位相近。 */
 .library-skeleton-grid {
   columns: 5 220px;

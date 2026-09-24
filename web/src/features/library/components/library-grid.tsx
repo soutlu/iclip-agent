@@ -17,9 +17,10 @@ type LibraryGridProps = {
   /** 页面的滚动容器；虚拟列表跟着它的滚动位置算哪些卡在视口里。 */
   getScrollElement: () => HTMLElement | null
   onAuthor: (userName: string) => void
+  onOpen: (id: string, startAt: number | null) => void
 }
 
-export function LibraryGrid({ videos, getScrollElement, onAuthor }: LibraryGridProps) {
+export function LibraryGrid({ videos, getScrollElement, onAuthor, onOpen }: LibraryGridProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const { width, offsetTop } = useContainerBox(containerRef, getScrollElement)
   const lanes = columnCountFor(width)
@@ -68,7 +69,7 @@ export function LibraryGrid({ videos, getScrollElement, onAuthor }: LibraryGridP
               width: columnWidth,
             }}
           >
-            <LibraryCard onAuthor={onAuthor} video={video} width={columnWidth} />
+            <LibraryCard onAuthor={onAuthor} onOpen={onOpen} video={video} width={columnWidth} />
           </div>
         )
       })}
