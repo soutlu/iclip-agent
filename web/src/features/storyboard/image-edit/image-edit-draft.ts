@@ -1,8 +1,6 @@
 import { z } from 'zod'
+import { MAX_ANNOTATIONS, MAX_EDIT_REFERENCES } from '../generation-limits'
 import type { FrameEditDraft, FrameEditTarget } from './image-edit-types'
-
-/** 一次编辑提交给模型的图片上限，编辑器的提示、禁用与终校共用。 */
-export const MAX_EDIT_REFERENCES = 10
 
 // 编辑器内部的形状，不进 HTTP：提交时只发编译好的 prompt 与图片地址。
 const idSchema = z.string().min(1).max(100)
@@ -20,7 +18,7 @@ const draftSchema = z.object({
           .max(2000),
       }),
     )
-    .max(50),
+    .max(MAX_ANNOTATIONS),
   instructions: z.array(
     z.union([
       z.object({ kind: z.literal('text'), text: z.string() }),
@@ -85,8 +83,11 @@ export const isEmptyDraft = (draft: FrameEditDraft, baseUrl: string): boolean =>
   draft.references[0]?.kind === 'image' &&
   draft.references[0].url === baseUrl
 
+/** 标注超出上限的提示，画布拦截新增与提交前终校共用。 */
+export const TOO_MANY_ANNOTATIONS = `每张图片最多添加 ${MAX_ANNOTATIONS} 个标注`
+
 export function editDraftError(draft: FrameEditDraft): string | null {
-  if (draft.annotations.length > 50) return '每张图片最多添加 50 个标注'
+  if (draft.annotations.length > MAX_ANNOTATIONS) return TOO_MANY_ANNOTATIONS
   if (draft.annotations.reduce((total, annotation) => total + annotation.points.length, 0) > 10000)
     return '标注点数过多，请简化画笔标注'
   if (draft.instructions.length > 200) return '引用片段过多，请简化修改要求'

@@ -6,6 +6,7 @@ import {
   addMockCollection,
   addMockConversation,
   addMockTask,
+  loginAs,
   mockAuthUser,
 } from '@/testing/mocks/handlers'
 import { useLiveConversations } from '@/features/conversations'
@@ -19,7 +20,7 @@ function LiveFrames() {
   return null
 }
 
-/** 按分钟递增活动时间，验证列表倒序。 */
+/** 按分钟递增建立时间，验证列表倒序。 */
 const seedConversations = (count: number, collectionId: string | null = null) =>
   Array.from({ length: count }, (_, index) => {
     const conversation = addMockConversation(
@@ -45,9 +46,7 @@ const workChanged = (
 })
 
 const render = async (initialPath = '/', permissions = mockAuthUser.permissions) => {
-  server.use(
-    http.get('*/api/users/me', () => HttpResponse.json({ user: { ...mockAuthUser, permissions } })),
-  )
+  loginAs(mockAuthUser, { permissions })
   const user = userEvent.setup()
   const { router, socket } = await renderWithProviders(
     <>
@@ -245,7 +244,7 @@ describe('SidebarConversations', () => {
     await user.click(await screen.findByRole('menuitem', { name: '标记完成' }))
     expect(await screen.findByLabelText('已完成')).toBeVisible()
 
-    // 后端 touch_run 抹掉标记但不发帧，行上要照开跑与收尾互斥自己收掉（ADR-0031）。
+    // 后端 touch_run 抹掉标记但不发帧，行上要照开跑与收尾互斥自己收掉。
     socket.deliver(workChanged(conversation?.id ?? '', { busy: true }))
 
     expect(await screen.findByLabelText('进行中')).toBeVisible()
@@ -358,9 +357,15 @@ describe('SidebarConversations', () => {
     },
   )
 
-  it('归属弹窗把对话移进合集后，侧栏跟着变', async () => {
+  it('归属弹窗把对话移进合集后，侧栏跟着变，拓扑只重拉一次', async () => {
     const collection = addMockCollection('夏季亚麻系列')
     const [conversation] = seedConversations(1)
+    let topologyReads = 0
+    server.events.on('request:start', ({ request }) => {
+      if (request.method === 'GET' && new URL(request.url).pathname === '/api/conversations') {
+        topologyReads += 1
+      }
+    })
     const { user } = await render()
     await screen.findByText('第0段')
 
@@ -368,11 +373,14 @@ describe('SidebarConversations', () => {
     await user.click(await screen.findByRole('menuitem', { name: '归属' }))
     const dialog = await screen.findByRole('dialog', { name: '对话归属' })
     await user.selectOptions(within(dialog).getByLabelText('合集'), collection.id)
+    const readsBeforeSave = topologyReads
     await user.click(within(dialog).getByRole('button', { name: '保存' }))
 
     await waitFor(() => expect(conversation?.collectionId).toBe(collection.id))
     expect(await screen.findByRole('button', { name: '任务 (0)' })).toBeVisible()
     expect(await screen.findByRole('button', { name: '夏季亚麻系列 (1)' })).toBeVisible()
+    // 刷新只由归属 mutation 做一遍；路由的保存回调再刷一遍会取消在途重拉、多发一次请求。
+    expect(topologyReads - readsBeforeSave).toBe(1)
   })
 
   it('服务端给对话起了名，侧栏那一行当场跟着改', async () => {

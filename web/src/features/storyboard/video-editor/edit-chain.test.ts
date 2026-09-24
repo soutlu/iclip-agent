@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { makeGenerationJob } from '@/testing/generation-job'
 import type { GenerationJob } from '../storyboard.api'
 import {
   actualEditStart,
@@ -14,24 +15,16 @@ import {
 
 const ROOT_URL = 'https://oss.example/root.mp4'
 
-const job = (spec: Partial<GenerationJob> & { id: string }): GenerationJob => ({
-  createdAt: '2026-09-15T10:00:00Z',
-  errorMessage: null,
-  kind: 'video',
-  metadata: null,
-  outputUrl: null,
-  request: {},
-  status: 'completed',
-  taskId: null,
-  clipStage: null,
-  durationMs: null,
-  watermarkOutputUrl: null,
-  ...spec,
-})
+const job = (spec: Partial<GenerationJob> & { id: string }): GenerationJob =>
+  makeGenerationJob({ createdAt: '2026-09-15T10:00:00Z', ...spec })
 
-const coords = (editId: string, baseJob: string, editStart: number, editEnd: number) => ({
-  rootJob: 'root',
-  baseJob,
+/** 链上的记录：原作号一律指根，不管这次基于哪一版。 */
+const derived = (spec: Partial<GenerationJob> & { id: string }): GenerationJob =>
+  job({ rootJobId: 'root', ...spec })
+
+/** `base` 是基于哪一版：'root' 即原片（便签上不写），否则是那一版成片的 editId。 */
+const coords = (editId: string, base: string, editStart: number, editEnd: number) => ({
+  ...(base === 'root' ? {} : { baseEdit: base }),
   editId,
   editStart,
   editEnd,
@@ -46,7 +39,7 @@ const root = job({
 
 /** e1 已合成；e2 在 V2 上切片中；e3 编辑结果回来了待预览；e4 生成失败。 */
 const chainJobs: GenerationJob[] = [
-  job({
+  derived({
     id: 'e1-ref',
     kind: 'clip',
     createdAt: '2026-09-15T10:01:00Z',
@@ -54,14 +47,14 @@ const chainJobs: GenerationJob[] = [
     metadata: coords('e1', 'root', 4, 8),
     request: { purpose: 'reference', segments: [{ url: ROOT_URL, start: 4, end: 8 }] },
   }),
-  job({
+  derived({
     id: 'e1-video',
     createdAt: '2026-09-15T10:02:00Z',
     outputUrl: 'https://oss.example/e1.mp4',
     metadata: coords('e1', 'root', 3.774, 8),
     request: { prompt: '编辑视频，换成浅灰背景' },
   }),
-  job({
+  derived({
     id: 'e1-master',
     kind: 'clip',
     createdAt: '2026-09-15T10:03:00Z',
@@ -76,25 +69,25 @@ const chainJobs: GenerationJob[] = [
       ],
     },
   }),
-  job({
+  derived({
     id: 'e2-ref',
     kind: 'clip',
     createdAt: '2026-09-15T10:04:00Z',
     status: 'submitted',
-    metadata: coords('e2', 'e1-master', 1, 2),
+    metadata: coords('e2', 'e1', 1, 2),
     request: {
       purpose: 'reference',
       segments: [{ url: 'https://oss.example/m1.mp4', start: 1, end: 2 }],
     },
   }),
-  job({
+  derived({
     id: 'e3-video',
     createdAt: '2026-09-15T10:05:00Z',
     outputUrl: 'https://oss.example/e3.mp4',
     metadata: coords('e3', 'root', 2.5, 6),
     request: { prompt: '把人物换成侧身' },
   }),
-  job({
+  derived({
     id: 'e4-video',
     createdAt: '2026-09-15T10:06:00Z',
     status: 'failed',
@@ -103,7 +96,7 @@ const chainJobs: GenerationJob[] = [
   }),
   // 坐标读不出来的、基底不在链里的，都不算。
   job({ id: 'stray', metadata: { shot: 2 } }),
-  job({ id: 'orphan', metadata: coords('e9', 'elsewhere', 0, 1), outputUrl: 'x' }),
+  derived({ id: 'orphan', metadata: coords('e9', 'elsewhere', 0, 1), outputUrl: 'x' }),
 ]
 
 describe('projectEditChain', () => {
@@ -146,6 +139,38 @@ describe('projectEditChain', () => {
       { mediaUrl: 'https://oss.example/e3.mp4', start: 0, role: 'edited' },
       { mediaUrl: ROOT_URL, start: 6, role: 'base' },
     ])
+  })
+
+  it('同一 editId 重发过时，各角色取列表最前那条（接口新的在前），坐标跟着它', () => {
+    const resent = projectEditChain(root, [
+      derived({
+        id: 'e5-video-retry',
+        createdAt: '2026-09-15T10:09:00Z',
+        outputUrl: 'https://oss.example/e5-retry.mp4',
+        metadata: coords('e5', 'root', 1.2, 4),
+        request: { prompt: '重发：人物转身' },
+      }),
+      derived({
+        id: 'e5-video',
+        createdAt: '2026-09-15T10:08:00Z',
+        status: 'failed',
+        errorMessage: '上游超时',
+        metadata: coords('e5', 'root', 1.5, 4),
+        request: { prompt: '人物转身' },
+      }),
+      derived({
+        id: 'e5-ref',
+        kind: 'clip',
+        createdAt: '2026-09-15T10:07:00Z',
+        outputUrl: 'https://oss.example/e5-ref.mp4',
+        metadata: coords('e5', 'root', 1, 4),
+        request: { purpose: 'reference', segments: [{ url: ROOT_URL, start: 1, end: 4 }] },
+      }),
+    ])
+    expect(
+      resent.pending.map((edit) => [edit.key, edit.stage, edit.video?.id, edit.prompt]),
+    ).toEqual([['e5', 'ready', 'e5-video-retry', '重发：人物转身']])
+    expect(resent.pending[0]?.coords).toMatchObject({ editStart: 1.2, editEnd: 4 })
   })
 
   it('根没有结果时没有任何版本', () => {
@@ -244,7 +269,7 @@ describe('actualEditStart', () => {
 })
 
 describe('editCountsByRoot', () => {
-  it('只按 rootJob 数成功的编辑结果，基底不在链里的也算这条根的', () => {
+  it('只按原作号数成功的编辑结果，基底不在链里的也算这条根的', () => {
     expect([...editCountsByRoot(chainJobs)]).toEqual([['root', 3]])
   })
 })

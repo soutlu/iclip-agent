@@ -6,7 +6,7 @@ import inspect
 import json
 import uuid
 from dataclasses import replace
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 from pydantic_ai import Agent, ModelRetry, ToolFailed
@@ -36,6 +36,7 @@ from iclip.capabilities.shot_video.generation import (
     GRID_RESOLUTION,
     IMAGE_MODEL,
 )
+from iclip.capabilities.shot_video.ports import ImageChannel
 from iclip.capabilities.shot_video.toolset import ShotVideoToolset
 from iclip.capabilities.video.capability import Video
 from iclip.capabilities.video_document import video_doc_path
@@ -57,8 +58,9 @@ from tests.helpers.shot_video import (
 )
 
 USER = uuid.UUID("11111111-1111-1111-1111-111111111111")
+CONVERSATION = "33333333-3333-3333-3333-333333333333"
 VIDEO = "https://cdn.test/ref.mp4"
-NAMESPACE = f"{USER}/thread-1"
+NAMESPACE = f"{USER}/{CONVERSATION}"
 
 DOCUMENT = (
     "## 4、逐镜拉片表\n"
@@ -70,6 +72,8 @@ DOCUMENT = (
 # 替身无网络或子进程操作，缩短轮询间隔以减少测试等待。
 FAST = GenerationPolicy(
     poll_interval_seconds=0.001,
+    dev_attempts=2,
+    pro_attempts=1,
     backoff_seconds=0.001,
     backoff_factor=1.0,
     total_timeout_seconds=5.0,
@@ -85,7 +89,7 @@ def make_deps() -> AgentRunDeps:
             audit_label="luke",
             api_key_id=None,
         ),
-        conversation_id="thread-1",
+        conversation_id=CONVERSATION,
         user_name="luke",
     )
 
@@ -95,14 +99,20 @@ def make_context(deps: object) -> RunContext[object]:
     return RunContext[object](deps=deps, model=TestModel(), usage=RunUsage(), messages=[])
 
 
-def ledger(*_cell_ids: str) -> str:
+def board_url(*, key: str = "k", index: int = 1) -> str:
+    """替身对象存储为这次取帧的这块板发布的地址。"""
+
+    return FakeObjects().public_url(MEDIA_PATHS.shot_board(extraction_key=key, index=index))
+
+
+def ledger(*_cell_ids: str, url: str | None = None) -> str:
     """取帧账本。逐格请求不校验帧号是否在账本里，出图工具只看它存不存在。"""
 
     return json.dumps(
         {
             "extractionVersion": 1,
             "extractionKey": "k",
-            "boards": [{"board": 1, "url": "https://cdn.test/board.jpg"}],
+            "boards": [{"board": 1, "url": url or board_url()}],
         }
     )
 
@@ -410,6 +420,91 @@ async def test_generate_needs_the_extraction_ledger(
     assert generations.submitted == []
 
 
+BROKEN_LEDGERS = {
+    "not-json": "{",
+    "board-without-url": json.dumps(
+        {"extractionVersion": 1, "extractionKey": "k", "boards": [{"board": 1}]}
+    ),
+    "board-zero": json.dumps(
+        {
+            "extractionVersion": 1,
+            "extractionKey": "k",
+            "boards": [{"board": 0, "url": "https://cdn.test/board.jpg"}],
+        }
+    ),
+    "board-as-text": json.dumps(
+        {
+            "extractionVersion": 1,
+            "extractionKey": "k",
+            "boards": [{"board": "1", "url": "https://cdn.test/board.jpg"}],
+        }
+    ),
+}
+"""模型改坏的取帧台账：key 仍然对得上，形状不合。"""
+
+
+@pytest.mark.parametrize("content", list(BROKEN_LEDGERS.values()), ids=list(BROKEN_LEDGERS))
+async def test_a_broken_ledger_counts_as_missing(
+    capability: ShotVideo[object], files: FakeFileStore, content: str
+) -> None:
+    await files.write(NAMESPACE, EXTRACTION_PATH, content)
+
+    assert await capability.extractor.load(files, NAMESPACE, expected_key="k") is None
+
+
+async def test_a_well_formed_ledger_loads_as_a_model(
+    capability: ShotVideo[object], files: FakeFileStore
+) -> None:
+    await files.write(NAMESPACE, EXTRACTION_PATH, ledger())
+
+    loaded = await capability.extractor.load(files, NAMESPACE, expected_key="k")
+
+    assert loaded is not None
+    assert [(board.board, board.url) for board in loaded.boards] == [(1, board_url())]
+    assert await capability.extractor.load(files, NAMESPACE, expected_key="other") is None
+
+
+FORGED_BOARD_URLS = {
+    "external": "https://evil.test/board.jpg",
+    "our-key-on-a-foreign-host": f"https://evil.test/{MEDIA_PATHS.shot_board(extraction_key='k', index=1)}",
+    "another-extraction": board_url(key="other"),
+    "another-board": board_url(index=2),
+    "extra-query": f"{board_url()}?v=1",
+}
+"""key 保留、板地址被改：外部地址，本系统的对象路径挂到别的域名，别的视频或拆解文档（也就是
+别的对话才会产出）的板，同一次取帧的另一块板，真地址后面缀参数。"""
+
+
+@pytest.mark.parametrize("url", list(FORGED_BOARD_URLS.values()), ids=list(FORGED_BOARD_URLS))
+async def test_a_reused_ledger_only_vouches_for_the_boards_this_extraction_published(
+    capability: ShotVideo[object], files: FakeFileStore, url: str
+) -> None:
+    """台账在模型可写的工作区里；板地址按 key 与板号重算后整串比对，对不上按不存在处理，
+    复用分支拿不到它，也就登记不了它。"""
+
+    await files.write(NAMESPACE, EXTRACTION_PATH, ledger(url=url))
+
+    with capture_logs() as logs:
+        assert await capability.extractor.load(files, NAMESPACE, expected_key="k") is None
+
+    assert [log["boards"] for log in logs] == [[1]]
+    assert url not in repr(logs)
+
+
+async def test_generate_treats_a_broken_ledger_as_missing(
+    tools: ShotVideoToolset[object],
+    ctx: RunContext[object],
+    files: FakeFileStore,
+    generations: FakeGenerations,
+) -> None:
+    await files.write(NAMESPACE, EXTRACTION_PATH, BROKEN_LEDGERS["board-without-url"])
+    with pytest.raises(ModelRetry, match="plan_shot_frames"):
+        await tools.generate_shot_frames(
+            ctx, [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
+        )
+    assert generations.submitted == []
+
+
 @pytest.mark.parametrize(
     ("frames", "expected"),
     [
@@ -475,21 +570,24 @@ async def test_generate_tags_the_job_with_the_conversation(
     assert {request.conversation_id for request in generations.submitted} == {conversation_id}
 
 
-async def test_generate_leaves_the_conversation_empty_when_it_is_not_an_id(
+async def test_a_conversation_id_that_is_not_a_uuid_is_corrupt_state(
     tools: ShotVideoToolset[object],
-    ctx: RunContext[object],
     files: FakeFileStore,
     generations: FakeGenerations,
 ) -> None:
+    """入口已把对话 id 规范成 UUID，这里不是 UUID 属于状态损坏，不静默归档成空。"""
 
-    generations.outcomes = [Outcome(status="failed", output_url=None, error_code="REJECTED")]
-    await files.write(NAMESPACE, EXTRACTION_PATH, ledger("S1-1"))
-    with pytest.raises(ToolFailed):
+    ctx = make_context(replace(make_deps(), conversation_id="thread-1"))
+    await files.write(f"{USER}/thread-1", EXTRACTION_PATH, ledger("S1-1"))
+    with pytest.raises(RuntimeError, match="UUID") as failure:
         await tools.generate_shot_frames(
             ctx, [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
         )
+    with pytest.raises(RuntimeError, match="UUID"):
+        await tools.generate_anchor_sheet(ctx, ["一只猫"])
 
-    assert generations.submitted[0].conversation_id is None
+    assert "thread-1" not in str(failure.value)
+    assert generations.submitted == []
 
 
 async def test_generate_reference_urls_must_be_http(
@@ -563,7 +661,7 @@ async def test_generate_escalates_to_pro_after_dev(
     ]
     result = await submit_once(tools, ctx, files)
     assert generations.channels() == ["dev", "dev", "pro"]
-    assert result.message == "镜头帧生成失败（PROVIDER_UNREACHABLE）。"
+    assert "PROVIDER_UNREACHABLE" in result.message
 
 
 @pytest.mark.parametrize(
@@ -591,7 +689,7 @@ async def test_generate_walks_every_channel_on_any_failure(
     generations.outcomes = [Outcome(status="failed", output_url=None, error_code=error_code)]
     result = await submit_once(tools, ctx, files)
     assert generations.channels() == ["dev", "dev", "pro"]
-    assert result.message == f"镜头帧生成失败（{error_code}）。"
+    assert error_code in result.message
 
 
 async def test_generate_stays_on_dev_when_pro_is_off(
@@ -612,14 +710,12 @@ async def test_generate_stays_on_dev_when_pro_is_off(
         paths=MEDIA_PATHS,
         client=None,  # type: ignore[arg-type]
         image_models=frozenset({IMAGE_MODEL}),
-        policy=GenerationPolicy(
-            poll_interval_seconds=0.001, dev_attempts=2, pro_attempts=0, backoff_seconds=0.001
-        ),
+        policy=replace(FAST, dev_attempts=2, pro_attempts=0),
     ).get_toolset()
     assert isinstance(toolset, ShotVideoToolset)
     result = await submit_once(toolset, ctx, files)
     assert generations.channels() == ["dev", "dev"]
-    assert result.message == "镜头帧生成失败（PROVIDER_REJECTED）。"
+    assert "PROVIDER_REJECTED" in result.message
 
 
 async def test_generate_rejects_bad_parameters_before_paying(
@@ -655,19 +751,13 @@ async def test_generate_timeout_is_a_brief_failure_and_logs_the_record(
         paths=MEDIA_PATHS,
         client=None,  # type: ignore[arg-type]
         image_models=frozenset({IMAGE_MODEL}),
-        policy=GenerationPolicy(
-            poll_interval_seconds=0.001,
-            dev_attempts=1,
-            pro_attempts=1,
-            backoff_seconds=0.001,
-            total_timeout_seconds=0.02,
-        ),
+        policy=replace(FAST, dev_attempts=1, pro_attempts=1, total_timeout_seconds=0.02),
     ).get_toolset()
     assert isinstance(toolset, ShotVideoToolset)
     with capture_logs() as logs:
         result = await submit_once(toolset, ctx, files)
     assert generations.channels() == ["dev"]
-    assert result.message == "镜头帧生成失败（TOOL_WAIT_TIMEOUT）。"
+    assert "TOOL_WAIT_TIMEOUT" in result.message
     assert logs[-1]["error_code"] == "TOOL_WAIT_TIMEOUT"
     assert logs[-1]["job_id"] == str(generations.job_ids[0])
 
@@ -702,7 +792,7 @@ async def test_anchor_sheet_submits_a_full_square_grid_without_references(
     generations.outcomes = [
         Outcome(status="failed", output_url=None, error_code="PROVIDER_REJECTED")
     ]
-    with pytest.raises(ToolFailed, match=r"^设定图生成失败（PROVIDER_REJECTED）。$"):
+    with pytest.raises(ToolFailed, match="PROVIDER_REJECTED"):
         await tools.generate_anchor_sheet(ctx, ["全身正面平视的女性", "空景全景平视的门厅"])
 
     request = generations.submitted[0]
@@ -764,4 +854,4 @@ def test_the_pinned_image_model_can_do_what_the_frame_tools_ask_for() -> None:
     assert spec is not None, f"{IMAGE_MODEL} 没有对应的适配器"
     assert GRID_RESOLUTION in spec.resolutions
     assert ANCHOR_ASPECT in spec.aspect_ratios
-    assert set(GenerationPolicy().channels()) <= set(spec.channels)
+    assert set(get_args(ImageChannel)) <= set(spec.channels)

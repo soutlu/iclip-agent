@@ -5,7 +5,7 @@ Revises: c5d8a2f47e19
 Create Date: 2026-09-12 12:00:00.000000
 
 存量行只知道镜头组与帧号，不知道来自哪个分镜文件；仓库里分镜文件只有 `video_shot.json`
-一个路径（web 的 SHOTS_PATH），回填按它写。决策见 docs/adr/0020-generation-metadata.md。
+一个路径（web 的 SHOTS_PATH），回填按它写。
 """
 
 from __future__ import annotations

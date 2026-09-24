@@ -28,7 +28,7 @@ from iclip.domains.identity.infra_sql import OAuthAccount, SessionFactory, User
 from iclip.domains.identity.middleware import require_authenticated, require_permission
 from iclip.domains.identity.models import Principal
 from iclip.domains.identity.pms import PmsUnavailable, PmsUserClient
-from iclip.domains.identity.rbac import ROOT_ROLE
+from iclip.domains.identity.rbac import MANAGE_PERMISSION, ROOT_ROLE
 from iclip.domains.identity.repository import UserRepository
 from iclip.domains.identity.schemas import (
     ApiKeyCreatedEnvelope,
@@ -96,11 +96,11 @@ def create_users_router(service: IdentityService) -> APIRouter:
 
     @router.get("/users", response_model=UsersPageOut)
     async def list_users(
-        principal: Annotated[Principal, Depends(require_permission("users:manage"))],
+        _: Annotated[Principal, require_permission(MANAGE_PERMISSION)],
         page: Annotated[int, Query(ge=1)] = 1,
         page_size: Annotated[int, Query(alias="pageSize", ge=1, le=200)] = 50,
     ) -> UsersPageOut:
-        accounts, total = await service.list_users_page(principal, page=page, page_size=page_size)
+        accounts, total = await service.list_users_page(page=page, page_size=page_size)
         return UsersPageOut(
             items=[user_out(account) for account in accounts],
             total=total,
@@ -116,7 +116,7 @@ def create_users_router(service: IdentityService) -> APIRouter:
     async def patch_user(
         user_id: uuid.UUID,
         patch: UserPatchIn,
-        principal: Annotated[Principal, Depends(require_permission("users:manage"))],
+        principal: Annotated[Principal, require_permission(MANAGE_PERMISSION)],
     ) -> UserEnvelope:
         try:
             account = await service.update_user(
@@ -145,7 +145,7 @@ def create_api_keys_router(service: IdentityService) -> APIRouter:
     @router.post("/api-keys", response_model=ApiKeyCreatedEnvelope, status_code=201)
     async def create_key(
         body: ApiKeyCreateIn,
-        principal: Annotated[Principal, Depends(require_authenticated)],
+        principal: Annotated[Principal, require_permission("api_keys:issue")],
     ) -> ApiKeyCreatedEnvelope:
         record, token = await service.issue_api_key(
             principal,
@@ -214,7 +214,7 @@ def create_sso_router(
 
         async with user_manager_ctx() as manager:
             email = session.email or sso_placeholder_email(session.union_id)
-            # 仅新建账号时设置默认角色；同邮箱关联不得重置既有授权（ADR-0002）。
+            # 仅新建账号时设置默认角色；同邮箱关联不得重置既有授权。
             is_new_account = False
             try:
                 await manager.get_by_oauth_account(OAUTH_NAME, session.union_id)

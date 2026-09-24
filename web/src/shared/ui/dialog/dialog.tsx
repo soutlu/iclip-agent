@@ -1,37 +1,22 @@
 import { Dialog as DialogPrimitive } from 'radix-ui'
-import type { ComponentPropsWithoutRef, DragEvent, ReactNode } from 'react'
-import { hasDraggedFiles } from '@/shared/lib/drag-files'
+import type { ComponentPropsWithoutRef, ReactNode } from 'react'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
+import { refuseFileDropProps } from '@/shared/ui/file-drop'
 
 export const DialogRoot = DialogPrimitive.Root
-export const DialogTrigger = DialogPrimitive.Trigger
-export const DialogClose = DialogPrimitive.Close
-export const DialogDescription = DialogPrimitive.Description
-
-/**
- * 弹窗不收文件：标成禁止落点并保留冒泡，背后的聊天输入框看到 defaultPrevented 就让出，
- * 不会把落在弹窗上的文件当聊天附件收走。弹窗里自己的拖放区先接管了的不动。
- */
-const refuseDraggedFiles = (event: DragEvent<HTMLElement>) => {
-  if (!hasDraggedFiles(event) || event.defaultPrevented) return
-  event.preventDefault()
-  event.dataTransfer.dropEffect = 'none'
-}
-export const refuseFileDropProps = {
-  onDragEnter: refuseDraggedFiles,
-  onDragOver: refuseDraggedFiles,
-  onDrop: refuseDraggedFiles,
-}
 
 type DialogSurfaceProps = ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
   children: ReactNode
+  /** 不画圆角、底色与阴影：整块交给内部各面板自己承载表面；本体标 `data-variant="bare"`。 */
+  bare?: boolean
   /** 画布弹层通过遮罩类名声明 nodrag / nopan。 */
   overlayClassName?: string
 }
 
-/** 视口小于 600px 时使用底部 sheet，其余居中；层级与外观遵循设计契约。 */
+/** 视口小于 600px 时使用底部 sheet，其余居中；层级与外观遵循设计契约。本体与遮罩是文件拖放的拒收面，协议见 file-drop。 */
 export function DialogSurface({
+  bare = false,
   children,
   className,
   overlayClassName,
@@ -45,14 +30,17 @@ export function DialogSurface({
       />
       <DialogPrimitive.Content
         className={cn(
-          'layer-popup fixed flex flex-col overflow-hidden bg-surface-container-lowest text-on-surface shadow-[var(--shadow-3)]',
-          'top-1/2 left-1/2 max-h-[86vh] w-[calc(100%-32px)] max-w-[582px] -translate-x-1/2 -translate-y-1/2 rounded-2xl',
-          'max-sm:top-auto max-sm:bottom-0 max-sm:left-0 max-sm:max-h-[92vh] max-sm:w-full max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-t-2xl max-sm:rounded-b-none',
+          'layer-popup fixed flex flex-col text-on-surface',
+          !bare &&
+            'overflow-hidden rounded-2xl bg-surface-container-lowest shadow-[var(--shadow-3)] max-sm:rounded-t-2xl max-sm:rounded-b-none',
+          'top-1/2 left-1/2 max-h-[86vh] w-[calc(100%-32px)] max-w-[582px] -translate-x-1/2 -translate-y-1/2',
+          'max-sm:top-auto max-sm:bottom-0 max-sm:left-0 max-sm:max-h-[92vh] max-sm:w-full max-sm:translate-x-0 max-sm:translate-y-0',
           'data-[state=open]:animate-in data-[state=open]:duration-(--dur-l) data-[state=open]:ease-(--ease-decel) data-[state=open]:zoom-in-95 data-[state=open]:fade-in',
           'data-[state=closed]:animate-out data-[state=closed]:duration-(--dur-s) data-[state=closed]:ease-(--ease-accel) data-[state=closed]:zoom-out-95 data-[state=closed]:fade-out',
           'max-sm:data-[state=closed]:zoom-out-100 max-sm:data-[state=closed]:slide-out-to-bottom max-sm:data-[state=open]:zoom-in-100 max-sm:data-[state=open]:slide-in-from-bottom',
           className,
         )}
+        data-variant={bare ? 'bare' : undefined}
         {...props}
         {...refuseFileDropProps}
       >

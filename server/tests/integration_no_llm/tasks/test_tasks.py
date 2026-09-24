@@ -9,89 +9,25 @@ import httpx
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import create_async_engine
 
-from tests.helpers.tasks import STYLE_NO
-from tests.integration_no_llm.conftest import (
-    make_client,
-    register_and_login,
-    set_roles_in_db,
-)
-
-URL = "/tasks"
-
-INPUTS = {
-    "products": [
-        {
-            "style_no": STYLE_NO,
-            "name": "秋冬长靴",
-            "brand": "品牌甲",
-            "category": "鞋靴",
-            "color_name": "黑色",
-            "image_oss_urls": ["https://example.com/product.jpg"],
-        },
-        {
-            "style_no": "SBPU24002W",
-            "name": "同系列短靴",
-            "brand": "品牌甲",
-            "category": "鞋靴",
-            "color_name": "棕色",
-            "image_oss_urls": [],
-        },
-    ],
-    "video_spec": {
-        "platform": "douyin",
-        "video_type": "product_showcase",
-        "content_type": "short_video",
-        "resolution": "1080p",
-        "aspect_ratio": "9:16",
-        "duration_seconds": 30,
-    },
-    "creative_requirement": "三十秒的上身效果",
-    "reference_image_oss_urls": {
-        "model": ["https://example.com/model.jpg"],
-        "outfit": [],
-        "prop": [],
-    },
-    "reference_video_oss_url": None,
-}
+from tests.helpers.app import make_client
+from tests.helpers.auth import login_as_editor, register_and_login, set_roles_in_db
+from tests.helpers.pg import connected
+from tests.helpers.tasks import INPUTS, URL, create
 
 
 def future(days: int = 7) -> str:
     return (datetime.now(UTC) + timedelta(days=days)).isoformat()
 
 
-async def login_as_editor(client: httpx.AsyncClient, pg_url: str, *, username: str = "luke") -> str:
-    email = f"{username}@example.com"
-    user_id = await register_and_login(client, username=username, email=email)
-    await set_roles_in_db(pg_url, email, ["editor"])
-    return user_id
-
-
-async def create(client: httpx.AsyncClient, **body: object) -> httpx.Response:
-    return await client.post(
-        URL,
-        json={
-            "title": "秋冬新品短视频",
-            "inputs": INPUTS,
-            "deadline": future(),
-            **body,
-        },
-    )
-
-
 async def set_status_directly(pg_url: str, task_id: str, status: str) -> None:
     """绕过 API 更新状态，模拟读取后的并发修改。"""
 
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("UPDATE iclip.tasks SET status = :status WHERE id = CAST(:id AS uuid)"),
-                {"status": status, "id": task_id},
-            )
-    finally:
-        await engine.dispose()
+    async with connected(pg_url) as conn:
+        await conn.execute(
+            text("UPDATE iclip.tasks SET status = :status WHERE id = CAST(:id AS uuid)"),
+            {"status": status, "id": task_id},
+        )
 
 
 async def test_full_lifecycle_over_http(client: httpx.AsyncClient, pg_url: str) -> None:
@@ -148,17 +84,13 @@ async def test_inputs_survive_http_and_jsonb_round_trip(
     created = (await create(client)).json()["task"]
     read_back = (await client.get(f"{URL}/{created['id']}")).json()["task"]
     assert read_back["inputs"] == INPUTS
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.connect() as conn:
-            stored = (
-                await conn.execute(
-                    text("SELECT inputs FROM iclip.tasks WHERE id = CAST(:id AS uuid)"),
-                    {"id": created["id"]},
-                )
-            ).scalar_one()
-    finally:
-        await engine.dispose()
+    async with connected(pg_url) as conn:
+        stored = (
+            await conn.execute(
+                text("SELECT inputs FROM iclip.tasks WHERE id = CAST(:id AS uuid)"),
+                {"id": created["id"]},
+            )
+        ).scalar_one()
     assert stored == INPUTS
 
 
@@ -169,20 +101,16 @@ async def test_timestamps_come_from_the_database_clock(
     await login_as_editor(client, pg_url)
     task = (await create(client)).json()["task"]
 
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.connect() as conn:
-            drift = (
-                await conn.execute(
-                    text(
-                        "SELECT extract(epoch FROM (now() - created_at)) FROM iclip.tasks"
-                        " WHERE id = CAST(:id AS uuid)"
-                    ),
-                    {"id": task["id"]},
-                )
-            ).scalar_one()
-    finally:
-        await engine.dispose()
+    async with connected(pg_url) as conn:
+        drift = (
+            await conn.execute(
+                text(
+                    "SELECT extract(epoch FROM (now() - created_at)) FROM iclip.tasks"
+                    " WHERE id = CAST(:id AS uuid)"
+                ),
+                {"id": task["id"]},
+            )
+        ).scalar_one()
 
     assert 0 <= float(drift) < 60
 
@@ -238,16 +166,12 @@ async def test_constraints_live_on_the_table(
         " VALUES (gen_random_uuid(), 't', :status, 0, :deadline, CAST(:owner AS uuid),"
         " CAST(:inputs AS jsonb), now(), now())"
     )
-    engine = create_async_engine(pg_url)
-    try:
-        with pytest.raises(DBAPIError) as raised:
-            async with engine.begin() as conn:
-                await conn.execute(
-                    statement,
-                    {"status": status, "owner": user_id, "deadline": deadline, "inputs": inputs},
-                )
-    finally:
-        await engine.dispose()
+    with pytest.raises(DBAPIError) as raised:
+        async with connected(pg_url) as conn:
+            await conn.execute(
+                statement,
+                {"status": status, "owner": user_id, "deadline": deadline, "inputs": inputs},
+            )
     assert constraint in str(raised.value)
 
 
@@ -257,15 +181,11 @@ async def test_a_task_outlives_nothing_silently(client: httpx.AsyncClient, pg_ur
     user_id = await login_as_editor(client, pg_url)
     await create(client)
 
-    engine = create_async_engine(pg_url)
-    try:
-        with pytest.raises(DBAPIError) as raised:
-            async with engine.begin() as conn:
-                await conn.execute(
-                    text("DELETE FROM iclip.users WHERE id = CAST(:id AS uuid)"), {"id": user_id}
-                )
-    finally:
-        await engine.dispose()
+    with pytest.raises(DBAPIError) as raised:
+        async with connected(pg_url) as conn:
+            await conn.execute(
+                text("DELETE FROM iclip.users WHERE id = CAST(:id AS uuid)"), {"id": user_id}
+            )
     assert "tasks" in str(raised.value)
 
 
@@ -288,6 +208,27 @@ async def test_viewer_reads_everyones_tasks_but_writes_none(
     assert [item["id"] for item in listed.json()["items"]] == [task["id"]]
     assert blocked.status_code == 403
     assert forbidden.status_code == 403
+
+
+async def test_list_pages_by_cursor_and_reads_a_batch_by_ids(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """数据库时钟下依次建三张，按建立时间倒序翻页，续页不重不漏；``ids`` 批量读取只回点名的。"""
+
+    await login_as_editor(client, pg_url)
+    created = [(await create(client, title=f"第 {i} 张")).json()["task"]["id"] for i in range(3)]
+
+    first = (await client.get(URL, params={"limit": 2})).json()
+    assert [item["id"] for item in first["items"]] == created[:0:-1]
+    assert first["total"] == 3 and first["nextCursor"] is not None
+
+    rest = (await client.get(URL, params={"limit": 2, "cursor": first["nextCursor"]})).json()
+    assert [item["id"] for item in rest["items"]] == created[:1]
+    assert rest["total"] == 3 and rest["nextCursor"] is None
+
+    batch = (await client.get(URL, params=(("ids", created[0]), ("ids", created[2])))).json()
+    assert [item["id"] for item in batch["items"]] == [created[2], created[0]]
+    assert batch["total"] == 2
 
 
 async def test_second_claim_adds_a_person_without_touching_the_task_row(

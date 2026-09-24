@@ -7,14 +7,11 @@ from datetime import UTC, datetime, timedelta
 import httpx
 from fastapi import FastAPI
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
 
+from tests.helpers.app import make_client
+from tests.helpers.auth import register_and_login, set_roles_in_db
+from tests.helpers.pg import connected
 from tests.helpers.tasks import STYLE_NO
-from tests.integration_no_llm.conftest import (
-    make_client,
-    register_and_login,
-    set_roles_in_db,
-)
 
 URL = "/collections"
 CONVERSATIONS = "/conversations"
@@ -79,51 +76,43 @@ async def plant_job(
     与活动时间。为假是 run 还没挂上就结束的行（run_id 为空），对话上没有留痕。"""
 
     run_id = f"{AGENT_ID}-{prompt_id}" if ran else None
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.begin() as conn:
+    async with connected(pg_url) as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO agent_runtime.agent_jobs "
+                "(prompt_id, conversation_id, agent_id, owner_user_id, user_name, content, "
+                " status, run_id, created_at, finished_at) "
+                "VALUES (:prompt_id, :conversation_id, :agent_id, :owner, 'luke', '[]', "
+                " :status, :run_id, now(), :finished_at)"
+            ),
+            {
+                "prompt_id": prompt_id,
+                "conversation_id": conversation_id,
+                "agent_id": AGENT_ID,
+                "owner": owner,
+                "status": status,
+                "run_id": run_id,
+                "finished_at": None if status == "running" else datetime.now(UTC),
+            },
+        )
+        if run_id is not None:
             await conn.execute(
                 text(
-                    "INSERT INTO agent_runtime.agent_jobs "
-                    "(prompt_id, conversation_id, agent_id, owner_user_id, user_name, content, "
-                    " status, run_id, created_at, finished_at) "
-                    "VALUES (:prompt_id, :conversation_id, :agent_id, :owner, 'luke', '[]', "
-                    " :status, :run_id, now(), :finished_at)"
+                    "UPDATE iclip.conversations SET last_run_id = :run_id, updated_at = now() "
+                    "WHERE id = CAST(:id AS uuid)"
                 ),
-                {
-                    "prompt_id": prompt_id,
-                    "conversation_id": conversation_id,
-                    "agent_id": AGENT_ID,
-                    "owner": owner,
-                    "status": status,
-                    "run_id": run_id,
-                    "finished_at": None if status == "running" else datetime.now(UTC),
-                },
+                {"run_id": run_id, "id": conversation_id},
             )
-            if run_id is not None:
-                await conn.execute(
-                    text(
-                        "UPDATE iclip.conversations SET last_run_id = :run_id, updated_at = now() "
-                        "WHERE id = CAST(:id AS uuid)"
-                    ),
-                    {"run_id": run_id, "id": conversation_id},
-                )
-    finally:
-        await engine.dispose()
 
 
 async def column_of(pg_url: str, conversation_id: str, column: str) -> str | None:
 
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.connect() as conn:
-            found = await conn.execute(
-                text(f"SELECT {column} FROM iclip.conversations WHERE id = :id"),
-                {"id": conversation_id},
-            )
-            value = found.scalar_one()
-    finally:
-        await engine.dispose()
+    async with connected(pg_url) as conn:
+        found = await conn.execute(
+            text(f"SELECT {column} FROM iclip.conversations WHERE id = :id"),
+            {"id": conversation_id},
+        )
+        value = found.scalar_one()
     return None if value is None else str(value)
 
 
@@ -318,7 +307,7 @@ async def test_sidebar_keeps_creation_order_after_edits(
 
 
 async def test_sidebar_filters_by_run_state(client: httpx.AsyncClient, pg_url: str) -> None:
-    """running 只看此刻在不在跑；跑完的活动事实照旧，但不由它决定收尾（ADR-0031）。"""
+    """running 只看此刻在不在跑；跑完的活动事实照旧，但不由它决定收尾。"""
 
     owner = await login_as_editor(client, pg_url)
     collection_id = await open_collection(client, "在跑的那些")
@@ -369,7 +358,7 @@ async def test_sidebar_filters_by_run_state(client: httpx.AsyncClient, pg_url: s
 
 
 async def test_sidebar_filters_by_completion(client: httpx.AsyncClient, pg_url: str) -> None:
-    """done / open 看属主标没标收尾，与跑没跑过无关（ADR-0031）。"""
+    """done / open 看属主标没标收尾，与跑没跑过无关。"""
 
     await login_as_editor(client, pg_url)
     collection_id = await open_collection(client, "收尾了的那些")
@@ -648,19 +637,15 @@ async def test_governor_reviews_a_deleted_conversation_read_only(
 
     owner = await login_as_editor(client, pg_url)
     conversation_id = str((await open_conversation(client))["id"])
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "INSERT INTO agent_runtime.workspace_files "
-                    "(namespace, path, content, version, created_at, updated_at) "
-                    "VALUES (:ns, '分镜.md', '稿子', 1, now(), now())"
-                ),
-                {"ns": f"{owner}/{conversation_id}"},
-            )
-    finally:
-        await engine.dispose()
+    async with connected(pg_url) as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO agent_runtime.workspace_files "
+                "(namespace, path, content, version, created_at, updated_at) "
+                "VALUES (:ns, '分镜.md', '稿子', 1, now(), now())"
+            ),
+            {"ns": f"{owner}/{conversation_id}"},
+        )
     assert (await client.delete(f"{CONVERSATIONS}/{conversation_id}")).status_code == 204
     assert (await client.get(f"{CONVERSATIONS}/{conversation_id}/transcript")).status_code == 404
 

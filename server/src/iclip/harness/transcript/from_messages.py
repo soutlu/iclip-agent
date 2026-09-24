@@ -27,6 +27,7 @@ from pydantic_ai.usage import RequestUsage
 from pydantic_ai_harness.step_persistence import StepEvent
 
 from iclip.harness.context_compaction import compaction_boundary, compaction_only
+from iclip.harness.job_status import JobStatus
 from iclip.harness.transcript.prompt_media import plain_text, prompt_content
 from iclip.platform.transcript.display import ToolDisplayRegistry
 from iclip.platform.transcript.ops import (
@@ -74,10 +75,10 @@ _Steer = tuple[tuple[PromptContent, ...], tuple[str, ...] | None]
 _CLOSED_OUT_OUTCOMES: Final = ("failed", "interrupted")
 """系统补全的失败结果：新消息关闭旧调用使用 failed，中断恢复使用 interrupted。"""
 
-_WAITING_PROMPT_STATUSES: Final = ("awaiting", "running")
+_WAITING_PROMPT_STATUSES: Final[tuple[JobStatus, ...]] = ("awaiting", "running")
 """审批仍可被处理的状态：等待审批或已开始续跑。"""
 
-_TURN_STATE_BY_PROMPT: Final[dict[str, TurnState]] = {
+_TURN_STATE_BY_PROMPT: Final[dict[JobStatus, TurnState]] = {
     "awaiting": "running",
     "running": "running",
     "aborted": "cancelled",
@@ -92,7 +93,7 @@ def turns_from_messages(
     turn_states: Mapping[str, TurnState] | None = None,
     turn_errors: Mapping[str, str | None] | None = None,
     prompt_of_run: Mapping[str, str] | None = None,
-    prompt_status_of_run: Mapping[str, str] | None = None,
+    prompt_status_of_run: Mapping[str, JobStatus] | None = None,
     subagent_of_call: Mapping[str, str] | None = None,
     steered: Sequence[SteeredPrompt] = (),
     display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY,
@@ -120,8 +121,8 @@ def turns_from_messages(
                 segments,
                 ordinal=ordinal,
                 state=(
-                    _TURN_STATE_BY_PROMPT.get(prompt_status or "", from_events)
-                    if waiting
+                    _TURN_STATE_BY_PROMPT.get(prompt_status, from_events)
+                    if waiting and prompt_status is not None
                     else from_events
                 ),
                 error=errors.get(last_run),
@@ -172,8 +173,7 @@ def tasks_from_messages(
     returns = _tool_returns(messages)
     tasks: list[TranscriptTask] = []
     for child in sorted(child_runs, key=lambda item: item.started_at):
-        outcome = returns.get(call_of_child.get(child.run_id, ""))
-        state, text = (None, None) if outcome is None else outcome
+        summary, error = returns.get(call_of_child.get(child.run_id, ""), (None, None))
         tasks.append(
             TranscriptTask(
                 task_id=child.run_id,
@@ -184,8 +184,8 @@ def tasks_from_messages(
                 agent_id=child.run_id,
                 started_at=_iso(child.started_at),
                 ended_at=_iso(child.ended_at),
-                result_summary=text if state == "done" else None,
-                error=None if state is None or state == "done" else text,
+                result_summary=summary,
+                error=error,
                 model=child.model,
                 thinking_effort=child.thinking_effort,
             )
@@ -193,21 +193,27 @@ def tasks_from_messages(
     return tuple(tasks)
 
 
-def _tool_returns(messages: Sequence[ModelMessage]) -> dict[str, tuple[str, str]]:
-    """按 toolCallId 收集工具返回的（终态, 文本），与工具卡的判定口径一致。"""
+def _tool_returns(
+    messages: Sequence[ModelMessage],
+) -> dict[str, tuple[str | None, str | None]]:
+    """按 toolCallId 收集工具返回给任务的（结果摘要, 错误），与实时投影同一口径。
 
-    found: dict[str, tuple[str, str]] = {}
+    工具卡字段取自 settle_tool_return；被停（interrupted）的调用不带错误文本。
+    """
+
+    found: dict[str, tuple[str | None, str | None]] = {}
     for message in messages:
         if not isinstance(message, ModelRequest):
             continue
         for part in message.parts:
-            if isinstance(part, RetryPromptPart):
-                found[part.tool_call_id] = ("error", str(part.content))
-            elif isinstance(part, ToolReturnPart):
-                found[part.tool_call_id] = (
-                    TOOL_STATE_BY_OUTCOME.get(part.outcome, "error"),
-                    str(part.content),
-                )
+            if not isinstance(part, ToolReturnPart | RetryPromptPart):
+                continue
+            state, output, _, error = settle_tool_return(part)
+            stopped = isinstance(part, ToolReturnPart) and part.outcome == "interrupted"
+            found[part.tool_call_id] = (
+                str(output) if state == "done" else None,
+                None if state == "done" or stopped else error,
+            )
     return found
 
 
@@ -216,7 +222,7 @@ def approvals_from_messages(
     *,
     turn_states: Mapping[str, TurnState] | None = None,
     prompt_of_run: Mapping[str, str] | None = None,
-    prompt_status_of_run: Mapping[str, str] | None = None,
+    prompt_status_of_run: Mapping[str, JobStatus] | None = None,
 ) -> tuple[Interaction, ...]:
     """重建审批交互；等待审批和续跑中的调用为 pending，撤回或失败的调用为 cancelled。"""
 
@@ -615,41 +621,21 @@ def _settle_tools(
     tool_frames: dict[str, str],
     frames_by_step: list[dict[str, TranscriptFrame]],
 ) -> None:
-    """回填工具结果；RetryPromptPart 作为失败结果关闭工具卡。"""
+    """回填工具结果，收尾口径见 settle_tool_return。"""
 
     for part in message.parts:
-        if isinstance(part, ToolReturnPart) and part.outcome == "interrupted":
-            # 框架补的中断返回与没有返回的孤儿卡是同一回事，用同一句收尾，实时侧也这么写。
-            _replace_tool(
-                part.tool_call_id,
-                tool_frames,
-                frames_by_step,
-                state="error",
-                output=None,
-                metadata=None,
-                error=ORPHAN_TOOL_ERROR,
-            )
-        elif isinstance(part, ToolReturnPart):
-            state = TOOL_STATE_BY_OUTCOME.get(part.outcome, "error")
-            _replace_tool(
-                part.tool_call_id,
-                tool_frames,
-                frames_by_step,
-                state=state,
-                output=part.content,
-                metadata=part.metadata,
-                error=None if state == "done" else str(part.content),
-            )
-        elif isinstance(part, RetryPromptPart):
-            _replace_tool(
-                part.tool_call_id,
-                tool_frames,
-                frames_by_step,
-                state="error",
-                output=None,
-                metadata=None,
-                error=str(part.content),
-            )
+        if not isinstance(part, ToolReturnPart | RetryPromptPart):
+            continue
+        state, output, metadata, error = settle_tool_return(part)
+        _replace_tool(
+            part.tool_call_id,
+            tool_frames,
+            frames_by_step,
+            state=state,
+            output=output,
+            metadata=metadata,
+            error=error,
+        )
 
 
 def unanswered_tool_calls(messages: Sequence[ModelMessage]) -> tuple[str, ...]:
@@ -681,6 +667,23 @@ def unanswered_tool_calls(messages: Sequence[ModelMessage]) -> tuple[str, ...]:
 
 ORPHAN_TOOL_ERROR = "运行中断，这次调用没有结果"
 """无工具返回时的中断文案，用于结束已终止轮次中的开放工具卡。"""
+
+
+def settle_tool_return(
+    part: ToolReturnPart | RetryPromptPart,
+) -> tuple[Literal["done", "error"], object, object, str | None]:
+    """一次工具返回收尾成工具卡的 (state, output, metadata, error)；两条投影都经这里，文案才一致。
+
+    RetryPromptPart 与非成功结果以返回原文作错误；框架补的 interrupted 返回等同没有返回，
+    output 与 metadata 留空，错误写 ORPHAN_TOOL_ERROR。
+    """
+
+    if isinstance(part, RetryPromptPart):
+        return "error", None, None, str(part.content)
+    if part.outcome == "interrupted":
+        return "error", None, None, ORPHAN_TOOL_ERROR
+    state = TOOL_STATE_BY_OUTCOME.get(part.outcome, "error")
+    return state, part.content, part.metadata, None if state == "done" else str(part.content)
 
 
 def _stamp_approval(
@@ -787,6 +790,7 @@ __all__ = [
     "run_error_from_events",
     "run_ids_from_messages",
     "run_state_from_events",
+    "settle_tool_return",
     "step_usage",
     "tasks_from_messages",
     "turn_run_ids",

@@ -1,6 +1,6 @@
-/** 参考 Kimi 客户端：基线加载前缓冲 WS 批次，加载后按序应用。缺批优先补发，超出窗口重拉；未应用批次必须返回 false，禁止推进水位。 */
+/** 参考 Kimi 客户端：基线请求在途（含整页重拉）时缓冲 WS 批次，基线落地后按序回放。缺批优先补发，超出窗口重拉；未应用批次必须返回 false，禁止推进水位。 */
 
-import { ApiError } from '@/shared/api/client'
+import { ApiError, errorMessageOf } from '@/shared/api/client'
 import {
   MAIN_AGENT_ID,
   type TranscriptConnection,
@@ -74,10 +74,10 @@ export class TranscriptReader {
   private transcript: AgentTranscript
   private readonly listeners = new Set<() => void>()
 
-  /** 基线加载前缓冲，加载后按批次号应用。 */
+  /** 基线请求在途时缓冲，落地后按批次号应用。 */
   private buffered: TranscriptBatch[] = []
 
-  /** 当前已应用批次号；尚无基线时为 null。 */
+  /** 当前已应用批次号；尚无基线或基线请求在途时为 null。 */
   private appliedSeq: number | null = null
 
   /** 串行执行 REST 读取，避免较旧响应覆盖较新基线。 */
@@ -168,14 +168,16 @@ export class TranscriptReader {
     // 类型断言衔接 vendor 的可选字段与 zod 推导出的 undefined，见 transcript.api.ts。
     const batch = { ops: ops as TranscriptBatch['ops'], seq }
     if (this.appliedSeq === null) {
-      // 基线加载前不应用批次，避免随后被基线覆盖。
+      // 基线请求在途时不应用批次，避免随后被基线覆盖。
       this.buffered.push(batch)
       return false
     }
     switch (this.absorb(batch)) {
       case 'applied':
-      case 'duplicate':
         return true
+      case 'duplicate':
+        // 重复批次没带来新内容，不让连接写水位，免得把它写小。
+        return false
       case 'gap':
         this.buffered.push(batch)
         this.catchup()
@@ -219,6 +221,9 @@ export class TranscriptReader {
     this.queue = this.queue.then(async () => {
       this.reloadQueued = false
       if (this.stopped) return
+      // 基线请求在途的批次全部缓冲、落地后回放，不按旧水位分类：reset 后批次号可能从头编。
+      // 在队列任务里置空，排在上一次重拉之后的这一次也从自己发请求起缓冲。
+      this.appliedSeq = null
       try {
         const baseline = await fetchTranscriptBaseline(this.conversationId, this.agentId)
         if (this.stopped) return
@@ -226,18 +231,14 @@ export class TranscriptReader {
         this.appliedSeq = baseline.seq
         this.connection.markApplied(this.conversationId, this.agentId, baseline.seq)
         this.reloads = 0
+        // 整份重建而不是叠在旧快照上，上一次的 error 随之清掉。
         this.snapshot = {
-          activity: this.transcript.getMeta().activity ?? 'unknown',
-          contextTokens: this.transcript.getMeta().agent?.contextTokens,
+          ...this.derived(),
           deletedAt: baseline.deletedAt,
           forkTurn: baseline.forkTurn,
           forkedFrom: baseline.forkedFrom,
           hasMoreOlder: baseline.hasMoreOlder,
-          items: this.transcript.getItems(),
-          maxContextTokens: this.transcript.getMeta().agent?.maxContextTokens,
           ownerUserId: baseline.ownerUserId,
-          pendingInteractions: this.pendingInteractions(),
-          prompts: [...this.transcript.getPrompts().values()],
           status: 'ready',
           title: baseline.title,
         }
@@ -249,7 +250,7 @@ export class TranscriptReader {
           this.fail(this.missingMessage())
           return
         }
-        this.fail(error instanceof Error ? error.message : '读取对话内容失败')
+        this.fail(errorMessageOf(error, '读取对话内容失败'))
         this.scheduleReload()
       }
     })
@@ -290,16 +291,24 @@ export class TranscriptReader {
   }
 
   private publish(): void {
-    this.snapshot = {
-      ...this.snapshot,
-      activity: this.transcript.getMeta().activity ?? 'unknown',
-      contextTokens: this.transcript.getMeta().agent?.contextTokens,
+    this.snapshot = { ...this.snapshot, ...this.derived() }
+    this.emit()
+  }
+
+  /** 视图里随批次变化、从 store 投影出来的那部分；基线落地与应用批次共用。 */
+  private derived(): Pick<
+    TranscriptView,
+    'activity' | 'contextTokens' | 'items' | 'maxContextTokens' | 'pendingInteractions' | 'prompts'
+  > {
+    const meta = this.transcript.getMeta()
+    return {
+      activity: meta.activity ?? 'unknown',
+      contextTokens: meta.agent?.contextTokens,
       items: this.transcript.getItems(),
-      maxContextTokens: this.transcript.getMeta().agent?.maxContextTokens,
+      maxContextTokens: meta.agent?.maxContextTokens,
       pendingInteractions: this.pendingInteractions(),
       prompts: [...this.transcript.getPrompts().values()],
     }
-    this.emit()
   }
 
   /** 将 store 中的待处理交互 ID 解析为界面所需实体。 */

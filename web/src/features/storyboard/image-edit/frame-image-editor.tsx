@@ -1,14 +1,16 @@
-import { useQueryClient, type InfiniteData } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import { useMemo, useRef, useState } from 'react'
+import { errorMessageOf } from '@/shared/api/client'
 import { uploadMediaFile } from '@/shared/api/media-upload'
 import { mintUuid } from '@/shared/lib/uuid'
 import { Button, IconButton } from '@/shared/ui/button'
 import { DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
+import { InlineAlert } from '@/shared/ui/inline-alert'
+import { MediaFallback } from '@/shared/ui/media-fallback'
 import { MediaLightbox } from '@/shared/ui/media-lightbox'
 import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { toast } from '@/shared/ui/toast'
 import { readStoryboardMetadata } from '../generation-metadata'
-import type { GenerationJob } from '../storyboard.api'
 import { AnnotationCanvas } from './annotation-canvas'
 import { exportAnnotatedImage } from './annotation-export'
 import { EditGenerationSettings } from './edit-generation-settings'
@@ -19,12 +21,11 @@ import { EditResultStrip } from './edit-result-strip'
 import { EditTaskPreview } from './edit-task-preview'
 import { draftOf, editDraftError } from './image-edit-draft'
 import {
-  imageEditConversationKey,
-  imageEditQueryKey,
   parseEditPrompt,
   readSubmittedImages,
   readSubmittedPrompt,
   resolveImageOptions,
+  seedImageEditJob,
   submitImageEdit,
   useImageEditJobs,
   useImageModels,
@@ -88,6 +89,7 @@ export function FrameImageEditor({
     'idle',
   )
   const [operationError, setOperationError] = useState<string | null>(null)
+  // 从外部整份换掉画布标注时加一：画布换 key 重挂，撤销栈随之清空。
   const [canvasRevision, setCanvasRevision] = useState(0)
   // 用户确认过的当前帧，应用时拿它当替换凭据。
   //
@@ -179,26 +181,9 @@ export function FrameImageEditor({
       })
       drafts.updateDraft(baseUrl, snapshot)
       setSelectedKey(job.id)
-      queryClient.setQueryData<InfiniteData<{ items: GenerationJob[] }>>(
-        imageEditQueryKey(target),
-        (previous) => {
-          if (previous === undefined) return { pages: [{ items: [job] }], pageParams: [undefined] }
-          return {
-            ...previous,
-            pages: previous.pages.map((page, index) =>
-              index === 0
-                ? { items: [job, ...page.items.filter((item) => item.id !== job.id)] }
-                : page,
-            ),
-          }
-        },
-      )
-      // 失效到对话前缀：分镜页帧上的角标也读这个前缀，新任务才会立刻冒出来。
-      void queryClient.invalidateQueries({
-        queryKey: imageEditConversationKey(target.conversationId),
-      })
+      seedImageEditJob(queryClient, target, job)
     } catch (error) {
-      setOperationError(error instanceof Error ? error.message : '图片编辑提交失败')
+      setOperationError(errorMessageOf(error, '图片编辑提交失败'))
     } finally {
       activeRef.current = false
       setOperation('idle')
@@ -220,7 +205,7 @@ export function FrameImageEditor({
     } catch (error) {
       // 多半是这一帧被 agent 换过了：报出来的同时认下新的那张，用户再点一次就是冲着它去的。
       acknowledgedRef.current = currentUrl
-      setOperationError(error instanceof Error ? error.message : '图片尚未应用，请重试')
+      setOperationError(errorMessageOf(error, '图片尚未应用，请重试'))
     } finally {
       activeRef.current = false
       setOperation('idle')
@@ -310,8 +295,8 @@ export function FrameImageEditor({
               />
             ) : selected?.kind === 'image' ? (
               brokenResult === selected.url ? (
-                <p className="image-edit-photo text-body-sm text-on-surface-muted">
-                  这张图暂时无法显示
+                <p className="image-edit-photo">
+                  <MediaFallback kind="image" />
                 </p>
               ) : (
                 <div className="image-edit-photo">
@@ -420,42 +405,30 @@ export function FrameImageEditor({
                 onResolutionChange={setWantedResolution}
               />
               {modelsQuery.isError ? (
-                <p role="alert" className="text-body-sm text-error">
-                  {modelsQuery.error.message}
-                  <button
-                    className="ml-2 underline ui-focus"
-                    type="button"
-                    onClick={() => void modelsQuery.refetch()}
-                  >
-                    重新加载模型
-                  </button>
-                </p>
+                <InlineAlert
+                  action={{ label: '重新加载模型', onClick: () => void modelsQuery.refetch() }}
+                  message={errorMessageOf(modelsQuery.error, '读取图片模型失败')}
+                />
               ) : null}
               {drafts.error !== null ? (
-                <div role="alert" className="text-body-sm text-error">
-                  {drafts.error}
-                  <button type="button" className="ml-2 underline ui-focus" onClick={drafts.reset}>
-                    重新开始
-                  </button>
-                </div>
+                <InlineAlert
+                  action={{
+                    label: '重新开始',
+                    onClick: () => {
+                      drafts.reset()
+                      setCanvasRevision((value) => value + 1)
+                    },
+                  }}
+                  message={drafts.error}
+                />
               ) : null}
               {jobsQuery.isError ? (
-                <p className="text-body-sm text-error" role="alert">
-                  {jobsQuery.error.message}
-                  <button
-                    type="button"
-                    className="ml-2 underline ui-focus"
-                    onClick={() => void jobsQuery.refetch()}
-                  >
-                    重试
-                  </button>
-                </p>
+                <InlineAlert
+                  action={{ label: '重试', onClick: () => void jobsQuery.refetch() }}
+                  message={errorMessageOf(jobsQuery.error, '读取图片编辑记录失败')}
+                />
               ) : null}
-              {operationError !== null ? (
-                <p className="text-body-sm text-error" role="alert">
-                  {operationError}
-                </p>
-              ) : null}
+              {operationError !== null ? <InlineAlert message={operationError} /> : null}
               {canApply ? (
                 <Button
                   className="image-edit-primary-action"

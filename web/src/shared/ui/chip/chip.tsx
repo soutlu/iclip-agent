@@ -1,5 +1,5 @@
 import { ToggleGroup } from 'radix-ui'
-import type { ComponentPropsWithRef, ComponentPropsWithoutRef, ReactNode } from 'react'
+import type { ComponentPropsWithoutRef, ReactNode } from 'react'
 import { Icon, type IconName } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 
@@ -29,26 +29,5 @@ export function FilterChip({ children, className, leadingIcon, ...props }: Filte
       {leadingIcon ? <Icon decorative name={leadingIcon} size="sm" /> : null}
       {children}
     </ToggleGroup.Item>
-  )
-}
-
-type AssistChipProps = ComponentPropsWithRef<'button'> & {
-  children: ReactNode
-  leadingIcon?: IconName
-}
-
-/** 触发动作，不参与选择状态。 */
-export function AssistChip({
-  children,
-  className,
-  leadingIcon,
-  type = 'button',
-  ...props
-}: AssistChipProps) {
-  return (
-    <button className={cn(CHIP_CLASS, className)} type={type} {...props}>
-      {leadingIcon ? <Icon decorative name={leadingIcon} size="sm" /> : null}
-      {children}
-    </button>
   )
 }

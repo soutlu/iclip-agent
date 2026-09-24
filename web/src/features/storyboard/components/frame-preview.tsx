@@ -1,14 +1,15 @@
 /** 以帧号和地址为 key 挂载；切换图片即丢弃旧上传，点击与拖放共用替换流程。 */
 
-import { useEffect, useEffectEvent, useRef, useState, type DragEvent } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
+import { errorMessageOf } from '@/shared/api/client'
+import { MEDIA_IMAGE_ACCEPT } from '@/shared/api/media-upload'
 import { Icon } from '@/shared/icons'
-import { hasDraggedFiles } from '@/shared/lib/drag-files'
 import { IconButton } from '@/shared/ui/button'
+import { useFileDropTarget } from '@/shared/ui/file-drop'
 import { StatusBadge } from '@/shared/ui/status-badge'
 import { toast } from '@/shared/ui/toast'
 import { frameBadgeStatus, frameBadgeText, type FrameBadge } from '../frame-status'
 import { aspectRatioStyle } from '../shots'
-import { FRAME_IMAGE_ACCEPT } from '../storyboard.api'
 
 type FramePreviewProps = {
   aspectRatio: string
@@ -43,9 +44,7 @@ export function FramePreview({
 }: FramePreviewProps) {
   const inputRef = useRef<HTMLInputElement | null>(null)
   const uploadRef = useRef({ active: true, busy: false })
-  const dragDepthRef = useRef(0)
   const [uploading, setUploading] = useState(false)
-  const [dragOver, setDragOver] = useState(false)
 
   useEffect(() => {
     const upload = uploadRef.current
@@ -74,7 +73,7 @@ export function FramePreview({
       if (upload.active) onReplace(nextUrl)
     } catch (error) {
       // 切走之后结果可以不要，失败必须让人知道。
-      toast.error(error instanceof Error ? error.message : '上传失败')
+      toast.error(errorMessageOf(error, '上传失败'))
     } finally {
       upload.busy = false
       if (upload.active) setUploading(false)
@@ -87,46 +86,17 @@ export function FramePreview({
     return () => reportUploading(false)
   }, [uploading])
 
-  const onDragEnter = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasDraggedFiles(event)) return
-    event.preventDefault()
-    dragDepthRef.current += 1
-    if (!disabled && !uploadRef.current.busy && url !== undefined) setDragOver(true)
-  }
-  const onDragOver = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasDraggedFiles(event)) return
-    event.preventDefault()
-    event.dataTransfer.dropEffect =
-      disabled || uploadRef.current.busy || url === undefined ? 'none' : 'copy'
-  }
-  const onDragLeave = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasDraggedFiles(event)) return
-    event.preventDefault()
-    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
-    if (dragDepthRef.current === 0) setDragOver(false)
-  }
-  const onDrop = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasDraggedFiles(event)) return
-    // 全局监听器仍需清理聊天拖放遮罩，通过 defaultPrevented 告知它此处已接管。
-    event.preventDefault()
-    dragDepthRef.current = 0
-    setDragOver(false)
-    if (disabled || uploadRef.current.busy) return
-    if ([...event.dataTransfer.items].some((item) => item.webkitGetAsEntry?.()?.isDirectory)) {
-      toast.error('请拖入一张图片文件，不支持文件夹')
-      return
-    }
-    void replaceFromFiles([...event.dataTransfer.files])
-  }
+  const { dragOver, dragHandlers } = useFileDropTarget({
+    blocked: disabled || uploading || url === undefined,
+    onDirectory: () => toast.error('请拖入一张图片文件，不支持文件夹'),
+    onFiles: (files) => void replaceFromFiles(files),
+  })
 
   return (
     <div
       aria-label="当前帧图片"
       className="storyboard-media relative min-h-0 min-w-0 bg-surface-container"
-      onDragEnter={onDragEnter}
-      onDragLeave={onDragLeave}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
+      {...dragHandlers}
       role="group"
     >
       {url === undefined ? (
@@ -205,7 +175,7 @@ export function FramePreview({
               title="替换图片"
             />
             <input
-              accept={FRAME_IMAGE_ACCEPT}
+              accept={MEDIA_IMAGE_ACCEPT}
               aria-label="选择替换图片"
               className="hidden"
               disabled={disabled || uploading}
@@ -220,7 +190,7 @@ export function FramePreview({
           </div>
         </>
       )}
-      {dragOver && !uploading ? (
+      {dragOver ? (
         <div className="pointer-events-none absolute inset-0 grid place-items-center border-2 border-primary bg-primary-container-soft">
           <span className="rounded-xs bg-surface-container-lowest px-3 py-2 text-body-sm text-on-surface">
             松开替换当前图片

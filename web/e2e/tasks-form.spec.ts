@@ -1,7 +1,8 @@
 /// <reference lib="dom" />
 
 import { readFile } from 'node:fs/promises'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
+import { canvasPng } from './helpers'
 import { login } from './login'
 
 const SHOT_DIR = '../.artifacts/design-qa/task-form'
@@ -9,17 +10,7 @@ const SHOT_DIR = '../.artifacts/design-qa/task-form'
 const productPng = async (page: Page) => {
   const fixture = process.env['TASK_FORM_QA_IMAGE']
   if (fixture) return readFile(fixture)
-  const base64 = await page.evaluate(() => {
-    const canvas = document.createElement('canvas')
-    canvas.width = 600
-    canvas.height = 800
-    const context = canvas.getContext('2d')
-    if (!context) throw new Error('需要 Canvas 生成上传测试文件')
-    context.fillStyle = '#eeeeee'
-    context.fillRect(0, 0, canvas.width, canvas.height)
-    return canvas.toDataURL('image/png').split(',')[1] ?? ''
-  })
-  return Buffer.from(base64, 'base64')
+  return canvasPng(page, { fill: '#eeeeee' })
 }
 
 const openCreate = async (page: Page) => {
@@ -31,6 +22,23 @@ const openCreate = async (page: Page) => {
   }
   await page.getByRole('button', { name: '新建需求单' }).click()
   return page.getByRole('dialog', { name: '新建需求单' })
+}
+
+const boundsOf = async (locator: Locator) => {
+  const bounds = await locator.boundingBox()
+  if (!bounds) throw new Error('验收元素未参与布局')
+  return bounds
+}
+
+const expectMediaLayout = async (dialog: Locator, mobile: boolean) => {
+  const video = await boundsOf(dialog.getByRole('group', { name: '参考视频', exact: true }))
+  const requirement = await boundsOf(dialog.getByLabel('创作要求', { exact: true }))
+  if (mobile) {
+    expect(requirement.y).toBeGreaterThanOrEqual(video.y + video.height)
+  } else {
+    expect(requirement.x).toBeGreaterThan(video.x + video.width)
+    expect(Math.abs(requirement.y - video.y)).toBeLessThan(10)
+  }
 }
 
 test('商品图库上传后显示原图，保存再打开仍可预览', async ({ page }) => {
@@ -57,6 +65,20 @@ test('商品图库上传后显示原图，保存再打开仍可预览', async ({
         .evaluate((image: HTMLImageElement) => image.naturalWidth),
     )
     .toBeGreaterThan(0)
+
+  const productImage = dialog.getByAltText('商品 1 图片 1', { exact: true })
+  await expect(productImage).toBeVisible()
+  const naturalRatio = await productImage.evaluate(
+    (image: HTMLImageElement) => image.naturalWidth / image.naturalHeight,
+  )
+  // 缩放到多大由样式说了算，这里只等它按原图比例稳定下来。
+  await expect
+    .poll(async () => {
+      const bounds = await boundsOf(productImage)
+      return Math.abs(bounds.width / bounds.height - naturalRatio)
+    })
+    .toBeLessThan(0.02)
+  await expectMediaLayout(dialog, false)
 
   await dialog.getByLabel('创作要求', { exact: true }).focus()
   await page.screenshot({
@@ -123,6 +145,7 @@ test('手机需求单正文可滚动，长创作要求与固定操作栏可用',
   const requirement = '保留原始创作要求与参考信息。'.repeat(100)
   await dialog.getByLabel('创作要求', { exact: true }).fill(requirement)
   await expect(dialog.getByText(`${requirement.length}/4000`, { exact: true })).toBeVisible()
+  await expectMediaLayout(dialog, true)
   const submit = dialog.getByRole('button', { name: '创建需求单', exact: true })
   await expect(submit).toBeInViewport()
   await dialog.getByRole('heading', { name: '新建需求单', exact: true }).click()
@@ -144,6 +167,61 @@ test('手机需求单正文可滚动，长创作要求与固定操作栏可用',
   await submit.click()
   await expect(dialog).toBeHidden()
   await expect(page.getByRole('button', { name: /夏季系列长内容需求单/ })).toBeVisible()
+})
+
+test('规格下拉支持键盘选择，自定义内容保存后保持原值', async ({ page }) => {
+  await page.setViewportSize({ height: 1154, width: 1363 })
+  const dialog = await openCreate(page)
+  const title = '下拉与自定义规格验收'
+  await dialog.getByLabel('需求单名称', { exact: true }).fill(title)
+  await dialog.getByLabel('商品 1 款号', { exact: true }).fill('QA-SPEC-001')
+  const platform = dialog.getByRole('combobox', { name: '发布平台', exact: true })
+  await platform.focus()
+  await platform.press('ArrowDown')
+  await expect(page.getByRole('option', { name: '抖音', exact: true })).toBeVisible()
+  await platform.press('Enter')
+  await expect(platform).toHaveValue('抖音')
+  await expect(platform).toHaveAttribute('aria-expanded', 'false')
+
+  await dialog.getByRole('combobox', { name: '比例', exact: true }).click()
+  await page.getByRole('option', { name: '9:16', exact: true }).click()
+  await dialog.getByRole('combobox', { name: '视频类型', exact: true }).fill('品牌访谈')
+  await dialog.getByRole('combobox', { name: '内容类型', exact: true }).fill('新品故事')
+  await dialog.getByRole('combobox', { name: '分辨率', exact: true }).fill('2160p')
+  await page.keyboard.press('Tab')
+  const response = page.waitForResponse(
+    (candidate) =>
+      candidate.url().endsWith('/api/tasks') && candidate.request().method() === 'POST',
+  )
+  await dialog.getByRole('button', { name: '创建需求单', exact: true }).click()
+  const created = await response
+  expect(created.status()).toBe(201)
+  const submitted: unknown = created.request().postDataJSON()
+  expect(submitted).toMatchObject({
+    inputs: {
+      video_spec: {
+        platform: 'douyin',
+        video_type: '品牌访谈',
+        content_type: '新品故事',
+        resolution: '2160p',
+        aspect_ratio: '9:16',
+      },
+    },
+  })
+  await expect(dialog).toBeHidden()
+  await page.getByRole('button', { name: `查看需求：${title}`, exact: true }).click()
+  const reopened = page.getByRole('dialog', { name: title, exact: true })
+  await expect(reopened.getByRole('combobox', { name: '发布平台', exact: true })).toHaveValue(
+    '抖音',
+  )
+  await expect(reopened.getByRole('combobox', { name: '视频类型', exact: true })).toHaveValue(
+    '品牌访谈',
+  )
+  await expect(reopened.getByRole('combobox', { name: '内容类型', exact: true })).toHaveValue(
+    '新品故事',
+  )
+  await expect(reopened.getByRole('combobox', { name: '分辨率', exact: true })).toHaveValue('2160p')
+  await expect(reopened.getByRole('combobox', { name: '比例', exact: true })).toHaveText('9:16')
 })
 
 test('认领需求后预览单段文字与图片，创建关联对话并发送首次消息', async ({ page }) => {
@@ -221,6 +299,18 @@ test('认领需求后预览单段文字与图片，创建关联对话并发送�
   expect(previewText).not.toContain('素材说明')
   expect(previewText).not.toContain('不发送平台')
   expect(previewText).not.toContain('不发送品牌')
+  const confirm = preview.getByRole('button', { name: '确认并开始' })
+  await expect(confirm).toBeDisabled()
+  const agentTrigger = preview.getByRole('button', { name: '请选择 Agent', exact: true })
+  await agentTrigger.click()
+  // 菜单叠在弹窗上，Escape 只收起菜单。
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toBeHidden()
+  await expect(preview).toBeVisible()
+  await agentTrigger.click()
+  await page.getByRole('menuitem', { name: '分镜 Agent', exact: true }).click()
+  await expect(preview.getByRole('button', { name: '分镜 Agent', exact: true })).toBeVisible()
+  await expect(confirm).toBeEnabled()
   await expect
     .poll(() =>
       preview
@@ -245,16 +335,20 @@ test('认领需求后预览单段文字与图片，创建关联对话并发送�
     (request) =>
       /\/api\/conversations\/[^/]+\/prompts$/.test(request.url()) && request.method() === 'POST',
   )
-  await preview.getByRole('button', { name: '确认并开始' }).click()
+  await confirm.click()
   const created = await createdResponse
-  expect(created.request().postDataJSON()).toEqual({
+  const createBody = created.request().postDataJSON() as { id: string }
+  // 对话 id 由客户端铸，回执丢了重发也是同一段。
+  expect(createBody).toEqual({
     agentId: 'storyboard',
+    id: expect.any(String),
     taskId: task.id,
     title: task.title,
   })
   const { conversation } = (await created.json()) as {
     conversation: { id: string; taskId: string }
   }
+  expect(conversation.id).toBe(createBody.id)
   expect(conversation.taskId).toBe(task.id)
   const submitted = (await submittedRequest).postDataJSON() as {
     prompt_id: string

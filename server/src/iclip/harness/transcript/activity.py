@@ -7,17 +7,9 @@ busy、attention 与最近结果为独立字段；等待审批时 busy 仍为真
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
 
-if TYPE_CHECKING:
-    # 仅类型检查时导入，避免 jobs 的运行时循环依赖。
-    from iclip.harness.jobs import JobStatus
-
-PendingInteraction = Literal["none", "approval", "question"]
-"""最高优先级的待处理事项。"""
-
-LastTurnReason = Literal["completed", "failed", "aborted"]
-"""最近完成轮次的结果。"""
+from iclip.harness.job_status import JobStatus
+from iclip.platform.transcript.wire import LastTurnReason, PendingInteraction
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +48,5 @@ def activity_of(status: JobStatus | None) -> ActivityState:
 __all__ = [
     "IDLE",
     "ActivityState",
-    "LastTurnReason",
-    "PendingInteraction",
     "activity_of",
 ]

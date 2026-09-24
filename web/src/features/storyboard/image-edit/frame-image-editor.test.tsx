@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Toaster, toast } from '@/shared/ui/toast'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
+import { makeGenerationJob } from '@/testing/generation-job'
 import type { GenerationJob } from '../storyboard.api'
 import { FrameImageEditor } from './frame-image-editor'
 import { editDraftKey } from './image-edit-draft'
@@ -23,21 +24,15 @@ const draft: FrameEditDraft = {
   instructions: [{ kind: 'text', text: '将衣服改成蓝色' }],
   references: [{ id: 'base', kind: 'image', url: BASE, label: '编辑底图' }],
 }
-const job = (over: Partial<GenerationJob> = {}): GenerationJob => ({
-  id: crypto.randomUUID(),
-  metadata: { frame: 1, shot: 1, sourceUrl: BASE },
-  kind: 'image',
-  status: 'pending',
-  createdAt: '2026-09-07T12:00:00Z',
-  errorMessage: null,
-  outputUrl: null,
-  request: { prompt: '将衣服改成蓝色', referenceImageUrls: [BASE] },
-  taskId: null,
-  clipStage: null,
-  durationMs: null,
-  watermarkOutputUrl: null,
-  ...over,
-})
+const job = (over: Partial<GenerationJob> = {}): GenerationJob =>
+  makeGenerationJob({
+    metadata: { frame: 1, shot: 1, sourceUrl: BASE },
+    kind: 'image',
+    status: 'pending',
+    createdAt: '2026-09-07T12:00:00Z',
+    request: { prompt: '将衣服改成蓝色', referenceImageUrls: [BASE] },
+    ...over,
+  })
 
 function EditorPage({ initialKey }: { initialKey?: string }) {
   const [open, setOpen] = useState(true)
@@ -77,15 +72,35 @@ function stallUpload() {
   return () => release()
 }
 
+/** jsdom 不加载图片也不排版：给底图固有尺寸、给画布外框，返回可以落笔的画布。 */
+function loadCanvas(editor: HTMLElement) {
+  vi.stubGlobal(
+    'PointerEvent',
+    class extends MouseEvent {
+      readonly pointerId = 1
+    },
+  )
+  const image = within(editor).getByRole('img', { name: '当前编辑帧' })
+  Object.defineProperties(image, { naturalWidth: { value: 400 }, naturalHeight: { value: 800 } })
+  fireEvent.load(image)
+  const canvas = within(editor).getByRole('group', { name: '图片标注画布' })
+  Object.assign(canvas, {
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 800 }),
+    setPointerCapture: () => undefined,
+    hasPointerCapture: () => false,
+    releasePointerCapture: () => undefined,
+  })
+  return canvas
+}
+
+/** 在画布中央点一个点标注。 */
+function drawPoint(canvas: HTMLElement) {
+  fireEvent.pointerDown(canvas, { clientX: 400, clientY: 400, button: 0 })
+  fireEvent.pointerUp(canvas, { clientX: 400, clientY: 400, button: 0 })
+}
+
 describe('图片编辑器', () => {
   beforeEach(() => {
-    vi.stubGlobal(
-      'ResizeObserver',
-      class {
-        observe() {}
-        disconnect() {}
-      },
-    )
     vi.stubGlobal(
       'createImageBitmap',
       vi.fn().mockResolvedValue({ close: vi.fn(), height: 1200, width: 800 }),
@@ -434,5 +449,36 @@ describe('图片编辑器', () => {
       referenceImageUrls: references,
       metadata: { sourceUrl: BASE },
     })
+  })
+
+  it('空草稿上画一个标注再撤销，重做仍可用并能画回来', async () => {
+    // 撤销到空时草稿被删，之后每次渲染拿到的都是新的空数组；画布的撤销栈不能因此被清掉。
+    sessionStorage.clear()
+    await renderWithProviders(<EditorPage />)
+    const editor = await screen.findByRole('dialog')
+    drawPoint(loadCanvas(editor))
+    expect(within(editor).getByRole('button', { name: '标注 1' })).toBeInTheDocument()
+
+    await userEvent.click(within(editor).getByRole('button', { name: '撤销标注' }))
+    expect(within(editor).queryByRole('button', { name: '标注 1' })).not.toBeInTheDocument()
+    const redo = within(editor).getByRole('button', { name: '重做标注' })
+    expect(redo).toBeEnabled()
+    await userEvent.click(redo)
+
+    expect(within(editor).getByRole('button', { name: '标注 1' })).toBeInTheDocument()
+  })
+
+  it('草稿读坏后点重新开始，画过的标注连同撤销记录一起作废', async () => {
+    sessionStorage.setItem(editDraftKey(target), JSON.stringify({ [BASE]: { annotations: 1 } }))
+    await renderWithProviders(<EditorPage />)
+    const editor = await screen.findByRole('dialog')
+    drawPoint(loadCanvas(editor))
+    expect(within(editor).getByRole('button', { name: '标注 1' })).toBeInTheDocument()
+
+    await userEvent.click(within(editor).getByRole('button', { name: '重新开始' }))
+    loadCanvas(editor)
+
+    expect(within(editor).queryByRole('button', { name: '标注 1' })).not.toBeInTheDocument()
+    expect(within(editor).getByRole('button', { name: '撤销标注' })).toBeDisabled()
   })
 })

@@ -1,7 +1,7 @@
 """分镜取帧专用的 ffmpeg 操作：整片抽帧、灰度检测与按格裁剪。
 
-下载、探时长与子进程封装是通用的，在 [platform.media.ffmpeg](../../platform/media/ffmpeg.py)；
-这里转出它们，调用方照旧只 import 这一个模块。"""
+下载、探时长、可用性检查与子进程封装是通用的，调用方直接用
+[platform.media.ffmpeg](../../platform/media/ffmpeg.py)。"""
 
 from __future__ import annotations
 
@@ -10,16 +10,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from iclip.capabilities.shot_video.grid import GrayImage, parse_pgm
-from iclip.platform.media.ffmpeg import (
-    MAX_IMAGE_BYTES,
-    MAX_VIDEO_BYTES,
-    PROBE_TIMEOUT_SECONDS,
-    MediaError,
-    fetched,
-    ffmpeg_available,
-    probe_duration_ms,
-    run,
-)
+from iclip.platform.media.ffmpeg import PROBE_TIMEOUT_SECONDS, MediaError, run
 
 EXTRACT_TIMEOUT_SECONDS = 900.0
 """全片解码抽帧的超时上限。"""
@@ -144,13 +135,7 @@ async def crop_cells(path: Path, boxes: Sequence[tuple[int, int, int, int]]) -> 
 __all__ = [
     "DETECT_WIDTH",
     "EXTRACT_TIMEOUT_SECONDS",
-    "MAX_IMAGE_BYTES",
-    "MAX_VIDEO_BYTES",
-    "MediaError",
     "crop_cells",
     "decode_gray",
     "extract_frames",
-    "fetched",
-    "ffmpeg_available",
-    "probe_duration_ms",
 ]

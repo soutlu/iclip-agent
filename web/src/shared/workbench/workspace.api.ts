@@ -4,11 +4,15 @@ import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/shared/api/client'
 import { zConversationFileEnvelope, zConversationFilesOut } from '@/shared/api/generated/zod.gen'
 
+const workspaceRoot = (conversationId: string) => ['workspace', conversationId] as const
+
+/** 工作区查询自成一根，不挂在会话键下：会话列表整体失效或逐帧补丁时不连带文件列表与内容。 */
 export const workspaceQueryKeys = {
+  /** 这段对话的全部工作区查询，整体失效用它。 */
+  all: workspaceRoot,
   file: (conversationId: string, path: string) =>
-    ['conversations', conversationId, 'workspace', 'file', path] as const,
-  files: (conversationId: string) =>
-    ['conversations', conversationId, 'workspace', 'files'] as const,
+    [...workspaceRoot(conversationId), 'file', path] as const,
+  files: (conversationId: string) => [...workspaceRoot(conversationId), 'files'] as const,
 }
 
 export const useWorkspaceFiles = (conversationId: string) =>

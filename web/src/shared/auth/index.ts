@@ -1,5 +1,7 @@
 export { sanitizeCueAuthNextPath } from './cue-auth-navigation'
+export { canAuditAll, hasPermission, PERMISSION } from './permissions'
 export {
+  AUTH_QUERY_KEY_ROOT,
   consumeSsoNextPath,
   ensureSessionUser,
   probeSsoLoginEnabled,
@@ -10,4 +12,5 @@ export {
   useLogout,
   useUser,
 } from './session'
-export { useUsersDirectory } from './users.api'
+export { userDisplayName } from './user-display-name'
+export { userPickerSourceOf, useUsersDirectory } from './users.api'

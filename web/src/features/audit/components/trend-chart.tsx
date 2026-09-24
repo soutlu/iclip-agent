@@ -1,6 +1,6 @@
 /** 趋势图：柱或线，一条 y 轴、浅网格、按时段的 x 刻度，悬停出一格说明；给了上一期就叠一条淡的对照序列。
 
-Recharts 画，颜色全走 token 变量，深浅主题跟着换；要换图表库时只动这一个组件。 */
+Recharts 画，颜色全走 token 变量，深浅主题跟着换。 */
 
 import { useId } from 'react'
 import {
@@ -15,6 +15,7 @@ import {
   YAxis,
   type TooltipContentProps,
 } from 'recharts'
+import { CHART_GRID, CHART_SERIES } from '../chart-colors'
 
 export type TrendPoint = {
   key: string
@@ -49,14 +50,12 @@ type TrendChartProps = {
 /** 图上的一行：本期的值加上一期对齐过来的值。 */
 type TrendRow = TrendPoint & { previous: number | null }
 
-const SERIES = 'var(--color-chart-1)'
 const BEFORE = 'var(--color-chart-2)'
-const GRID = 'var(--color-border)'
 const TICK = { fill: 'var(--color-on-surface-muted)', fontSize: 'var(--text-caption)' }
 const MARGIN = { top: 8, right: 8, bottom: 0, left: 0 }
 const DASH = '5 4'
 const DOT = {
-  fill: SERIES,
+  fill: CHART_SERIES,
   r: 3.5,
   stroke: 'var(--color-surface-container-lowest)',
   strokeWidth: 2,
@@ -91,7 +90,7 @@ export function TrendChart({
   )
   const axes = (
     <>
-      <CartesianGrid stroke={GRID} strokeDasharray="3 5" vertical={false} />
+      <CartesianGrid stroke={CHART_GRID} strokeDasharray="3 5" vertical={false} />
       <XAxis
         axisLine={false}
         dataKey="label"
@@ -139,7 +138,7 @@ export function TrendChart({
                 <span
                   aria-hidden
                   className="h-0.5 w-4 rounded-full"
-                  style={{ background: SERIES }}
+                  style={{ background: CHART_SERIES }}
                 />
                 本期
               </span>
@@ -185,9 +184,9 @@ export function TrendChart({
             />
           ) : null}
           <Bar
-            activeBar={{ fill: SERIES }}
+            activeBar={{ fill: CHART_SERIES }}
             dataKey="value"
-            fill={SERIES}
+            fill={CHART_SERIES}
             isAnimationActive={false}
             maxBarSize={28}
             radius={[4, 4, 0, 0]}
@@ -204,7 +203,7 @@ export function TrendChart({
           {axes}
           <Tooltip
             content={tooltip}
-            cursor={{ stroke: GRID, strokeWidth: 1 }}
+            cursor={{ stroke: CHART_GRID, strokeWidth: 1 }}
             isAnimationActive={false}
           />
           {withBefore ? (
@@ -225,7 +224,7 @@ export function TrendChart({
             dataKey="value"
             dot={DOT}
             isAnimationActive={false}
-            stroke={SERIES}
+            stroke={CHART_SERIES}
             strokeLinecap="round"
             strokeWidth={2}
             type={lineType}

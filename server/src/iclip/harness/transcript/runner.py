@@ -37,7 +37,8 @@ from pydantic_ai_harness.step_persistence import ContinuableSnapshot
 from iclip.common.errors import Conflict, NotFound
 from iclip.harness.agents import DELEGATE_TOOL
 from iclip.harness.context_compaction import ContextCompaction
-from iclip.harness.jobs import JobQueue, JobRow, JobStatus
+from iclip.harness.job_status import JobStatus
+from iclip.harness.jobs import JobQueue, JobRow
 from iclip.harness.transcript.from_messages import (
     ORPHAN_TOOL_ERROR,
     run_ids_from_messages,
@@ -304,10 +305,12 @@ class ConversationRunner:
             loop.cancel()
         await asyncio.gather(*self._loops, return_exceptions=True)
         self._loops = ()
-        while self._tasks:
+        # 按任务状态而不是按名单判断：刚跑完的任务要等下一轮事件循环才被回调摘出名单，
+        # 而 gather 全是已完成任务时同步返回、不让出事件循环，按名单等会原地空转。
+        while pending := [task for task in self._tasks if not task.done()]:
             for active in tuple(self._active.values()):
                 active.token.cancel()
-            await asyncio.gather(*tuple(self._tasks), return_exceptions=True)
+            await asyncio.gather(*pending, return_exceptions=True)
 
     # --- 人机往返 -----------------------------------------------------------
 
@@ -444,11 +447,22 @@ class ConversationRunner:
                 for frame in step.frames
                 if isinstance(frame, ToolFrame) and frame.tool_call_id in answered
             )
+            # 与其余终态轮头同一口径：结束时间与耗时取同一时刻。
+            ended = _now()
+            duration_ms = (
+                None
+                if turn.started_at is None
+                else int((ended - datetime.fromisoformat(turn.started_at)).total_seconds() * 1000)
+            )
             ops.append(
                 TurnUpsertOp(
                     turn=TurnHeader.model_validate(
                         turn.model_dump(exclude={"steps"})
-                        | {"state": "cancelled", "ended_at": _now().isoformat()}
+                        | {
+                            "state": "cancelled",
+                            "ended_at": ended.isoformat(),
+                            "duration_ms": duration_ms,
+                        }
                     )
                 )
             )
@@ -567,10 +581,7 @@ class ConversationRunner:
         if active is None:
             return
         if status != "aborted":
-            stranded = active.handle.undelivered(active.steered)
-            if stranded:
-                _logger.info("这几条追加没赶上这一轮，退回队列", steers=stranded)
-                await self._revert(tuple(active.steered[item] for item in stranded))
+            await self._revert_stranded(active)
         for child in await self._queue.settle_steered(active.run_id, status=status, now=_now()):
             self._publish(child)
 

@@ -1,39 +1,14 @@
 /// <reference lib="dom" />
 
 import { expect, test, type Page } from '@playwright/test'
-import { login } from './login'
+import { canvasPng, openConversation, readVideoShots, type VideoShot } from './helpers'
 
-const openStoryboard = async (page: Page, mobile = false) => {
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
-  if (mobile) await page.getByRole('button', { name: '打开右侧面板' }).click()
-  return page.getByRole('complementary', { name: '右侧面板' })
-}
+const openStoryboard = (page: Page, mobile = false) =>
+  openConversation(page, '夜景延时素材生成', { mobile })
 
-type StoredShot = {
-  index: number
-  seconds: number
-  image_urls: string[]
-  prompt: {
-    global_settings: string
-    timeline: { timestamps: [number, number]; prompt: string; image_indexes: number[] }[]
-  }
-}
-type StoredDocument = { aspect_ratio: string; shots: StoredShot[] }
+const readDocument = (page: Page) => readVideoShots(page, '读取工作区失败')
 
-const readDocument = async (page: Page) =>
-  page.evaluate(async () => {
-    const conversationId = window.location.pathname.split('/').at(-1)
-    const response = await fetch(
-      `/api/conversations/${conversationId}/workspace/file?path=video_shot.json`,
-    )
-    if (!response.ok) throw new Error(`读取工作区失败：${response.status}`)
-    const body = (await response.json()) as { file: { content: string; version: number } }
-    return { document: JSON.parse(body.file.content) as StoredDocument, version: body.file.version }
-  })
-
-const rawGroupPrompt = (shot: StoredShot) => {
+const rawGroupPrompt = (shot: VideoShot) => {
   const lines = shot.prompt.timeline.map(
     (item, position) =>
       `[${item.timestamps[0]}–${item.timestamps[1]}秒｜镜头${position + 1}] ${item.prompt}`,
@@ -51,20 +26,6 @@ const watchGenerationPosts = (page: Page) => {
     }
   })
   return posts
-}
-
-const framePng = async (page: Page, color: string) => {
-  const base64 = await page.evaluate((fill) => {
-    const canvas = document.createElement('canvas')
-    canvas.width = 600
-    canvas.height = 800
-    const context = canvas.getContext('2d')
-    if (context === null) throw new Error('测试图片需要 Canvas 2D')
-    context.fillStyle = fill
-    context.fillRect(0, 0, canvas.width, canvas.height)
-    return canvas.toDataURL('image/png').split(',')[1] ?? ''
-  }, color)
-  return Buffer.from(base64, 'base64')
 }
 
 test('分镜可以滚轮翻组、键盘切帧和查看记录，浏览操作不写文件或提交生成', async ({ page }) => {
@@ -285,10 +246,7 @@ test('无图分镜上传首图后关联到另一镜，替换共享图片只改�
       uploadRequests.push(new URL(request.url()).pathname)
     }
   })
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '无图分镜草稿', exact: true }).click()
-  const panel = page.getByRole('complementary', { name: '右侧面板' })
+  const panel = await openConversation(page, '无图分镜草稿')
   const group = panel.getByRole('region', { name: '镜头组 1', exact: true })
   const initial = await readDocument(page)
   expect(initial.document.shots[0]?.image_urls).toEqual([])
@@ -301,7 +259,7 @@ test('无图分镜上传首图后关联到另一镜，替换共享图片只改�
   await group.getByRole('button', { name: '添加图片', exact: true }).click()
   const picker = page.getByRole('dialog', { name: '添加图片', exact: true })
   await picker.getByLabel('选择要上传的图片', { exact: true }).setInputFiles({
-    buffer: await framePng(page, '#23503e'),
+    buffer: await canvasPng(page, { fill: '#23503e' }),
     mimeType: 'image/png',
     name: '第一张图.png',
   })
@@ -337,7 +295,7 @@ test('无图分镜上传首图后关联到另一镜，替换共享图片只改�
   expect(sharedShot.prompt.timeline[1]?.prompt).toContain('@Image1')
 
   await group.getByLabel('选择替换图片', { exact: true }).setInputFiles({
-    buffer: await framePng(page, '#be6838'),
+    buffer: await canvasPng(page, { fill: '#be6838' }),
     mimeType: 'image/png',
     name: '替换共享图.png',
   })

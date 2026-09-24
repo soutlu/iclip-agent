@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import httpx
 
-from tests.integration_no_llm.conftest import register_and_login
+from tests.helpers.auth import register_and_login
 
 
 async def test_register_login_me_logout_round_trip(client: httpx.AsyncClient) -> None:

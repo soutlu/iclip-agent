@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { type RefObject, useEffect, useRef, useState } from 'react'
-import { ApiError } from '@/shared/api/client'
+import { errorMessageOf } from '@/shared/api/client'
 import { DialogBody, DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
 import { Input } from '@/shared/ui/field'
 import { conversationsQueryKeys, searchConversations } from '../conversations.api'
@@ -55,7 +55,7 @@ function SearchPanel({
 
   const results = useQuery({
     enabled: submitted.length > 0,
-    queryFn: () => searchConversations(submitted),
+    queryFn: ({ signal }) => searchConversations(submitted, signal),
     queryKey: conversationsQueryKeys.search(submitted),
   })
 
@@ -88,7 +88,7 @@ function SearchResults({ keyword, onNavigate, query }: SearchResultsProps) {
   if (!keyword) return <Hint>输入关键词搜索你的对话</Hint>
   if (query.isPending) return <Hint>搜索中…</Hint>
   if (query.isError) {
-    return <Hint>{query.error instanceof ApiError ? query.error.message : '搜索对话失败'}</Hint>
+    return <Hint>{errorMessageOf(query.error, '搜索对话失败')}</Hint>
   }
   if (query.data.length === 0) return <Hint>没有匹配的对话</Hint>
 

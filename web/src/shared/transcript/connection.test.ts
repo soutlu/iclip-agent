@@ -34,6 +34,41 @@ const HELLO = {
   payload: { ws_connection_id: 'w1', protocol_version: 2, heartbeat_ms: 10_000 },
 }
 
+/** 塞进坏帧里的正文，告警里不该出现。 */
+const BODY = '帧正文不进日志'
+
+const malformed = (type: string, envelope: object) => ({
+  label: type,
+  raw: JSON.stringify({ type, ...envelope }),
+  type,
+})
+
+/** JSON 坏掉的一条，加上各类帧载荷形状不对的各一条；type 是告警里应带的帧类型。 */
+const MALFORMED = [
+  { label: 'JSON', raw: `{"type":"${BODY}`, type: undefined },
+  malformed('session.meta.updated', { payload: { session_id: 'c9', title: { text: BODY } } }),
+  malformed('event.session.work_changed', {
+    session_id: 'c9',
+    payload: { busy: true, pending_interaction: BODY },
+  }),
+  malformed('event.generation.changed', {
+    session_id: 'c9',
+    payload: { id: 'job-9', kind: BODY, status: 'submitted' },
+  }),
+  malformed('event.fs.changed', {
+    session_id: 'c1',
+    payload: { changes: [{ path: BODY, change: 'renamed', kind: 'file' }], coalesced_window_ms: 0 },
+  }),
+  malformed('transcript.reset', {
+    session_id: 'c1',
+    payload: { agent_id: 'main', has_more_older: true, seq: 9, snapshot: BODY },
+  }),
+  malformed('transcript.ops', {
+    session_id: 'c1',
+    payload: { agent_id: 'main', ops: BODY, seq: 6 },
+  }),
+]
+
 describe('TranscriptConnection', () => {
   let socket: FakeSocket
   let received: Array<[string, TranscriptOps]>
@@ -199,14 +234,26 @@ describe('TranscriptConnection', () => {
     expect(socket.frames().at(-1)).toEqual({ type: 'pong', payload: { nonce: 'abc' } })
   })
 
-  it('形状不对的帧丢掉，不动水位', () => {
+  it.each(MALFORMED)('$label 不合协议：告警后丢掉，不动水位，连接照常', ({ raw, type }) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const connection = connect()
-
+    const seen: SessionUpdate[] = []
+    connection.watchSessions((update) => seen.push(update))
     socket.deliver(ops(5))
-    socket.deliver({ type: 'transcript.ops', session_id: 'c1', payload: { seq: 6 } })
 
+    socket.onmessage?.({ data: raw })
+
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith(expect.any(String), { issues: expect.any(Array), type })
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(BODY)
     expect(connection.watermarkOf('c1', 'main')).toBe(5)
     expect(received).toHaveLength(1)
+    expect(seen).toEqual([])
+
+    socket.deliver(ops(6))
+    socket.deliver({ type: 'session.meta.updated', payload: { session_id: 'c9', title: '新名字' } })
+    expect(connection.watermarkOf('c1', 'main')).toBe(6)
+    expect(seen).toEqual([{ conversationId: 'c9', kind: 'title', title: '新名字' }])
   })
 
   it('太久没有任何入站帧就算 stale', () => {

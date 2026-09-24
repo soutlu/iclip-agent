@@ -2,7 +2,7 @@
 
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ApiError } from '@/shared/api/client'
+import { ApiError, errorMessageOf, UserFacingError } from '@/shared/api/client'
 import { readWorkspaceFile, workspaceQueryKeys, writeWorkspaceFile } from '@/shared/workbench'
 import {
   parseShotsDocument,
@@ -30,6 +30,8 @@ const shotKeys = (keys: ReadonlySet<DirtyKey>): number[] =>
   [...keys].filter((key): key is number => key !== ASPECT_KEY)
 
 type Base = { version: number; document: ShotsDocument }
+/** 上传落进的那一格：镜头组编号、第几帧（从 1 数）与上传地址。 */
+type UploadedFrame = { index: number; frame: number; url: string }
 type UseShotsDraftOptions = {
   conversationId: string
   path: string
@@ -92,6 +94,8 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
   )
   const [edited, setEdited] = useState<ShotsDocument | null>(null)
   const [state, setState] = useState<SaveState>({ kind: 'idle' })
+  // 只用来在保存失败时说清图片已经传上去了；同一格只记最后一次。
+  const [uploads, setUploads] = useState<readonly UploadedFrame[]>([])
   const ledgerRef = useRef({
     base: null as Base | null,
     edited: null as ShotsDocument | null,
@@ -177,10 +181,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
         } catch (error) {
           if (!(error instanceof ApiError) || error.status !== 409 || rebased) {
             clearTimer()
-            setState({
-              kind: 'error',
-              message: error instanceof Error ? error.message : '保存失败',
-            })
+            setState({ kind: 'error', message: errorMessageOf(error, '保存失败') })
             return null
           }
           const latestFile = await queryClient.fetchQuery({
@@ -220,7 +221,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     book.inFlight = run()
       .catch((error: unknown) => {
         clearTimer()
-        setState({ kind: 'error', message: error instanceof Error ? error.message : '保存失败' })
+        setState({ kind: 'error', message: errorMessageOf(error, '保存失败') })
         return null
       })
       .finally(() => {
@@ -295,7 +296,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     (index: number, frame: number, previousUrl: string, url: string) => {
       const result = updateShot(index, (shot) => {
         if (!Number.isInteger(frame) || frame < 1 || shot.image_urls[frame - 1] !== previousUrl) {
-          throw new Error('这张图片已发生变化，请重新选择要替换的图片')
+          throw new UserFacingError('这张图片已发生变化，请重新选择要替换的图片')
         }
         return {
           ...shot,
@@ -304,7 +305,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
           ),
         }
       })
-      if (result === undefined) throw new Error('目标镜头组已不存在，上传结果未写入分镜')
+      if (result === undefined) throw new UserFacingError('目标镜头组已不存在，上传结果未写入分镜')
     },
     [updateShot],
   )
@@ -313,8 +314,8 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
   const applyFrame = useCallback(
     async (index: number, frame: number, previousUrl: string, url: string) => {
       const book = ledgerRef.current
-      if (book.inFlight !== null) throw new Error('当前修改正在保存，请稍后重试')
-      if (book.latest !== null) throw new Error('分镜存在版本冲突，请先处理冲突')
+      if (book.inFlight !== null) throw new UserFacingError('当前修改正在保存，请稍后重试')
+      if (book.latest !== null) throw new UserFacingError('分镜存在版本冲突，请先处理冲突')
       const current = book.edited ?? book.base?.document
       const target = current === undefined ? undefined : shotOf(current, index)
       const replaced = target?.image_urls[frame - 1] !== url
@@ -353,15 +354,25 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
               : previous,
           )
         }
-        throw new Error('图片尚未保存，请处理保存错误或冲突后重试')
+        throw new UserFacingError('图片尚未保存，请处理保存错误或冲突后重试')
       }
     },
     [replaceFrame, saveNow],
   )
 
+  /** 记下这一格刚换成了上传的图；不改草稿，只影响 `hasUnsavedUpload`。 */
+  const recordUpload = useCallback((index: number, frame: number, url: string) => {
+    setUploads((current) => [
+      ...current.filter((upload) => upload.index !== index || upload.frame !== frame),
+      { index, frame, url },
+    ])
+  }, [])
+
   const resolveConflict = useCallback(
     (choice: 'mine' | 'theirs') => {
       const book = ledgerRef.current
+      // 用最新的就不再提上传过什么，不管下面有没有真正换掉草稿。
+      if (choice === 'theirs') setUploads([])
       const latest = book.latest
       const mine = book.edited
       if (latest === null || mine === null) return
@@ -396,13 +407,25 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     [saveNow],
   )
 
+  // 按已落盘的文件内容判断，不看哪次请求成功：较早的一次保存成功不能抹掉后来那张图的提示。
+  const hasUnsavedUpload =
+    edited !== null &&
+    uploads.some(
+      ({ index, frame, url }) =>
+        shotOf(edited, index)?.image_urls[frame - 1] === url &&
+        (parsed === null ? undefined : shotOf(parsed, index))?.image_urls[frame - 1] !== url,
+    )
+
   return {
     applyFrame,
     document: edited ?? parsed,
     hasUnsavedChanges: edited !== null,
+    /** 草稿里有记过的上传图，而已落盘的文件那一格还不是它。 */
+    hasUnsavedUpload,
     state,
     updateAspectRatio,
     updateShot,
+    recordUpload,
     replaceFrame,
     resolveConflict,
     saveNow,

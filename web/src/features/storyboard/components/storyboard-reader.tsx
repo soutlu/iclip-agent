@@ -1,13 +1,12 @@
 /** 结构化分镜工作台；查询参数保存组与帧位置，草稿局部更新后整份保存。 */
 
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Icon } from '@/shared/icons'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { z } from 'zod'
+import { errorMessageOf } from '@/shared/api/client'
 import { ASPECT_RATIOS } from '@/shared/lib/aspect-ratio'
-import { copyText as writeClipboard } from '@/shared/lib/clipboard'
 import { cn } from '@/shared/lib/utils'
-import { Button, IconButton } from '@/shared/ui/button'
-import { isBehindModal } from '@/shared/ui/dialog'
+import { Button } from '@/shared/ui/button'
 import { Select } from '@/shared/ui/field'
 import { MediaLightbox, type LightboxMedia } from '@/shared/ui/media-lightbox'
 import { toast } from '@/shared/ui/toast'
@@ -17,20 +16,11 @@ import {
   type ArtifactRendererProps,
   type WorkbenchRef,
 } from '@/shared/workbench'
-import {
-  formatShotPrompt,
-  formatShotPrompts,
-  parseShotsDocument,
-  shotName,
-  validateShot,
-  type Shot,
-} from '../shot-document'
-import { frameBadges, frameJobKey, latestFrameJobs } from '../frame-status'
-import { readStoryboardMetadata } from '../generation-metadata'
-import { FrameImageEditor } from '../image-edit/frame-image-editor'
+import { validateShot } from '../shot-document'
+import { frameBadges, latestFrameJobs } from '../frame-status'
+import { isShotVideo, readStoryboardMetadata } from '../generation-metadata'
 import { useFrameImageJobs } from '../image-edit/image-edit.api'
-import type { FrameEditTarget } from '../image-edit/image-edit-types'
-import { aspectRatioStyle, isRunningStatus, SHOTS_PATH } from '../shots'
+import { isRunningStatus, SHOTS_PATH } from '../shots'
 import { useShotGenerations } from '../storyboard.api'
 import { useGenerationGate } from '../use-generation-gate'
 import { supportsAspectRatio } from '../video-model-support'
@@ -41,21 +31,27 @@ import { editCountsByRoot } from '../video-editor/edit-chain'
 import { VideoEditor } from '../video-editor/video-editor'
 import { ConflictDialog, ReaderNotice, SaveStatus } from './draft-status'
 import { GenerationRecords } from './generation-records'
+import { PromptReading } from './prompt-reading'
+import { ReaderImageEdit, type FrameEditSession } from './reader-image-edit'
+import { ReaderOverlay } from './reader-overlay'
 import { ReaderPage } from './reader-page'
-import { encodeContentId, shotContents, updateContentPrompt } from '../shot-content'
-import { PromptEditor } from './prompt-editor'
+import {
+  contentLabel,
+  resolveShotSelection,
+  shotContents,
+  type readerSheetSchema,
+} from '../shot-content'
+import { ShotOverview } from './shot-overview'
 import { VideoGenerationButton } from './video-generation-button'
 
 type ReaderSearch = {
   content?: string | undefined
   frame?: number | undefined
-  sheet?: 'all' | 'prompt' | 'records' | undefined
+  sheet?: z.infer<typeof readerSheetSchema> | undefined
   shot?: number | undefined
   /** 视频编辑器开在哪条出片记录上；换组就关掉。 */
   video?: string | undefined
 }
-type Preview = (media: LightboxMedia) => void
-
 const pageOfScroll = (element: HTMLElement): number | undefined =>
   element.clientHeight > 0 ? Math.round(element.scrollTop / element.clientHeight) + 1 : undefined
 
@@ -74,44 +70,13 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
   // 关过编辑器就算看过那一格的终态；只记本次会话，刷新后没看过的终态会再出现一次。
   const [seenFrameJobs, setSeenFrameJobs] = useState<ReadonlySet<string>>(() => new Set())
   const video = useVideoGeneration(conversationId)
-  // 打开时先选中哪一条由入口决定；target 本身不带图，应用之后这一格换了图它也不用变。
-  const [imageEdit, setImageEdit] = useState<{
-    target: FrameEditTarget
-    initialKey?: string | undefined
-  } | null>(null)
-  const imageEditTarget = imageEdit?.target ?? null
-  const imageEditTriggerRef = useRef<HTMLElement | null>(null)
+  // 打开时先选中哪一条、从哪个控件点开都由入口决定。
+  const [imageEdit, setImageEdit] = useState<FrameEditSession | null>(null)
   const draft = useShotsDraft({ conversationId, path, file: file.data?.file })
-  const [uploadedSources, setUploadedSources] = useState<
-    { group: number; frame: number; url: string }[]
-  >([])
-  const savedContent = file.data?.file.content
-  const savedDocument = useMemo(
-    () => (savedContent === undefined ? null : parseShotsDocument(savedContent)),
-    [savedContent],
-  )
   const latestFrameJob = useMemo(
     () => latestFrameJobs(frameJobs.data?.items ?? []),
     [frameJobs.data],
   )
-  // 根据已落盘地址判断上传是否仍未保存，避免一次较早请求成功就清除后来上传的提示。
-  const appliedUpload =
-    draft.hasUnsavedChanges &&
-    uploadedSources.some(
-      (source) =>
-        draft.document?.shots.find((shot) => shot.index === source.group)?.image_urls[
-          source.frame - 1
-        ] === source.url &&
-        savedDocument?.shots.find((shot) => shot.index === source.group)?.image_urls[
-          source.frame - 1
-        ] !== source.url,
-    )
-  const recordUpload = (group: number, frame: number, url: string) => {
-    setUploadedSources((current) => [
-      ...current.filter((source) => source.group !== group || source.frame !== frame),
-      { group, frame, url },
-    ])
-  }
   const navigate = useNavigate()
   const search: ReaderSearch = useSearch({ strict: false })
   const pagesRef = useRef<HTMLDivElement | null>(null)
@@ -125,18 +90,17 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
 
   const { clear: clearSelection, set: setSelection } = useWorkbenchSelection()
   const currentShot = shots[position - 1]
-  const activeContents = currentShot === undefined ? [] : shotContents(currentShot)
-  const activeContent =
-    activeContents.find((item) => item.id === search.content) ?? activeContents[0]
-  const selectedFrame =
-    search.frame !== undefined && activeContent?.frameNumbers.includes(search.frame)
-      ? search.frame
-      : activeContent?.frameNumbers[0]
-  const selectedContentId = activeContent?.id
-  const selectedContentLabel =
-    activeContent?.timelineIndex === undefined
-      ? activeContent?.title
-      : `镜头 ${activeContent.timelineIndex + 1}`
+  const selection =
+    currentShot === undefined
+      ? undefined
+      : resolveShotSelection(shotContents(currentShot), {
+          content: search.content,
+          frame: search.frame,
+        })
+  // 下面的副作用只认原始值：内容对象每次渲染都重建，放进依赖会让选区每帧重设。
+  const selectedFrame = selection?.frame
+  const selectedContentId = selection?.content.id
+  const selectedContentLabel = selection === undefined ? undefined : contentLabel(selection.content)
   useEffect(() => {
     if (selectedContentId === undefined) clearSelection()
     else {
@@ -192,23 +156,21 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
   }, [position, shots.length])
 
   if (file.isPending && document === null) return <ReaderNotice text="正在读取分镜…" />
-  if (file.isError && document === null) return <ReaderNotice text={file.error.message} />
+  if (file.isError && document === null)
+    return <ReaderNotice text={errorMessageOf(file.error, '读取分镜失败')} />
   const shot = shots[position - 1]
   if (document === null || shot === undefined) {
     return <ReaderNotice text="文件格式不对，读不出镜头组" />
   }
 
   // 本对话全部出片记录，按镜头组挑格子的事交给各消费方——它们都自己读坐标。
-  const jobs = generations.data?.items ?? []
+  const jobs = generations.data ?? []
   // 编辑结果不带分镜坐标，抽屉里不单列；数一下折进原片那张卡。
   const editCounts = editCountsByRoot(jobs)
   const videoEditRoot =
     search.video === undefined ? undefined : jobs.find((job) => job.id === search.video)
   const activeCount = jobs.filter(
-    (job) =>
-      job.kind === 'video' &&
-      readStoryboardMetadata(job)?.shot === shot.index &&
-      isRunningStatus(job.status),
+    (job) => isShotVideo(job, shot.index) && isRunningStatus(job.status),
   ).length
   // 出片发的是描述的当前版本；还在存或没存下就先别发，免得发出去的和文件里的不一样。
   // 原因不另写一句：左边的保存状态已经在说。只读时整页的编辑与生成入口一起收起。
@@ -220,11 +182,10 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
     draft.state.kind === 'conflict' ||
     video.options.model === undefined ||
     draft.state.kind === 'saving' ||
-    draft.state.kind === 'error' ||
-    video.submitting.includes(shot.index)
+    draft.state.kind === 'error'
   // 改过之后原因就过期了，等下一次出片再说；存盘状态那一格有自己的提示，不重复说。
   const submitError = draft.hasUnsavedChanges ? undefined : video.errorOf(shot.index)
-  // 选中的模型做不了这份分镜的画幅：只提醒，不拦——真拒还是由上游拒（ADR-0018）。
+  // 选中的模型做不了这份分镜的画幅：只提醒，不拦——真拒还是由上游拒。
   const aspectMismatch = supportsAspectRatio(video.options.model, document.aspect_ratio)
     ? undefined
     : `${video.options.model} 做不了 ${document.aspect_ratio}`
@@ -255,7 +216,11 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
   return (
     <>
       <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2 px-4 pt-2 pb-1">
+        <div
+          aria-label="出片工具栏"
+          className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2 px-4 pt-2 pb-1"
+          role="group"
+        >
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             <Select
               aria-label="画幅"
@@ -284,7 +249,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
             <SaveStatus
               state={draft.state}
               hasUnsavedChanges={draft.hasUnsavedChanges}
-              appliedUpload={appliedUpload}
+              appliedUpload={draft.hasUnsavedUpload}
               onRetry={() => void draft.saveNow()}
             />
           </div>
@@ -324,7 +289,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
             models={video.models}
             onChange={video.setOptions}
             onGenerate={() => void generate()}
-            submitting={gate.preparing || video.submitting.includes(shot.index)}
+            submitting={gate.preparing}
             unavailable={video.modelsUnavailable ? '视频模型读不到' : undefined}
             value={video.options}
           />
@@ -343,18 +308,18 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
                 onUpdateShot={(updater) => draft.updateShot(item.index, updater)}
                 onReplaceFrame={(frame, previousUrl, url) => {
                   draft.replaceFrame(item.index, frame, previousUrl, url)
-                  recordUpload(item.index, frame, url)
+                  draft.recordUpload(item.index, frame, url)
                 }}
-                onUploaded={(frame, url) => recordUpload(item.index, frame, url)}
+                onUploaded={(frame, url) => draft.recordUpload(item.index, frame, url)}
                 onUploadingChange={gate.onUploadingChange}
                 onEditFrame={(frame, open) => {
-                  imageEditTriggerRef.current =
-                    window.document.activeElement instanceof HTMLElement
-                      ? window.document.activeElement
-                      : null
                   setImageEdit({
                     target: { conversationId, shotIndex: item.index, frameNumber: frame },
                     ...(open.kind === 'result' ? { initialKey: open.jobId } : {}),
+                    trigger:
+                      window.document.activeElement instanceof HTMLElement
+                        ? window.document.activeElement
+                        : null,
                   })
                 }}
                 content={offset + 1 === position ? search.content : undefined}
@@ -430,7 +395,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
                   <Button onClick={closeSheet} size="md" variant="ghost">
                     关闭生成记录
                   </Button>
-                  <ReaderNotice text={generations.error.message} />
+                  <ReaderNotice text={errorMessageOf(generations.error, '读取视频记录失败')} />
                 </>
               ) : generations.isPending ? (
                 <>
@@ -478,336 +443,27 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
           }
         />
       )}
-      {imageEdit === null || imageEditTarget === null ? null : (
-        <FrameImageEditor
-          key={JSON.stringify(imageEditTarget)}
-          target={imageEditTarget}
-          frames={shots.find((item) => item.index === imageEditTarget.shotIndex)?.image_urls ?? []}
+      {imageEdit === null ? null : (
+        <ReaderImageEdit
           aspectRatio={document.aspect_ratio}
-          initialKey={imageEdit.initialKey}
-          onClose={() => {
-            const latest = latestFrameJob.get(
-              frameJobKey(imageEditTarget.shotIndex, imageEditTarget.frameNumber),
-            )
-            // 还在跑的那条不算看过，落定后照样要在帧上冒出来。
-            if (latest !== undefined && !isRunningStatus(latest.status))
-              setSeenFrameJobs((current) => new Set(current).add(latest.id))
-            setImageEdit(null)
-            requestAnimationFrame(() => {
-              const trigger = imageEditTriggerRef.current
-              if (trigger?.isConnected) trigger.focus()
-              // 从「有新结果」角标点开的，关掉时角标已经清掉，焦点退回这一帧的编辑入口。
-              else
-                window.document
-                  .querySelector<HTMLElement>(
-                    `[aria-label="镜头组 ${imageEditTarget.shotIndex}"] [data-frame-edit]`,
-                  )
-                  ?.focus()
-            })
-          }}
+          frames={shots.find((item) => item.index === imageEdit.target.shotIndex)?.image_urls ?? []}
+          latestFrameJobs={latestFrameJob}
           onApply={(previousUrl, url) =>
             draft.applyFrame(
-              imageEditTarget.shotIndex,
-              imageEditTarget.frameNumber,
+              imageEdit.target.shotIndex,
+              imageEdit.target.frameNumber,
               previousUrl,
               url,
             )
           }
+          onClose={(seen) => {
+            if (seen !== undefined) setSeenFrameJobs((current) => new Set(current).add(seen.id))
+            setImageEdit(null)
+          }}
+          session={imageEdit}
         />
       )}
-      <ConflictDialog
-        state={draft.state}
-        resolve={(choice) => {
-          draft.resolveConflict(choice)
-          if (choice === 'theirs') setUploadedSources([])
-        }}
-      />
-    </>
-  )
-}
-
-type ReaderOverlayProps = {
-  label: string
-  children: ReactNode
-  onClose: () => void
-  className?: string
-}
-
-function ReaderOverlay({ children, className, label, onClose }: ReaderOverlayProps) {
-  const ref = useRef<HTMLElement | null>(null)
-  useEffect(() => {
-    const target =
-      ref.current?.querySelector<HTMLElement>('[data-reader-focus]') ??
-      ref.current?.querySelector<HTMLElement>('button')
-    target?.focus()
-  }, [])
-  // 预览灯箱与编辑弹窗都是 Radix 模态：它们接住的 Escape 带着 defaultPrevented，抽屉据此让位。
-  const close = useEffectEvent(onClose)
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (
-        event.key !== 'Escape' ||
-        event.defaultPrevented ||
-        isBehindModal(ref.current) ||
-        !ref.current?.contains(document.activeElement)
-      )
-        return
-      event.preventDefault()
-      close()
-    }
-    window.addEventListener('keydown', closeOnEscape)
-    return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [])
-  return (
-    <aside
-      aria-label={label}
-      className={cn(
-        'group-prompt-sheet absolute inset-0 flex min-h-0 min-w-0 animate-in flex-col overflow-hidden rounded-t-lg border-[0.5px] border-chat-hairline bg-background shadow-[var(--shadow-2)] duration-(--dur-m) ease-(--ease-decel) slide-in-from-bottom motion-reduce:animate-none',
-        className,
-      )}
-      ref={ref}
-    >
-      {children}
-    </aside>
-  )
-}
-
-type PromptReadingProps = {
-  shot: Shot
-  aspect_ratio: string
-  onClose: () => void
-  onPreview: Preview
-  onUpdateShot: (updater: (current: Shot) => Shot) => void
-  readOnly: boolean
-}
-
-function PromptReading({
-  aspect_ratio,
-  onClose,
-  onPreview,
-  onUpdateShot,
-  readOnly,
-  shot,
-}: PromptReadingProps) {
-  // 全组一次展开，每段正文各自写回；写入路径与单页视图共用 updateContentPrompt。
-  const changePrompt = (id: string) => (text: string) =>
-    onUpdateShot((current) => updateContentPrompt(current, id, text))
-  const previewFrame = (number: number) => {
-    const url = shot.image_urls[number - 1]
-    if (url !== undefined) onPreview({ kind: 'image', name: `参考图 @Image${number}`, url })
-  }
-  return (
-    <>
-      <header className="flex shrink-0 items-center justify-between gap-3 border-b-[0.5px] border-chat-hairline px-5 py-4">
-        <div>
-          <h3 className="text-body font-medium text-on-surface">
-            镜头组 {shot.index} · 完整提示词
-          </h3>
-          <p className="mt-1 text-body-sm text-on-surface-faint">
-            {shot.seconds} 秒 · {aspect_ratio} · {shot.image_urls.length} 张参考图
-          </p>
-        </div>
-        <Button
-          aria-label="收起完整提示词"
-          onClick={onClose}
-          size="md"
-          trailingIcon="expand"
-          variant="ghost"
-        >
-          收起
-        </Button>
-      </header>
-      <div className="group-prompt-body min-h-0 flex-1">
-        <div
-          aria-label="镜头组原文"
-          className="group-prompt-reading min-h-0 min-w-0 space-y-5 overflow-y-auto overscroll-contain p-5 ui-focus-inline"
-          data-reader-focus
-          role="region"
-          tabIndex={-1}
-        >
-          <PromptEditor
-            aria-label="全局设定"
-            frames={shot.image_urls}
-            onChange={changePrompt(encodeContentId({ kind: 'global' }))}
-            readOnly={readOnly}
-            value={shot.prompt.global_settings}
-            onPickFrame={previewFrame}
-          />
-          {shot.prompt.timeline.map((item, index) => (
-            <section aria-label={`镜头 ${index + 1} 原文`} key={item.timestamps.join(':')}>
-              <h4 className="mb-2 text-label text-on-surface-faint">
-                [{item.timestamps[0]}–{item.timestamps[1]}秒｜镜头{index + 1}]
-              </h4>
-              <PromptEditor
-                aria-label={`镜头 ${index + 1} 的描述`}
-                frames={shot.image_urls}
-                onChange={changePrompt(encodeContentId({ kind: 'scene', scene: index + 1 }))}
-                onPickFrame={previewFrame}
-                readOnly={readOnly}
-                value={item.prompt}
-              />
-            </section>
-          ))}
-        </div>
-        <section
-          aria-label="本组参考图"
-          className="group-prompt-references min-h-0 min-w-0 overflow-y-auto overscroll-contain border-l-[0.5px] border-chat-hairline p-4"
-        >
-          <h4 className="mb-3 text-body-sm font-medium text-on-surface-variant">
-            参考图 · {shot.image_urls.length} 张
-          </h4>
-          {shot.image_urls.length === 0 ? (
-            <p className="text-body-sm text-on-surface-faint">本组暂无参考图</p>
-          ) : (
-            <div className="grid grid-cols-2 items-start gap-x-3 gap-y-4">
-              {shot.image_urls
-                .map((url, index) => ({ url, number: index + 1 }))
-                .map(({ url, number }) => (
-                  <figure className="min-w-0" key={number}>
-                    <button
-                      aria-label={`查看参考图 @Image${number}`}
-                      className="block w-full cursor-zoom-in overflow-hidden rounded-xs bg-surface-container ui-focus"
-                      onClick={() =>
-                        onPreview({ kind: 'image', name: `参考图 @Image${number}`, url })
-                      }
-                      type="button"
-                    >
-                      <img
-                        alt={`镜头组 ${shot.index} 参考图 @Image${number}`}
-                        className="block w-full object-contain"
-                        loading="lazy"
-                        src={url}
-                        style={{ aspectRatio: aspectRatioStyle(aspect_ratio) }}
-                      />
-                    </button>
-                    <figcaption className="mt-1 text-caption text-on-surface-variant">
-                      @Image{number}
-                    </figcaption>
-                  </figure>
-                ))}
-            </div>
-          )}
-        </section>
-      </div>
-      <footer className="flex shrink-0 justify-end border-t-[0.5px] border-chat-hairline px-5 py-3">
-        <Button
-          leadingIcon="copy"
-          onClick={() => void copyText(formatShotPrompt(shot), '已复制完整提示词')}
-          size="md"
-          variant="ghost"
-        >
-          复制完整提示词
-        </Button>
-      </footer>
-    </>
-  )
-}
-
-const copyText = async (text: string, message: string) => {
-  try {
-    await writeClipboard(text)
-    toast(message)
-  } catch (error) {
-    toast.error(error instanceof Error ? error.message : '复制失败')
-  }
-}
-
-type ShotOverviewProps = {
-  shots: readonly Shot[]
-  aspect_ratio: string
-  onClose: () => void
-  onOpenShot: (index: number) => void
-}
-
-function ShotOverview({ shots, aspect_ratio, onClose, onOpenShot }: ShotOverviewProps) {
-  const [selected, setSelected] = useState<readonly number[]>([])
-  const chosen = shots.filter((shot) => selected.includes(shot.index))
-  const all = chosen.length === shots.length
-  return (
-    <>
-      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b-[0.5px] border-chat-hairline px-4 py-3">
-        <h3 className="text-body font-medium text-on-surface">全部镜头组</h3>
-        <Button
-          onClick={() => setSelected(all ? [] : shots.map((shot) => shot.index))}
-          size="md"
-          variant="ghost"
-        >
-          {all ? '取消全选' : '全选'}
-        </Button>
-        <span className="text-body-sm text-on-surface-faint">已选 {chosen.length} 个</span>
-        <span className="flex-1" />
-        <Button
-          disabled={chosen.length === 0}
-          leadingIcon="copy"
-          onClick={() =>
-            void copyText(formatShotPrompts(chosen), `已复制 ${chosen.length} 个镜头组`)
-          }
-          size="md"
-          variant="ghost"
-        >
-          复制选中镜头组
-        </Button>
-        <IconButton label="关闭全部镜头组" name="close" onClick={onClose} size="sm" />
-      </header>
-      <ul className="grid min-h-0 flex-1 grid-cols-[repeat(auto-fill,minmax(150px,1fr))] content-start gap-3 overflow-y-auto p-4">
-        {shots.map((shot) => {
-          const number =
-            shot.prompt.timeline[0]?.image_indexes.find(
-              (value) => value >= 1 && value <= shot.image_urls.length,
-            ) ?? 1
-          const url = shot.image_urls[number - 1]
-          const picked = selected.includes(shot.index)
-          return (
-            <li className="relative" key={shot.index}>
-              <button
-                aria-label={`查看镜头组 ${shot.index}`}
-                className="block w-full cursor-pointer overflow-hidden rounded-md border-[0.5px] border-chat-hairline bg-chat-card-bg text-left ui-focus"
-                onClick={() => onOpenShot(shot.index)}
-                type="button"
-              >
-                <span
-                  className="grid w-full place-items-center bg-surface-container"
-                  style={{ aspectRatio: aspectRatioStyle(aspect_ratio) }}
-                >
-                  {url === undefined ? (
-                    <span className="text-body-sm text-on-surface-faint">无图</span>
-                  ) : (
-                    <img
-                      alt={`镜头组 ${shot.index} 首帧`}
-                      className="size-full object-cover"
-                      src={url}
-                    />
-                  )}
-                </span>
-                <span className="flex min-w-0 flex-col gap-1 px-3 py-2">
-                  <span className="text-label text-on-surface-faint">
-                    第 {shot.index} 组 · {shot.seconds} 秒
-                  </span>
-                  <span className="truncate text-body-sm text-on-surface">{shotName(shot)}</span>
-                </span>
-              </button>
-              <button
-                aria-label={`选中镜头组 ${shot.index}`}
-                aria-pressed={picked}
-                className={cn(
-                  'absolute top-2 right-2 grid size-6 cursor-pointer place-items-center rounded-full border-[0.5px] border-chat-hairline ui-focus',
-                  picked ? 'bg-primary text-on-primary' : 'bg-chat-card-bg text-transparent',
-                )}
-                onClick={() =>
-                  setSelected((current) =>
-                    current.includes(shot.index)
-                      ? current.filter((index) => index !== shot.index)
-                      : [...current, shot.index],
-                  )
-                }
-                type="button"
-              >
-                <Icon decorative name="check" size="xs" />
-              </button>
-            </li>
-          )
-        })}
-      </ul>
+      <ConflictDialog state={draft.state} resolve={draft.resolveConflict} />
     </>
   )
 }

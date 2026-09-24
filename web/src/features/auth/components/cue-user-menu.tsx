@@ -1,8 +1,7 @@
 import { useCallback } from 'react'
-import { useLogout, useUser } from '@/shared/auth'
-import { Icon } from '@/shared/icons'
+import { useLogout, userDisplayName, useUser } from '@/shared/auth'
 import { cn } from '@/shared/lib/utils'
-import { PopupContent, usePopupAnchor } from '@/shared/ui/popup'
+import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 
 type CueUserMenuAlign = 'bottom-end' | 'bottom-start' | 'top-end' | 'top-start'
 
@@ -11,24 +10,23 @@ type CueUserMenuProps = {
   className?: string
 }
 
+const ALIGN_PLACEMENT: Record<
+  CueUserMenuAlign,
+  { align: 'start' | 'end'; side: 'bottom' | 'top' }
+> = {
+  'bottom-end': { align: 'end', side: 'bottom' },
+  'bottom-start': { align: 'start', side: 'bottom' },
+  'top-end': { align: 'end', side: 'top' },
+  'top-start': { align: 'start', side: 'top' },
+}
+
 const USER_AVATAR_BUTTON_CLASS =
   'inline-flex h-8 w-8 min-w-8 items-center justify-center overflow-hidden rounded-full text-body-sm font-semibold ui-focus select-none transition-all ui-motion-s active:scale-95'
 
 export function CueUserMenu({ align = 'bottom-end', className = '' }: CueUserMenuProps) {
   const { data: user } = useUser()
   const logoutMutation = useLogout()
-  const {
-    anchorRect,
-    open: menuOpen,
-    setOpen: setMenuOpen,
-    triggerRef,
-    updateAnchorRect,
-  } = usePopupAnchor<HTMLButtonElement>()
   const isLoggingOut = logoutMutation.isPending
-
-  const closeMenu = useCallback(() => {
-    setMenuOpen(false)
-  }, [setMenuOpen])
 
   const handleLogout = useCallback(() => {
     if (logoutMutation.isPending) {
@@ -39,8 +37,7 @@ export function CueUserMenu({ align = 'bottom-end', className = '' }: CueUserMen
     logoutMutation.mutate()
   }, [logoutMutation])
 
-  // SSO 自动建号的用户没有 username，优先展示 SSO 同步来的 displayName。
-  const userLabel = user?.displayName || user?.username || '用户'
+  const userLabel = userDisplayName(user)
   const departments = user?.departments ?? []
   const hasProfileDetails = Boolean(user?.jobTitle || user?.city || departments.length)
   // 头像依次使用 SSO 图片、用户名首字母和通用轮廓。
@@ -48,46 +45,38 @@ export function CueUserMenu({ align = 'bottom-end', className = '' }: CueUserMen
   const avatarInitial = user ? userLabel.trim().charAt(0).toUpperCase() : ''
 
   return (
-    <>
-      <button
-        ref={triggerRef}
-        type="button"
-        aria-expanded={menuOpen}
-        aria-haspopup="menu"
-        aria-label="用户菜单"
-        title={userLabel}
-        className={cn(
-          USER_AVATAR_BUTTON_CLASS,
-          avatarUrl
-            ? 'border border-border bg-top-layer'
-            : avatarInitial
-              ? 'bg-primary text-on-primary hover:brightness-110'
-              : 'border border-border bg-header-btn-bg text-on-background hover:border-border-hover hover:bg-hover',
-          className,
-        )}
-        data-cue-user-avatar="true"
-        onClick={() => {
-          updateAnchorRect()
-          setMenuOpen((current) => !current)
-        }}
-      >
-        {avatarUrl ? (
-          <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
-        ) : avatarInitial ? (
-          <span aria-hidden="true">{avatarInitial}</span>
-        ) : (
-          <CueUserAvatarIcon />
-        )}
-      </button>
+    <MenuRoot>
+      <MenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="用户菜单"
+          title={userLabel}
+          className={cn(
+            USER_AVATAR_BUTTON_CLASS,
+            avatarUrl
+              ? 'border border-border bg-top-layer'
+              : avatarInitial
+                ? 'bg-primary text-on-primary hover:brightness-110'
+                : 'border border-border bg-header-btn-bg text-on-background hover:border-border-hover hover:bg-hover',
+            className,
+          )}
+          data-cue-user-avatar="true"
+        >
+          {avatarUrl ? (
+            <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+          ) : avatarInitial ? (
+            <span aria-hidden="true">{avatarInitial}</span>
+          ) : (
+            <CueUserAvatarIcon />
+          )}
+        </button>
+      </MenuTrigger>
 
-      <PopupContent
-        open={menuOpen}
-        anchorRect={anchorRect}
-        align={align}
-        onDismiss={closeMenu}
-        role="menu"
-        aria-label="用户菜单"
-        className="w-[280px] overflow-hidden p-1"
+      <MenuSurface
+        align={ALIGN_PLACEMENT[align].align}
+        side={ALIGN_PLACEMENT[align].side}
+        // 个人信息与退出项之间不留菜单项间距，保持分隔线贴着退出项。
+        className="w-[280px] gap-0 overflow-hidden"
       >
         <div className="border-b border-border px-3 py-2.5">
           <p className="truncate text-body-sm font-semibold text-on-background">{userLabel}</p>
@@ -129,18 +118,20 @@ export function CueUserMenu({ align = 'bottom-end', className = '' }: CueUserMen
             </dl>
           ) : null}
         </div>
-        <button
-          type="button"
-          role="menuitem"
+        <MenuItem
+          icon="logout"
           disabled={isLoggingOut}
-          className="flex h-(--control-height-sm) w-full ui-state cursor-pointer items-center gap-2 rounded-sm px-2 text-body text-on-surface ui-focus disabled:cursor-wait"
-          onClick={handleLogout}
+          className="data-disabled:cursor-wait"
+          onSelect={(event) => {
+            // 菜单留着显示「退出中」；退出成功后侧栏换成登录入口，菜单随之卸载。
+            event.preventDefault()
+            handleLogout()
+          }}
         >
-          <Icon decorative name="logout" size="sm" />
-          <span className="flex-1 text-left">{isLoggingOut ? '退出中' : '退出登录'}</span>
-        </button>
-      </PopupContent>
-    </>
+          {isLoggingOut ? '退出中' : '退出登录'}
+        </MenuItem>
+      </MenuSurface>
+    </MenuRoot>
   )
 }
 

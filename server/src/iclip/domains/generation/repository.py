@@ -7,7 +7,12 @@ import uuid
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
-from iclip.domains.generation.models import GenerationJob, GenerationStatus, InFlightPhase
+from iclip.domains.generation.models import (
+    GenerationJob,
+    GenerationKind,
+    GenerationStatus,
+    InFlightPhase,
+)
 
 
 class GenerationRepository(Protocol):
@@ -27,13 +32,15 @@ class GenerationRepository(Protocol):
         owner: uuid.UUID | None,
         limit: int,
         conversation_id: uuid.UUID | None = None,
-        kind: str | None = None,
+        kind: GenerationKind | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
+        root_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
         """按创建时间倒序列出；``conversation_id`` / ``task_id`` 给了就只要那段对话、那张需求单下面的，
-        ``metadata`` 给了就只要坐标包含这些键值的（JSONB ``@>``）。"""
+        ``root_job_id`` 给了就只要那条出片名下的衍生记录，``metadata`` 给了就只要坐标包含这些键值的
+        （JSONB ``@>``）。"""
         ...
 
     async def copy_completed_to_fork(
@@ -44,14 +51,15 @@ class GenerationRepository(Protocol):
         owner: uuid.UUID,
         task_id: uuid.UUID | None,
     ) -> int:
-        """把源对话已出片的记录复制到副本名下，返回复制了几条。
+        """把源对话已完成的记录复制到副本名下，返回复制了几条。
 
-        只取 ``completed``：只有它带输出地址，其余状态拷过去是死行。视频编辑链整条不带——
-        链上各条靠 ``metadata.rootJob`` 认根，根在副本里换了新 id，拷过去也连不回去；本地加工
-        的参考片段还配了桶上的过期规则，拷过去迟早是死地址。新行换新 id 与新对话，
-        属主记复制的人（结果条按属主可见性查），``api_key_id`` 清空（这次不是钥匙发起的）。
-        ``request``（含 ``user_name``）、``metadata`` 与四个时间戳原样保留：坐标是结果条的定位键，
-        时间戳决定同一坐标下哪条算最新，改了就把副本后来自己出的片压下去。
+        只取 ``completed``：只有它带输出地址，其余状态拷过去是死行。独立记录与它们名下的
+        编辑结果、成片都拷，衍生记录的 ``root_job_id`` 换成新根的 id，副本里的版本树因此完整；
+        只有参考片段不拷——它是切给模型看的中间素材，桶上配了过期规则，成片一出就没用。
+        新行换新 id 与新对话，属主记复制的人（结果条按属主可见性查），``api_key_id`` 清空
+        （这次不是钥匙发起的）。``request``（含 ``user_name``）、``metadata`` 与四个时间戳原样
+        保留：坐标是结果条的定位键，时间戳决定同一坐标下哪条算最新，改了就把副本后来自己出的
+        片压下去。
         """
         ...
 
@@ -114,7 +122,7 @@ class GenerationRepository(Protocol):
         ...
 
     async def in_flight_by_conversation(
-        self, conversation_ids: Sequence[uuid.UUID], *, kind: str
+        self, conversation_ids: Sequence[uuid.UUID], *, kind: GenerationKind
     ) -> Mapping[uuid.UUID, InFlightPhase]:
         """这些对话下还没跑完的某类任务各到哪一步；一条都没有的对话不在结果里。不按属主过滤，
         调用方给的对话本来就是它能看的。"""

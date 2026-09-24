@@ -1,6 +1,7 @@
 """生成 Provider 协议。异步生成返回任务 id 后轮询，同步生成在 submit 中直接返回 output_url。
 
-ProviderError 用于写入任务错误信息；retryable 仅供允许重试的阶段使用，提交阶段不重投。"""
+ProviderError 用于写入任务错误信息；retryable 仅供允许重试的阶段使用，提交阶段不重投。
+各家适配器共用的请求守卫也在这里，同一种不一致只有一个错误码。"""
 
 from __future__ import annotations
 
@@ -8,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
 from iclip.domains.generation.models import GenerationJob
+from iclip.domains.generation.schemas import ImageGenerationIn, VideoGenerationIn
 
 ProviderOutcome = Literal["running", "succeeded", "failed"]
 
@@ -19,6 +21,32 @@ class ProviderError(Exception):
         super().__init__(message)
         self.code = code
         self.retryable = retryable
+
+
+def request_of[R](job: GenerationJob, expected: type[R], *, provider: str) -> R:
+    """取出这家能处理的那类请求。kind 对不上说明任务排错了队，抛 ``PROVIDER_KIND_MISMATCH``。"""
+
+    request = job.request
+    if not isinstance(request, expected):
+        raise ProviderError(
+            f"{provider} 收到了 {job.kind} 请求",
+            code="PROVIDER_KIND_MISMATCH",
+            retryable=False,
+        )
+    return request
+
+
+def user_name_of(request: VideoGenerationIn | ImageGenerationIn) -> str:
+    """上游按它落表对账。受理层保证填好了；为空说明装配串了，抛 ``PROVIDER_USER_NAME_MISSING``，
+    不给付费接口送一个没名字的请求。"""
+
+    if request.user_name is None:
+        raise ProviderError(
+            "生成请求没有 user_name",
+            code="PROVIDER_USER_NAME_MISSING",
+            retryable=False,
+        )
+    return request.user_name
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,4 +114,6 @@ __all__ = [
     "ProviderOutcome",
     "ProviderProgress",
     "ProviderSubmission",
+    "request_of",
+    "user_name_of",
 ]

@@ -2,6 +2,7 @@ import { DropdownMenu } from 'radix-ui'
 import type { ComponentPropsWithoutRef } from 'react'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
+import { POPUP_SURFACE_CLASS } from '@/shared/ui/popup'
 
 export const MenuRoot = DropdownMenu.Root
 export const MenuTrigger = DropdownMenu.Trigger
@@ -28,11 +29,7 @@ export function MenuSurface({
   return (
     <DropdownMenu.Portal>
       <DropdownMenu.Content
-        className={cn(
-          'layer-popup flex min-w-36 flex-col gap-0.5 rounded-md border-[0.5px] border-border bg-popup-bg p-1 shadow-[var(--shadow-2)] backdrop-blur-[40px]',
-          'data-[state=closed]:animate-out data-[state=closed]:duration-(--dur-s) data-[state=closed]:ease-(--ease-accel) data-[state=closed]:zoom-out-95 data-[state=closed]:fade-out data-[state=open]:animate-in data-[state=open]:duration-(--dur-m) data-[state=open]:ease-(--ease-decel) data-[state=open]:zoom-in-95 data-[state=open]:fade-in',
-          className,
-        )}
+        className={cn(POPUP_SURFACE_CLASS, 'flex min-w-36 flex-col gap-0.5 p-1', className)}
         sideOffset={sideOffset}
         {...props}
       />

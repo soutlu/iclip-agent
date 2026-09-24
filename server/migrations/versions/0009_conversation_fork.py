@@ -6,7 +6,6 @@ Create Date: 2026-09-16 10:00:00.000000
 
 两列同时为空或同时非空：不是分叉来的对话两列都空。外键用 restrict，源对话的行永不硬删，
 被分叉过的行也不该因为别处的删除动作消失。审计按这两列把副本排除出报表。
-决策见 docs/adr/0029-conversation-fork.md。
 """
 
 from __future__ import annotations

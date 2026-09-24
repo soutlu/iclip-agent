@@ -1,6 +1,6 @@
 /** 分镜页帧上的图片任务状态：每格只看最新一条；在跑的一直显示，终态看过一次就清。 */
 
-import type { MediaBadgeStatus } from '@/shared/ui/status-badge'
+import { mediaStatusLabel, type MediaBadgeStatus } from '@/shared/ui/status-badge'
 import { readStoryboardMetadata } from './generation-metadata'
 import type { Shot } from './shot-document'
 import { phaseOfStatus } from './shots'
@@ -13,15 +13,9 @@ export type FrameBadge =
   /** 点它直接打开编辑器看这条结果，所以要带上是哪条任务。 */
   | { kind: 'result'; jobId: string }
 
-const TEXT: Record<FrameBadge['kind'], string> = {
-  failed: '生成失败',
-  queued: '排队中',
-  result: '有新结果',
-  running: '生成中',
-}
-
-/** 角标的文字，胶片条的可访问名与主预览的提示共用一套词。 */
-export const frameBadgeText = (badge: FrameBadge): string => TEXT[badge.kind]
+/** 角标的文字，胶片条的可访问名与主预览的提示共用一套词；只有「有新结果」是这里独有的说法。 */
+export const frameBadgeText = (badge: FrameBadge): string =>
+  badge.kind === 'result' ? '有新结果' : mediaStatusLabel(badge.kind)
 
 /** 新结果就是跑完了的图片任务，画成已完成的样子，文字仍说「有新结果」。 */
 export const frameBadgeStatus = (badge: FrameBadge): MediaBadgeStatus =>
@@ -33,15 +27,12 @@ export const frameJobKey = (shotIndex: number, frameNumber: number) => `${shotIn
 export const isAppliedResult = (job: GenerationJob, currentUrl: string): boolean =>
   job.outputUrl !== null && job.outputUrl === currentUrl
 
-const newestFirst = (left: GenerationJob, right: GenerationJob) =>
-  right.createdAt.localeCompare(left.createdAt)
-
-/** 每格最新一条图片任务。视频任务、坐标里没帧号的都落不到格上，跳过。 */
+/** 每格最新一条图片任务：列表按服务端给的顺序（新的在前），每格取第一条。视频任务、坐标里没帧号的都落不到格上，跳过。 */
 export const latestFrameJobs = (
   jobs: readonly GenerationJob[],
 ): ReadonlyMap<string, GenerationJob> => {
   const latest = new Map<string, GenerationJob>()
-  for (const job of [...jobs].sort(newestFirst)) {
+  for (const job of jobs) {
     const at = readStoryboardMetadata(job)
     if (job.kind !== 'image' || at === undefined || at.frame === undefined) continue
     const key = frameJobKey(at.shot, at.frame)

@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { useState } from 'react'
@@ -7,6 +7,7 @@ import {
   addMockConversation,
   addMockTask,
   addMockUser,
+  loginAs,
   mockAuthUser,
 } from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
@@ -47,12 +48,16 @@ const workChanged = (
 /** 筛选条件在应用里由路由存在查询参数上；这里照样在外面持有一份，只测列表本身的行为。 */
 function StatefulConversationsRoute({
   tasks,
+  previews = new Map(),
 }: {
   tasks: readonly { id: string; label: string }[]
+  previews?: ReadonlyMap<string, { title: string; requirement: string; imageUrl: string | null }>
 }) {
   const [filters, setFilters] = useState<AuditFilters>(DEFAULT_AUDIT_FILTERS)
   return (
     <ConversationsRoute
+      taskPreviews={previews}
+      taskPreviewState="ready"
       filters={filters}
       onFiltersChange={setFilters}
       tasks={{ error: undefined, isPending: false, onRetry: undefined, options: tasks }}
@@ -61,13 +66,7 @@ function StatefulConversationsRoute({
 }
 
 const render = async (tasks: readonly { id: string; label: string }[] = []) => {
-  server.use(
-    http.get('*/api/users/me', () =>
-      HttpResponse.json({
-        user: { ...mockAuthUser, permissions: [...mockAuthUser.permissions, 'users:manage'] },
-      }),
-    ),
-  )
+  loginAs(mockAuthUser, { permissions: [...mockAuthUser.permissions, 'users:manage'] })
   const user = userEvent.setup()
   const rendered = await renderWithProviders(
     <>
@@ -78,7 +77,11 @@ const render = async (tasks: readonly { id: string; label: string }[] = []) => {
   return { ...rendered, user }
 }
 
-const rowOf = (title: string) => screen.findByRole('link', { name: new RegExp(title) })
+/** 等全局帧引起的重拉时放宽超时：那一路带一秒的去抖窗口（见 conversations.live.ts）。 */
+const AUDIT_REFRESH_TIMEOUT = { timeout: 3000 }
+
+const rowOf = (title: string, options?: { timeout: number }) =>
+  screen.findByRole('link', { name: new RegExp(title) }, options)
 
 const expectTotals = (running: number, total: number) => {
   const totals = screen.getByRole('status', { name: '对话总数' })
@@ -120,7 +123,7 @@ afterEach(() => {
 })
 
 describe('ConversationsRoute', () => {
-  it('按最近活动倒序列出全平台对话，保留用户、已关联需求单与运行总数', async () => {
+  it('按建立时间倒序列出全平台对话', async () => {
     const { task } = seedThree()
     await render([{ id: task.id, label: task.title }])
 
@@ -130,14 +133,55 @@ describe('ConversationsRoute', () => {
       expect.stringContaining('我的片'),
       expect.stringContaining('跑完的片'),
     ])
+  })
+
+  it('每行标出属主与运行状态', async () => {
+    const { task } = seedThree()
+    await render([{ id: task.id, label: task.title }])
+
     const theirs = await rowOf('小王的秋季片')
     expect(theirs).toHaveTextContent('进行中')
     expect(await within(theirs).findByText('小王')).toBeVisible()
-    expect(theirs).toHaveTextContent('秋季新品')
     expect(await rowOf('我的片')).toHaveTextContent('测试用户')
-    // 跑完的只给个对勾角标，不占文字位。
-    expect(within(await rowOf('跑完的片')).getByRole('img', { name: '已完成' })).toBeVisible()
+    expect(await rowOf('跑完的片')).toHaveTextContent('已完成')
+    expect(await rowOf('跑完的片')).toHaveTextContent('属主已收尾')
+  })
+
+  it('已关联的需求单标题挂在行上', async () => {
+    const { task } = seedThree()
+    await render([{ id: task.id, label: task.title }])
+
+    expect(await rowOf('小王的秋季片')).toHaveTextContent('秋季新品')
+  })
+
+  it('顶部给出进行中与总数', async () => {
+    const { task } = seedThree()
+    await render([{ id: task.id, label: task.title }])
+
+    await rowOf('小王的秋季片')
     expectTotals(1, 3)
+  })
+
+  it('空要求与图片失败分别展示空态，保留对话入口', async () => {
+    const { task } = seedThree()
+    await renderWithProviders(
+      <StatefulConversationsRoute
+        tasks={[{ id: task.id, label: task.title }]}
+        previews={
+          new Map([
+            [
+              task.id,
+              { title: task.title, requirement: '', imageUrl: 'https://example.com/product.png' },
+            ],
+          ])
+        }
+      />,
+    )
+    const row = await rowOf('小王的秋季片')
+    expect(row).toHaveTextContent('未填写创作要求')
+    fireEvent.error(within(row).getByRole('img', { name: '秋季新品的需求素材' }))
+    expect(row).toHaveTextContent('图片加载失败')
+    expect(row).toHaveAttribute('href', expect.stringContaining('/c/'))
   })
 
   it('缺省不列已删的；切「已删除」只剩墓碑，行上标出删除时间', async () => {
@@ -322,14 +366,14 @@ describe('ConversationsRoute', () => {
     await waitFor(() =>
       expect(screen.getByRole('link', { name: /小王的秋季片/ })).toHaveTextContent('进行中'),
     )
-    await waitFor(() => expectTotals(1, 1))
+    await waitFor(() => expectTotals(1, 1), AUDIT_REFRESH_TIMEOUT)
 
     const fresh = addMockConversation('刚开的片')
     fresh.ownerUserId = other.id
     fresh.activity = RUNNING
     socket.deliver(workChanged(fresh.id, { busy: true }))
-    expect(await rowOf('刚开的片')).toHaveTextContent('进行中')
-    await waitFor(() => expectTotals(2, 2))
+    expect(await rowOf('刚开的片', AUDIT_REFRESH_TIMEOUT)).toHaveTextContent('进行中')
+    await waitFor(() => expectTotals(2, 2), AUDIT_REFRESH_TIMEOUT)
   })
 
   it('一页五十段，展开加载剩余对话后移除分页入口', async () => {

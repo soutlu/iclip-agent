@@ -17,7 +17,9 @@ from fastapi import APIRouter, Depends, Path, Query, WebSocket, WebSocketDisconn
 from pydantic import TypeAdapter, ValidationError
 
 from iclip.common.errors import DomainError
+from iclip.common.generation_vocab import GenerationKind, GenerationStatus
 from iclip.domains.identity.public import (
+    MANAGE_PERMISSION,
     ActAs,
     Principal,
     require_permission,
@@ -79,9 +81,6 @@ HEARTBEAT_MISS_LIMIT = 2
 
 MAX_EVENT_BUFFER = 2048
 """多对话共享的连接出站缓冲上限；溢出时断开并要求重连补批，避免阻塞运行。"""
-
-MANAGE_PERMISSION = "users:manage"
-"""治理者：看得见全平台的对话，全局帧与文件变更帧也都收；写入仍只属主能做。"""
 
 _CLIENT_FRAME = TypeAdapter[Any](ClientFrame)
 
@@ -156,7 +155,10 @@ class Transcripts(Protocol):
 
 
 class ConversationHeader(Protocol):
-    """会话页首屏要贴在信封顶层的几项。"""
+    """会话页首屏要贴在信封顶层的几项，外加读这一页要用的 Agent id。"""
+
+    @property
+    def agent_id(self) -> str: ...
 
     @property
     def title(self) -> str: ...
@@ -182,7 +184,7 @@ class Conversations(Protocol):
         ...
 
     async def header_of(self, principal: Principal, conversation_id: str) -> ConversationHeader:
-        """读取可见对话的标题与属主，不可见时抛 NotFound。"""
+        """读取可见对话的首屏信息，可见范围同 ``agent_of(writing=False)``；不可见时抛 NotFound。"""
         ...
 
 
@@ -283,11 +285,11 @@ class LiveConnections:
         conversation_id: uuid.UUID | None,
         *,
         job_id: uuid.UUID,
-        kind: str,
-        status: str,
+        kind: GenerationKind,
+        status: GenerationStatus,
         metadata: Mapping[str, Any] | None,
     ) -> None:
-        """向属主与治理者的连接广播生成任务状态跳转；只收基础字段，不依赖生成域类型。"""
+        """向属主与治理者的连接广播生成任务状态跳转；只收基础字段与 common 的词表，不依赖生成域类型。"""
 
         self._announce(
             owner,
@@ -346,7 +348,7 @@ def create_transcript_router(
     @router.post("/prompts", response_model=Prompt)
     async def submit(
         conversation_id: ConversationId,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
         body: PromptSubmission,
     ) -> Prompt:
         """发一条消息。``prompt_id`` 由客户端铸，重发同一个不会多起一次运行。
@@ -369,7 +371,7 @@ def create_transcript_router(
     @router.get("/prompts", response_model=PromptQueueOut)
     async def queue_view(
         conversation_id: ConversationId,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
     ) -> PromptQueueOut:
         await _readable(principal, conversation_id)
         return await transcripts.queue_view(conversation_id)
@@ -377,7 +379,7 @@ def create_transcript_router(
     @router.get("/status", response_model=RunStatusOut)
     async def run_status(
         conversation_id: ConversationId,
-        principal: Annotated[Principal, Depends(require_permission("agent:read"))],
+        principal: Annotated[Principal, require_permission("agent:read")],
     ) -> RunStatusOut:
         """这段对话跑没跑完、有没有出错。只读，凭 API key 可单独轮询。"""
 
@@ -388,7 +390,7 @@ def create_transcript_router(
     async def abort(
         conversation_id: ConversationId,
         prompt_id: ProtocolId,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
     ) -> None:
         """停掉一条消息。排队的直接撤，在跑的发第一方取消让它自己收尾。"""
 
@@ -399,7 +401,7 @@ def create_transcript_router(
     async def regenerate(
         conversation_id: ConversationId,
         turn_id: ProtocolId,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
         body: RegenerateBody | None = None,
     ) -> Prompt:
         """重新生成最后一轮：把它从历史里抹掉重跑一次，答复是重跑那条的记录。
@@ -419,7 +421,7 @@ def create_transcript_router(
     @outer.post("/conversations/{conversation_id}:abort", status_code=204)
     async def abort_conversation(
         conversation_id: ConversationId,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
     ) -> None:
         """停掉整段对话：排着的全撤，在跑的发第一方取消。
 
@@ -433,7 +435,7 @@ def create_transcript_router(
     @router.post("/prompts:steer", status_code=204)
     async def steer(
         conversation_id: ConversationId,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
         body: SteerRequest,
     ) -> None:
         """把排队中的几条插进正在跑的那一轮，不必等它跑完。"""
@@ -445,7 +447,7 @@ def create_transcript_router(
     async def approve(
         conversation_id: ConversationId,
         interaction_id: ProtocolId,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
         body: ApprovalRequest,
     ) -> None:
         """对一张审批卡点同意或拒绝。
@@ -460,7 +462,7 @@ def create_transcript_router(
     @router.get("/transcript", response_model=TranscriptPage)
     async def page(
         conversation_id: ConversationId,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
         agent_id: AgentId = MAIN_AGENT_ID,
         before_turn: Annotated[str | None, Query()] = None,
         after_turn: Annotated[str | None, Query()] = None,
@@ -473,17 +475,16 @@ def create_transcript_router(
         ``session.meta.updated`` 推送，不再问这里）。
         """
 
-        runtime_agent_id = await _readable(principal, conversation_id)
+        header = await conversations.header_of(principal, conversation_id)
         await transcripts.verify_agent(conversation_id, agent_id)
         page = await transcripts.page(
             conversation_id,
             agent_id=agent_id,
-            runtime_agent_id=runtime_agent_id,
+            runtime_agent_id=header.agent_id,
             before_turn=before_turn,
             after_turn=after_turn,
             page_size=page_size,
         )
-        header = await conversations.header_of(principal, conversation_id)
         return page.model_copy(
             update={
                 "title": header.title,
@@ -497,7 +498,7 @@ def create_transcript_router(
     @router.get("/transcript/ops", response_model=OpsCatchup)
     async def catchup(
         conversation_id: ConversationId,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
         since_seq: Annotated[int, Query(ge=0)],
         agent_id: AgentId = MAIN_AGENT_ID,
     ) -> OpsCatchup:
@@ -880,7 +881,6 @@ async def _serve(
 __all__ = [
     "HEARTBEAT_MISS_LIMIT",
     "HEARTBEAT_SECONDS",
-    "MANAGE_PERMISSION",
     "MAX_EVENT_BUFFER",
     "ConversationHeader",
     "Conversations",

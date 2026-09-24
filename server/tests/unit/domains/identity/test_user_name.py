@@ -8,7 +8,7 @@ import pytest
 
 from iclip.common.errors import ValidationFailed
 from iclip.domains.identity.models import Principal, PrincipalKind
-from iclip.domains.identity.user_name import resolve_user_name
+from iclip.domains.identity.user_name import require_own_user_name, resolve_user_name
 
 
 def principal(kind: PrincipalKind, *, username: str | None = "luke") -> Principal:
@@ -35,6 +35,18 @@ def test_browser_session_defaults_to_and_must_match_the_login_username() -> None
     assert resolve_user_name(principal("user"), " luke ") == "luke"
     with pytest.raises(ValidationFailed, match="必须是当前登录账号的用户名"):
         resolve_user_name(principal("user"), "bob")
+
+
+def test_a_session_may_only_name_itself() -> None:
+    """ActAs 与 resolve_user_name 共用的这一条：名字对上才放行，大小写不同也算别人。"""
+
+    require_own_user_name(principal("user"), "luke")
+    for other in ("bob", "Luke"):
+        with pytest.raises(ValidationFailed, match="必须是当前登录账号的用户名"):
+            require_own_user_name(principal("user"), other)
+    # 没有用户名的账号什么名字都对不上。
+    with pytest.raises(ValidationFailed, match="必须是当前登录账号的用户名"):
+        require_own_user_name(principal("user", username=None), "luke")
 
 
 def test_browser_session_without_a_username_cannot_submit() -> None:

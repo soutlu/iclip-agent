@@ -1,6 +1,6 @@
 # 后端测试规范
 
-> 命令入口与交付检查见 [AGENTS.md](../AGENTS.md)，前端测试见 [web/AGENTS.md](../web/AGENTS.md)。
+> 命令入口与交付检查见 [AGENTS.md](../AGENTS.md)，前端测试见 [实现规范](../web/docs/frontend-implementation.md#测试)。
 
 ## 1. 按行为选择测试层
 
@@ -34,7 +34,7 @@ transcript 按场景测：[场景测试](../server/tests/integration_no_llm/agen
 2. 否则由 Testcontainers 启动一次性 Postgres，测试会话内复用。
 3. 两者都不可用时，本地数据库测试跳过；报告结果时必须说明跳过范围。
 
-`TEST_DATABASE_URL` 必须指向专用、可清理的测试数据库。夹具会执行迁移并清空测试表，不能指向开发或生产业务库。数据库安全边界见 [AGENTS.md](../AGENTS.md)。
+`TEST_DATABASE_URL` 的约束见 [AGENTS.md](../AGENTS.md#1-命令与验证)；夹具会执行迁移并清空测试表。
 
 CI 使用明确配置的 Postgres service container；连接失败应报错，不能依赖本地跳过路径。真实外部服务测试缺凭证时可以跳过；凭证齐备后的连接、协议或业务失败不得伪装成缺凭证。
 

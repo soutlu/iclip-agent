@@ -2,8 +2,11 @@ import { useState } from 'react'
 import { fireEvent, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Toaster, toast } from '@/shared/ui/toast'
 import { renderWithProviders } from '@/testing/render'
+import { MAX_ANNOTATIONS } from '../generation-limits'
 import { AnnotationCanvas } from './annotation-canvas'
+import { TOO_MANY_ANNOTATIONS } from './image-edit-draft'
 import type { ImageAnnotation } from './image-edit-types'
 
 const original: ImageAnnotation = {
@@ -77,7 +80,11 @@ beforeEach(() => {
     },
   )
 })
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  // Toaster 是模块级单例，提示不清掉会串进下一条用例。
+  toast.dismiss()
+  vi.unstubAllGlobals()
+})
 
 describe('annotation canvas', () => {
   it('draws one gesture, ignores letterboxing, and supports delete with undo/redo', async () => {
@@ -253,5 +260,28 @@ describe('annotation canvas', () => {
     await user.click(screen.getByRole('button', { name: '删除此标注' }))
     expect(screen.queryByRole('button', { name: '标注 1' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '标注 2' })).toBeInTheDocument()
+  })
+
+  it('stops adding marks at the limit with the same hint the draft check uses', async () => {
+    const marks = Array.from({ length: MAX_ANNOTATIONS }, (_, index): ImageAnnotation => ({
+      id: `mark-${index}`,
+      number: index + 1,
+      kind: 'point',
+      points: [{ x: 0.1, y: 0.1 }],
+    }))
+    await renderWithProviders(
+      <>
+        <Editor initial={marks} />
+        <Toaster />
+      </>,
+    )
+    const canvas = loadImage()
+    fireEvent.pointerDown(canvas, { clientX: 400, clientY: 600, button: 0 })
+    fireEvent.pointerUp(canvas, { clientX: 400, clientY: 600, button: 0 })
+
+    expect(await screen.findByText(TOO_MANY_ANNOTATIONS)).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: `标注 ${MAX_ANNOTATIONS + 1}` }),
+    ).not.toBeInTheDocument()
   })
 })

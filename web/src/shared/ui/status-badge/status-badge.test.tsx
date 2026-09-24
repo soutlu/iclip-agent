@@ -2,7 +2,19 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { TooltipProvider } from '@/shared/ui/tooltip'
-import { StatusBadge, type StatusBadgeProps } from './status-badge'
+import {
+  mediaStatusLabel,
+  StatusBadge,
+  type MediaBadgeStatus,
+  type StatusBadgeProps,
+} from './status-badge'
+
+const MEDIA_STATUSES: readonly Exclude<MediaBadgeStatus, 'idle'>[] = [
+  'completed',
+  'failed',
+  'queued',
+  'running',
+]
 
 const renderBadge = (props: StatusBadgeProps) =>
   render(
@@ -48,5 +60,12 @@ describe('StatusBadge', () => {
     renderBadge({ appearance: 'label', kind: 'conversation', status: 'failed' })
     await userEvent.hover(screen.getByText('上次失败'))
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+  })
+
+  it.each(MEDIA_STATUSES)('媒体 %s 画出来的词就是 mediaStatusLabel 给的词', (status) => {
+    const label = mediaStatusLabel(status)
+    expect(label).not.toBe('')
+    renderBadge({ appearance: 'label', kind: 'image', status })
+    expect(screen.getByText(label)).toBeVisible()
   })
 })

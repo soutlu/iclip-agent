@@ -8,6 +8,7 @@ import { EditorState, Selection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { parsePromptContent } from '@/shared/lib/prompt-clipboard'
+import { filesWithoutDirectories } from '@/shared/ui/file-drop'
 import { collectAttachmentIds, composerSchema, readComposerText } from './editor-schema'
 import { composerParts } from './prompt-parts'
 import type {
@@ -246,10 +247,7 @@ export const useComposerEditor = ({
         const { dataTransfer } = event
         if (dataTransfer?.types.includes('Files') !== true) return false
         event.preventDefault()
-        const items = [...dataTransfer.items]
-        const files = [...dataTransfer.files].filter(
-          (_file, index) => items[index]?.webkitGetAsEntry()?.isDirectory !== true,
-        )
+        const files = filesWithoutDirectories(dataTransfer)
         if (files.length > 0) {
           const pos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos
           insertFilesRef.current(files, pos)

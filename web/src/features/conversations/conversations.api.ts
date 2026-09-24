@@ -1,4 +1,11 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type QueryFilters,
+} from '@tanstack/react-query'
 import { useRef } from 'react'
 import { z } from 'zod'
 import { ApiError, apiFetch } from '@/shared/api/client'
@@ -13,6 +20,7 @@ import {
   zConversationsPageOut,
   zImageContent,
   zPrompt,
+  zReadSidebarConversationsGetQuery,
   zSidebarOut,
   zTextContent,
   zVideoContent,
@@ -36,10 +44,16 @@ const conversationEnvelopeSchema = zConversationEnvelope.transform(
 
 const SEARCH_LIMIT = 50
 
-/** running 为正在运行，done 为至少结束过一轮；未发送过消息的对话仅属于 all。 */
-/** 侧栏与全部对话页共用：``open`` / ``done`` 看属主标没标收尾，``running`` 是此刻在跑的那几段。 */
-export type ConversationListState = 'all' | 'open' | 'done' | 'running'
+/** 侧栏与全部对话页共用：``open`` / ``done`` 看属主标没标收尾，``running`` 是此刻在跑的那几段。
+ *
+ * 取合同查询参数的枚举，路由解析地址栏也用这一份，合同加档位时两边一起变。 */
+export const conversationListStateSchema = zReadSidebarConversationsGetQuery.shape.state
+  .unwrap()
+  .unwrap()
 
+export type ConversationListState = z.output<typeof conversationListStateSchema>
+
+const SIDEBAR_KEY = ['conversations', 'sidebar'] as const
 const MORE_KEY = ['conversations', 'more'] as const
 const AUDIT_KEY = ['conversations', 'audit'] as const
 
@@ -56,7 +70,32 @@ export const conversationsQueryKeys = {
   search: (keyword: string) => ['conversations', 'search', keyword] as const,
   /** 未传 state 时作为所有筛选的缓存键前缀。 */
   sidebar: (state?: ConversationListState): readonly string[] =>
-    state === undefined ? ['conversations', 'sidebar'] : ['conversations', 'sidebar', state],
+    state === undefined ? SIDEBAR_KEY : [...SIDEBAR_KEY, state],
+  /**
+   * 按 all 以外的状态筛选的侧栏拓扑或额外分页，对话状态一变它们的归属就可能不同。
+   * state 是 sidebar(state) 与 more(…) 的末位，改这两种键的布局要连这里一起改。
+   */
+  filteredLists: (list: 'more' | 'sidebar'): QueryFilters => ({
+    queryKey: list === 'sidebar' ? SIDEBAR_KEY : MORE_KEY,
+    predicate: ({ queryKey }) => queryKey.at(-1) !== 'all',
+  }),
+}
+
+/**
+ * 对话列表的刷新配方：先丢掉用户手动展开的额外分页（拓扑一变它们的游标就不作数，留着会逐页重拉），
+ * 再失效列表。
+ *
+ * 缺省失效全部会话列表（侧栏拓扑、搜索、需求单下的尝试、全部对话页），给改了对话的写操作用。
+ * ``'sidebar'`` 只重拉侧栏拓扑，给全局帧与合集变动用：全部对话页另有节流窗口，不跟着每帧重拉。
+ */
+export const refreshConversationLists = (
+  queryClient: QueryClient,
+  scope: 'all' | 'sidebar' = 'all',
+): Promise<void> => {
+  queryClient.removeQueries({ queryKey: conversationsQueryKeys.moreAll })
+  return queryClient.invalidateQueries({
+    queryKey: scope === 'all' ? conversationsQueryKeys.all : conversationsQueryKeys.sidebar(),
+  })
 }
 
 /** 仅提供当前服务实际装配的顶层 Agent；顺序和默认项由服务端定义。 */
@@ -73,11 +112,14 @@ export const useConversationAgents = (enabled: boolean) =>
   })
 
 /** 服务端按标题搜索当前用户的全部对话，按最近活动排序。 */
-export const searchConversations = async (keyword: string): Promise<Conversation[]> =>
+export const searchConversations = async (
+  keyword: string,
+  signal: AbortSignal,
+): Promise<Conversation[]> =>
   apiFetch(
     `/conversations/search?q=${encodeURIComponent(keyword)}&limit=${SEARCH_LIMIT}`,
     conversationsPageSchema,
-    { cache: 'no-store', fallbackErrorMessage: '搜索对话失败' },
+    { signal, cache: 'no-store', fallbackErrorMessage: '搜索对话失败' },
   )
 
 /** 分组、计数和首页数据来自同一服务端拓扑，避免不同查询时间点造成不一致。 */
@@ -124,13 +166,18 @@ export const createConversation = async (
     method: 'POST',
   })
 
-type StartConversationInput = {
+/** 起一段对话的入参：正文给 composer 的 ``parts`` 或已拼好的 ``content``；归属与标题不给就不带。 */
+export type StartConversationInput = {
   agentId: string
-  collectionId: string | null
-  parts: readonly ComposerPart[]
-}
+  collectionId?: string | null
+  taskId?: string | null
+  title?: string
+} & ({ parts: readonly ComposerPart[] } | { content: readonly PromptContentPart[] })
 
-/** 相同提交重试复用两个幂等编号；首条消息成功后才离开首页。 */
+/**
+ * 建对话并发首条消息。对话 id 与消息 id 都由客户端铸，同一份输入重试复用两者：建对话的回执丢了
+ * 重发不会多一段，首条消息重发不会多起一次运行。首条消息成功后才交给 ``onCreated``。
+ */
 export const useStartConversation = (
   ownerUserId: string | null,
   onCreated: (conversationId: string) => void,
@@ -143,9 +190,18 @@ export const useStartConversation = (
     conversation?: Conversation
   } | null>(null)
   return useMutation({
-    mutationFn: async ({ agentId, collectionId, parts }: StartConversationInput) => {
-      const content = partsContent(parts)
-      const fingerprint = JSON.stringify({ ownerUserId, agentId, collectionId, content })
+    mutationFn: async (input: StartConversationInput) => {
+      const { agentId, collectionId, taskId, title } = input
+      const content = 'parts' in input ? partsContent(input.parts) : input.content
+      // 不给与给 null 都是不挂，算同一份输入；请求体里不给的字段照旧不发。
+      const fingerprint = JSON.stringify({
+        agentId,
+        collectionId: collectionId ?? null,
+        content,
+        ownerUserId,
+        taskId: taskId ?? null,
+        title: title ?? null,
+      })
       if (attemptRef.current?.fingerprint !== fingerprint) {
         attemptRef.current = { fingerprint, conversationId: mintUuid(), promptId: mintPromptId() }
       }
@@ -153,7 +209,13 @@ export const useStartConversation = (
       try {
         const conversation =
           current.conversation ??
-          (await createConversation({ agentId, collectionId, id: current.conversationId }))
+          (await createConversation({
+            agentId,
+            collectionId,
+            id: current.conversationId,
+            taskId,
+            title,
+          }))
         current.conversation = conversation
         await submitPrompt(conversation.id, { content, promptId: current.promptId })
         return conversation
@@ -167,11 +229,8 @@ export const useStartConversation = (
       attemptRef.current = null
       onCreated(conversation.id)
     },
-    onSettled: async () => {
-      // 创建成功、首条消息失败时，侧栏也应能看到这段已存在的对话。
-      queryClient.removeQueries({ queryKey: conversationsQueryKeys.moreAll })
-      await queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })
-    },
+    // 创建成功、首条消息失败时，侧栏也应能看到这段已存在的对话。
+    onSettled: () => refreshConversationLists(queryClient),
   })
 }
 
@@ -286,9 +345,9 @@ type Membership = {
   taskId?: string | null
 }
 
-/** 两处归属分别调用端点；保存后由调用方刷新拓扑。 */
+/** 两处归属分别调用端点；结束后不论成败自己刷新对话列表，``onSaved`` 只管调用方的收尾。 */
 export const useSetConversationMembership = (
-  onSaved: () => void,
+  onSaved?: () => void,
   onUpdated?: (conversation: Conversation) => void,
 ) => {
   const queryClient = useQueryClient()
@@ -319,12 +378,9 @@ export const useSetConversationMembership = (
         onUpdated?.(updated)
       }
     },
-    onSettled: async () => {
-      // 两个独立归属请求可能部分成功；失败也复核服务端实际状态。
-      queryClient.removeQueries({ queryKey: conversationsQueryKeys.moreAll })
-      await queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })
-    },
-    onSuccess: onSaved,
+    // 两个独立归属请求可能部分成功；失败也复核服务端实际状态。
+    onSettled: () => refreshConversationLists(queryClient),
+    onSuccess: () => onSaved?.(),
   })
 }
 
@@ -346,8 +402,7 @@ export const useForkConversation = (onForked: (conversationId: string) => void) 
       inFlightRef.current = false
     },
     onSuccess: async (conversation) => {
-      queryClient.removeQueries({ queryKey: conversationsQueryKeys.moreAll })
-      await queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })
+      await refreshConversationLists(queryClient)
       onForked(conversation.id)
     },
   })
@@ -359,7 +414,8 @@ export const useForkConversation = (onForked: (conversationId: string) => void) 
   return { isPending: mutation.isPending, start }
 }
 
-export const useRenameConversation = (onSaved: () => void) => {
+/** 改名；成功后自己刷新对话列表。 */
+export const useRenameConversation = () => {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ conversationId, title }: { conversationId: string; title: string }) =>
@@ -368,15 +424,12 @@ export const useRenameConversation = (onSaved: () => void) => {
         fallbackErrorMessage: '重命名失败',
         method: 'PATCH',
       }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })
-      onSaved()
-    },
+    onSuccess: () => refreshConversationLists(queryClient),
   })
 }
 
-/** 属主标记这段对话收尾了或取消；服务端不会自己标，属主再动手会自动取消。 */
-export const useSetConversationCompletion = (onSaved: () => void) => {
+/** 属主标记这段对话收尾了或取消；服务端不会自己标，属主再动手会自动取消。成功后自己刷新对话列表。 */
+export const useSetConversationCompletion = () => {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ completed, conversationId }: { completed: boolean; conversationId: string }) =>
@@ -385,15 +438,12 @@ export const useSetConversationCompletion = (onSaved: () => void) => {
         fallbackErrorMessage: '标记完成失败',
         method: 'PUT',
       }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })
-      onSaved()
-    },
+    onSuccess: () => refreshConversationLists(queryClient),
   })
 }
 
-/** 删除返回 204，无响应正文。 */
-export const useDeleteConversation = (onSaved: () => void) => {
+/** 删除返回 204，无响应正文；成功后自己刷新对话列表。 */
+export const useDeleteConversation = () => {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (conversationId: string) =>
@@ -401,9 +451,6 @@ export const useDeleteConversation = (onSaved: () => void) => {
         fallbackErrorMessage: '删除失败',
         method: 'DELETE',
       }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })
-      onSaved()
-    },
+    onSuccess: () => refreshConversationLists(queryClient),
   })
 }

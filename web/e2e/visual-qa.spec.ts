@@ -1,13 +1,12 @@
 import { expect, test } from '@playwright/test'
+import { canvasPng, openConversation } from './helpers'
 import { login } from './login'
 
 // 在 dev:mock 中生成视觉验收截图，输出到忽略入库的 .artifacts/design-qa/。
 const SHOT_DIR = '../.artifacts/design-qa'
 
 test('会话页视觉验收：浅色 / 深色 / 运行中', async ({ page }) => {
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+  await openConversation(page, '夜景延时素材生成')
 
   await page.getByRole('button', { name: '停止' }).waitFor()
   await page.getByLabel('输入消息').fill('顺便把配音也排上')
@@ -106,10 +105,7 @@ test('首页 composer 附件视觉验收：内联 pill 与悬停卡', async ({ p
   await login(page)
   await expect(page.getByRole('heading', { name: 'Cue' })).toBeAttached()
 
-  const png = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-    'base64',
-  )
+  const png = await canvasPng(page)
   await page
     .locator('input[type="file"]')
     .setInputFiles({ buffer: png, mimeType: 'image/png', name: '夜景参考图.png' })
@@ -121,8 +117,8 @@ test('首页 composer 附件视觉验收：内联 pill 与悬停卡', async ({ p
   await page.screenshot({ path: `${SHOT_DIR}/home-composer-attachment.png`, fullPage: true })
 
   await pill.hover()
-  // 传完后卡上第二行报大小；mock 的公网地址加载不出图，所以没有像素尺寸。
-  await expect(page.getByText('70 B')).toBeVisible()
+  // 传完后卡上第二行报像素尺寸与大小。
+  await expect(page.getByRole('tooltip').getByText(/600 × 800 · \d+ KB/)).toBeVisible()
   await page.waitForTimeout(200)
   await page.screenshot({ path: `${SHOT_DIR}/home-composer-attachment-tip.png`, fullPage: true })
 })

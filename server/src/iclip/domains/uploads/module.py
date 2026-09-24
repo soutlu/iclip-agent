@@ -7,7 +7,7 @@ from typing import Any
 
 from iclip.domains.uploads.api import create_uploads_router
 from iclip.domains.uploads.service import UploadService
-from iclip.platform.object_store.oss import SignedUploadStore
+from iclip.platform.object_store.store import SignedUploadStore
 
 
 @dataclass(frozen=True)

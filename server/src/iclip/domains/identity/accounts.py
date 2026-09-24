@@ -24,13 +24,14 @@ from fastapi_users.exceptions import UserAlreadyExists
 from fastapi_users_db_sqlalchemy import SQLAlchemyUserDatabase
 from starlette.requests import Request
 
-from iclip.domains.identity.acting import is_placeholder_email
+from iclip.domains.identity.acting import is_placeholder_account
 from iclip.domains.identity.infra_sql import (
     OAuthAccount,
     SessionFactory,
     User,
     get_user_row_by_username,
 )
+from iclip.domains.identity.middleware import SESSION_COOKIE, SESSION_COOKIE_NAME
 
 _MIN_PASSWORD_LENGTH = 8
 
@@ -40,7 +41,6 @@ class CookieAuthSettings:
     """identity 自持的会话认证运行设置；组合根从 RuntimeConfig 映射而来。"""
 
     secret: str
-    cookie_name: str
     lifetime_seconds: int
     cookie_secure: bool
 
@@ -96,10 +96,20 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         await self._user_db.update(user, {"last_login_at": datetime.now(UTC)})
 
     async def adopt_placeholder(self, username: str, email: str) -> bool:
-        """SSO 首登认领同名占位账号：把占位邮箱换成真邮箱，随后 oauth_callback 按邮箱关联到它。"""
+        """SSO 首登认领同名占位账号：把占位邮箱换成真邮箱，随后 oauth_callback 按邮箱关联到它。
+
+        只认没人坐过的占位账号：邮箱仍是按它自己的用户名合成的那个、没挂过 SSO 身份、没登录过；
+        否则不动并返回 False。
+        """
 
         row = await self._get_by_username(username)
-        if row is None or not is_placeholder_email(row.email):
+        if (
+            row is None
+            or row.username is None
+            or not is_placeholder_account(row.username, row.email)
+            or row.oauth_accounts
+            or row.last_login_at is not None
+        ):
             return False
         await self._user_db.update(row, {"email": email})
         return True
@@ -109,12 +119,20 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
 
 def build_cookie_transport(auth: CookieAuthSettings) -> CookieTransport:
-    return CookieTransport(
-        cookie_name=auth.cookie_name,
+    """会话 cookie 的写出与清除。
+
+    fastapi-users 建 logout 路由时读 ``transport.scheme`` 作依赖，换成合同里的 ``SessionCookie``，
+    合同就只有这一个 cookie scheme；它读同一个 cookie、缺失时同样给 ``None``，logout 行为不变。
+    """
+
+    transport = CookieTransport(
+        cookie_name=SESSION_COOKIE_NAME,
         cookie_max_age=auth.lifetime_seconds,
         cookie_secure=auth.cookie_secure,
         cookie_samesite="lax",
     )
+    transport.scheme = SESSION_COOKIE
+    return transport
 
 
 def build_jwt_strategy(auth: CookieAuthSettings) -> JWTStrategy[User, uuid.UUID]:

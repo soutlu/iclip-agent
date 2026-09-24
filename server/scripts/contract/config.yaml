@@ -6,7 +6,6 @@ db:
   schema: iclip
 
 security:
-  session_cookie_name: iclip_session
   session_lifetime_seconds: 604800
   cookie_secure: false
   cors_allow_origins: []

@@ -2,7 +2,7 @@ import { createEvent, fireEvent, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import { delay, http, HttpResponse } from 'msw'
 import { EditorView } from 'prosemirror-view'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   dropFilesIntoWindow,
   pasteFilesIntoComposer,
@@ -25,6 +25,12 @@ const pillHost = (name: string): HTMLElement => {
 }
 
 describe('Composer', () => {
+  // jsdom 不解码图片；附件上传前的尺寸校验读这个桩。
+  beforeEach(() => {
+    vi.stubGlobal('createImageBitmap', async () => ({ close: () => {}, height: 800, width: 600 }))
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
   it('空输入时发送禁用，粘入文字后放开，Enter 触发提交', async () => {
     const onSubmit = vi.fn()
     await renderWithProviders(<Composer onSubmit={onSubmit} />)
@@ -185,10 +191,10 @@ describe('Composer', () => {
       types: ['Files'],
     }
     fireEvent.dragEnter(window, { dataTransfer })
-    expect(screen.getByText('松开鼠标添加附件')).toBeInTheDocument()
+    expect(screen.getByTestId('composer-drop-overlay')).toBeInTheDocument()
 
     fireEvent.drop(window, { dataTransfer })
-    expect(screen.queryByText('松开鼠标添加附件')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('composer-drop-overlay')).not.toBeInTheDocument()
     expect(screen.getByText('截图.png')).toBeInTheDocument()
     await waitFor(() => expect(sendButton()).toBeEnabled())
   })
@@ -217,7 +223,7 @@ describe('Composer', () => {
     fireEvent.dragEnter(window, { dataTransfer })
     fireEvent.drop(editor(), { clientX: 10, clientY: 10, dataTransfer })
 
-    expect(screen.queryByText('松开鼠标添加附件')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('composer-drop-overlay')).not.toBeInTheDocument()
     expect(screen.getAllByText('截图.png')).toHaveLength(1)
     expect(screen.queryByText('图片目录')).not.toBeInTheDocument()
     await waitFor(() => expect(sendButton()).toBeEnabled())
@@ -243,31 +249,31 @@ describe('Composer', () => {
       types: ['Files'],
     }
     fireEvent.dragEnter(window, { dataTransfer })
-    expect(screen.getByText('松开鼠标添加附件')).toBeInTheDocument()
+    expect(screen.getByTestId('composer-drop-overlay')).toBeInTheDocument()
 
     const enter = createEvent.dragEnter(window, { dataTransfer })
     enter.preventDefault()
     fireEvent(window, enter)
-    expect(screen.queryByText('松开鼠标添加附件')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('composer-drop-overlay')).not.toBeInTheDocument()
 
     fireEvent.dragOver(window, { dataTransfer })
-    expect(screen.getByText('松开鼠标添加附件')).toBeInTheDocument()
+    expect(screen.getByTestId('composer-drop-overlay')).toBeInTheDocument()
     const over = createEvent.dragOver(window, { dataTransfer })
     over.preventDefault()
     fireEvent(window, over)
-    expect(screen.queryByText('松开鼠标添加附件')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('composer-drop-overlay')).not.toBeInTheDocument()
 
     fireEvent.dragOver(window, { dataTransfer })
     const drop = createEvent.drop(window, { dataTransfer })
     drop.preventDefault()
     fireEvent(window, drop)
-    expect(screen.queryByText('松开鼠标添加附件')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('composer-drop-overlay')).not.toBeInTheDocument()
     expect(screen.queryByText('截图.png')).not.toBeInTheDocument()
     expect(sendButton()).toBeDisabled()
 
     fireEvent.dragEnter(window, { dataTransfer })
     fireEvent.dragLeave(window, { dataTransfer })
-    expect(screen.queryByText('松开鼠标添加附件')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('composer-drop-overlay')).not.toBeInTheDocument()
   })
 
   it('拖到正文上方时编辑器自己的 preventDefault 不算别处接管，遮罩照常亮着', async () => {
@@ -283,14 +289,14 @@ describe('Composer', () => {
     const enter = createEvent.dragEnter(editor(), { dataTransfer })
     enter.preventDefault()
     fireEvent(editor(), enter)
-    expect(screen.getByText('松开鼠标添加附件')).toBeInTheDocument()
+    expect(screen.getByTestId('composer-drop-overlay')).toBeInTheDocument()
     const over = createEvent.dragOver(editor(), { dataTransfer })
     over.preventDefault()
     fireEvent(editor(), over)
-    expect(screen.getByText('松开鼠标添加附件')).toBeInTheDocument()
+    expect(screen.getByTestId('composer-drop-overlay')).toBeInTheDocument()
 
     fireEvent.dragLeave(editor(), { dataTransfer })
-    expect(screen.queryByText('松开鼠标添加附件')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('composer-drop-overlay')).not.toBeInTheDocument()
   })
 
   it('attachmentsEnabled 未给时：没有附件入口，拖入也不出遮罩', async () => {
@@ -298,7 +304,7 @@ describe('Composer', () => {
     await renderWithProviders(<Composer onSubmit={onSubmit} />)
 
     expect(screen.queryByRole('button', { name: '添加附件' })).not.toBeInTheDocument()
-    expect(screen.queryByText('松开鼠标添加附件')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('composer-drop-overlay')).not.toBeInTheDocument()
 
     dropFilesIntoWindow([imageFile()])
     expect(screen.queryByText('截图.png')).not.toBeInTheDocument()

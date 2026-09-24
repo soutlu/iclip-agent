@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  attemptChartModel,
   cumulativePass,
   foldTail,
   gini,
@@ -108,5 +109,56 @@ describe('洛伦兹曲线', () => {
 
   it('没有镜就没有曲线', () => {
     expect(lorenzPoints([])).toEqual([])
+  })
+})
+
+describe('出片次数分析的整段模型', () => {
+  it('折尾到 cap 画曲线，末档写「以上」，悬停说本档几镜与尚有几镜，结论取前两档', () => {
+    const model = attemptChartModel(FIVE, [], 5)
+
+    expect(model.passPoints.map((point) => [point.label, point.tooltipLabel])).toEqual([
+      ['1 次', '1 次以内完成'],
+      ['2 次', '2 次以内完成'],
+      ['3 次', '3 次以内完成'],
+      ['4 次', '4 次以内完成'],
+      ['5 次以上', '5 次以上'],
+    ])
+    expect(model.passPoints.map((point) => point.value)).toEqual([0.6, 0.8, 0.8, 0.8, 1])
+    expect(model.notes.get('1')).toBe('本档 3 镜 · 尚有 2 镜未完成')
+    expect(model.notes.get('5')).toBe('本档 1 镜')
+    expect(model.passSummary).toBe('一次完成 60% · 两次以内 80%')
+    expect(model.beforePass).toBeUndefined()
+    expect(model.beforeTopShare).toBeNull()
+  })
+
+  it('集中度、分档表与洛伦兹曲线吃未折叠的原始分布', () => {
+    const model = attemptChartModel(FIVE, [], 3)
+
+    expect(model.passPoints.map((point) => point.label)).toEqual(['1 次', '2 次', '3 次以上'])
+    expect(model.rows.at(-1)).toEqual({ attempts: 3, atLeast: true, shots: 1, attemptShare: 0.5 })
+    expect(model.topShare).toBeCloseTo(0.25)
+    expect(model.concentration).toBeCloseTo(0.36)
+    expect(model.lorenz.at(-1)).toEqual({ shotShare: 1, attemptShare: 1 })
+  })
+
+  it('上一期按本期的档位下标对齐，缺的档位是 null', () => {
+    const before: AttemptBucket[] = [
+      { attempts: 1, shots: 1 },
+      { attempts: 2, shots: 1 },
+    ]
+
+    const model = attemptChartModel(FIVE, before, 5)
+
+    expect(model.beforePass).toEqual([0.5, 1, null, null, null])
+    expect(model.beforeTopShare).not.toBeNull()
+  })
+
+  it('没有出片记录时曲线与结论都空', () => {
+    const model = attemptChartModel([], [], 5)
+
+    expect(model.passPoints).toEqual([])
+    expect(model.passSummary).toBeUndefined()
+    expect(model.rows).toEqual([])
+    expect(model.concentration).toBeNull()
   })
 })

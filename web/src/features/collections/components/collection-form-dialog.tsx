@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ApiError } from '@/shared/api/client'
+import { errorMessageOf } from '@/shared/api/client'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
 import {
@@ -76,7 +76,7 @@ function CollectionForm({
       { collectionId: collection?.id, name: trimmed },
       {
         onError: (error) => {
-          toast.error(error instanceof ApiError ? error.message : '保存失败，请重试')
+          toast.error(errorMessageOf(error, '保存失败，请重试'))
         },
       },
     )

@@ -3,14 +3,16 @@ import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { CollectionFormDialog, CollectionPicker, useCollections } from '@/features/collections'
 import {
-  conversationsQueryKeys,
+  refreshConversationLists,
   useConversationAgents,
   useStartConversation,
 } from '@/features/conversations'
 import { HomeRoute } from '@/features/home'
-import { useUser } from '@/shared/auth'
+import { errorMessageOf } from '@/shared/api/client'
+import { hasPermission, PERMISSION, useUser } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
 import type { ComposerSubmission } from '@/shared/ui/composer'
+import { InlineAlert } from '@/shared/ui/inline-alert'
 import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { toast } from '@/shared/ui/toast'
 import { useLoginPrompt } from './-login-prompt'
@@ -27,9 +29,9 @@ export function HomePage() {
     id: string | null
   } | null>(null)
   const [newCollectionName, setNewCollectionName] = useState<string | null>(null)
-  const canRun = user?.permissions.includes('agent:run') ?? false
-  const canReadCollections = user?.permissions.includes('collections:read') ?? false
-  const canWriteCollections = user?.permissions.includes('collections:write') ?? false
+  const canRun = hasPermission(user, PERMISSION.agentRun)
+  const canReadCollections = hasPermission(user, PERMISSION.collectionsRead)
+  const canWriteCollections = hasPermission(user, PERMISSION.collectionsWrite)
   const agents = useConversationAgents(canRun)
   const collectionsQuery = useCollections(canReadCollections)
   const collections = collectionsQuery.data ?? []
@@ -57,14 +59,18 @@ export function HomePage() {
       return false
     }
     if (!validAgent || agentId === null || agents.isError) {
-      toast.error(agents.error?.message ?? '请先选择可用的 Agent')
+      toast.error(
+        agents.isError
+          ? errorMessageOf(agents.error, '读取 Agent 列表失败')
+          : '请先选择可用的 Agent',
+      )
       return false
     }
     try {
       await start.mutateAsync({ agentId, collectionId, parts })
       return true
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '发送失败，请重试')
+      toast.error(errorMessageOf(error, '发送失败，请重试'))
       return false
     }
   }
@@ -102,9 +108,10 @@ export function HomePage() {
             <MenuSurface align="end">
               {agents.isError ? (
                 <>
-                  <p className="max-w-64 px-3 py-2 text-body-sm text-error" role="alert">
-                    {agents.error.message}
-                  </p>
+                  <InlineAlert
+                    className="max-w-64 px-3 py-2"
+                    message={errorMessageOf(agents.error, '读取 Agent 列表失败')}
+                  />
                   <MenuItem onSelect={() => void agents.refetch()}>重新加载 Agent</MenuItem>
                 </>
               ) : agents.data?.items.length ? (
@@ -121,11 +128,15 @@ export function HomePage() {
             </MenuSurface>
           </MenuRoot>
         }
-        attachmentsEnabled={user?.permissions.includes('uploads:write') ?? false}
+        attachmentsEnabled={hasPermission(user, PERMISSION.uploadsWrite)}
         collectionPicker={
           <CollectionPicker
             disabled={!canReadCollections || start.isPending}
-            error={collectionsQuery.isError ? collectionsQuery.error.message : null}
+            error={
+              collectionsQuery.isError
+                ? errorMessageOf(collectionsQuery.error, '读取合集失败')
+                : null
+            }
             loading={canReadCollections && collectionsQuery.isPending}
             onChange={chooseCollection}
             onCreate={
@@ -148,7 +159,7 @@ export function HomePage() {
         onSaved={(collection) => {
           chooseCollection(collection.id)
           // 侧栏的合集列表来自对话拓扑，新建后让它重拉。
-          void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
+          void refreshConversationLists(queryClient, 'sidebar')
         }}
         open={newCollectionName !== null}
       />

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { frameBadges, latestFrameJobs } from './frame-status'
 import type { Shot } from './shot-document'
+import { makeGenerationJob } from '@/testing/generation-job'
 import type { GenerationJob } from './storyboard.api'
 
 const ORIGINAL = 'https://example.com/original.png'
@@ -8,21 +9,15 @@ const EDITED = 'https://example.com/edited.png'
 
 const at = (shot: number, frame?: number) => (frame === undefined ? { shot } : { frame, shot })
 
-const job = (overrides: Partial<GenerationJob>): GenerationJob => ({
-  id: crypto.randomUUID(),
-  kind: 'image',
-  metadata: at(1, 1),
-  status: 'completed',
-  createdAt: '2026-09-07T12:00:00Z',
-  errorMessage: null,
-  outputUrl: EDITED,
-  request: { prompt: '换色' },
-  taskId: null,
-  clipStage: null,
-  durationMs: null,
-  watermarkOutputUrl: null,
-  ...overrides,
-})
+const job = (overrides: Partial<GenerationJob>): GenerationJob =>
+  makeGenerationJob({
+    kind: 'image',
+    metadata: at(1, 1),
+    createdAt: '2026-09-07T12:00:00Z',
+    outputUrl: EDITED,
+    request: { prompt: '换色' },
+    ...overrides,
+  })
 
 const shot: Shot = {
   index: 1,
@@ -35,12 +30,12 @@ const shot: Shot = {
 }
 
 describe('latestFrameJobs', () => {
-  it('每格取最新一条，不依赖服务端给的顺序', () => {
+  it('列表按服务端倒序给，每格取第一条', () => {
     const older = job({ id: 'older', createdAt: '2026-09-07T10:00:00Z' })
     const newer = job({ id: 'newer', createdAt: '2026-09-07T11:00:00Z' })
     const other = job({ id: 'other', metadata: at(2, 2) })
 
-    const latest = latestFrameJobs([older, other, newer])
+    const latest = latestFrameJobs([other, newer, older])
 
     expect(latest.get('1:1')?.id).toBe('newer')
     expect(latest.get('2:2')?.id).toBe('other')
@@ -66,7 +61,7 @@ describe('frameBadges', () => {
   it.each([
     ['pending', 'queued'],
     ['submitted', 'running'],
-  ])('%s 的任务在帧上显示 %s，看过也照样显示', (status, kind) => {
+  ] as const)('%s 的任务在帧上显示 %s，看过也照样显示', (status, kind) => {
     const item = job({ status, outputUrl: null })
     expect(badgesOf(item).get(1)).toEqual({ kind })
     expect(badgesOf(item, [item.id]).get(1)).toEqual({ kind })

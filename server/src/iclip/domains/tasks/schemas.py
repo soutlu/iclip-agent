@@ -5,12 +5,12 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Final, Literal
-from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from pydantic.alias_generators import to_camel
 
 from iclip.common.errors import ValidationFailed
+from iclip.common.urls import is_http_url
 
 if TYPE_CHECKING:  # 只为类型：真导入会和 models.py 成环
     from iclip.domains.tasks.models import Task
@@ -23,8 +23,10 @@ MAX_STYLE_NO_CHARS: Final = 64
 MAX_PRODUCTS: Final = 20
 MIN_DURATION_SECONDS: Final = 3
 MAX_DURATION_SECONDS: Final = 50
-DEFAULT_LIST_LIMIT: Final = 20
-MAX_LIST_LIMIT: Final = 100
+
+TaskStatus = Literal["draft", "published", "confirmed", "withdrawn"]
+"""需求单状态，取值含义见 models.py 的 ``STATUS_*``。放在这里是因为 ``TaskOut`` 运行时要
+解析它，models.py 反过来导入。"""
 
 TaskRatio = Literal["1:1", "3:4", "4:3", "9:16", "16:9", "21:9"]
 """需求方期望的画幅。这是需求单上的一句要求，不是某家生成接口的参数——所以它在这里
@@ -47,8 +49,7 @@ def _http_only(urls: list[str]) -> list[str]:
     """素材地址只允许具有主机名的 HTTP(S) URL。"""
 
     for index, url in enumerate(urls):
-        parsed = urlsplit(url)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        if not is_http_url(url):
             raise ValueError(f"[{index}] 必须是 http:// 或 https:// 地址")
     return urls
 
@@ -173,7 +174,7 @@ class TaskCreateIn(TaskIn):
 class TaskOut(CamelModel):
     id: uuid.UUID
     title: str
-    status: str
+    status: TaskStatus
     priority: int
     deadline: datetime | None
     creator_user_id: uuid.UUID
@@ -191,7 +192,11 @@ class TaskEnvelope(CamelModel):
 
 
 class TasksPageOut(CamelModel):
+    """一页需求单。``nextCursor`` 为空即没有更多了；``total`` 是当前筛选下一共几张，不随翻页变。"""
+
     items: list[TaskOut]
+    next_cursor: str | None
+    total: int
 
 
 def task_out(task: Task) -> TaskOut:
@@ -212,10 +217,8 @@ def task_out(task: Task) -> TaskOut:
 
 
 __all__ = [
-    "DEFAULT_LIST_LIMIT",
     "MAX_DESCRIPTION_CHARS",
     "MAX_DURATION_SECONDS",
-    "MAX_LIST_LIMIT",
     "MAX_PRODUCTS",
     "MAX_REFERENCE_URLS",
     "MAX_SHORT_TEXT_CHARS",
@@ -230,6 +233,7 @@ __all__ = [
     "TaskProduct",
     "TaskRatio",
     "TaskReferenceImages",
+    "TaskStatus",
     "TaskVideoSpec",
     "TasksPageOut",
     "inputs_from_payload",

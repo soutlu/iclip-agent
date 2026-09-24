@@ -1,20 +1,20 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { http, HttpResponse } from 'msw'
+import { delay, http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { server } from '@/testing/mocks/server'
+import { ApiError } from '@/shared/api/client'
 import { zTaskInputsOutput } from '@/shared/api/generated/zod.gen'
-import { mockAuthUser, mockTasks } from '@/testing/mocks/handlers'
+import { loginAs, mockAuthUser, mockTasks, type MockUser } from '@/testing/mocks/handlers'
 import { renderWithProviders } from '@/testing/render'
-import type { TaskCreationDraft } from '../task-creation'
+import type { TaskCreationAgents, TaskCreationDraft } from '../task-creation'
 import { TasksRoute } from './tasks-route'
 
-// 通过 MSW 登录设置会话，保持 /users/me 路径与实际应用一致。
-const login = async () => {
-  await fetch('/api/auth/login', {
-    body: new URLSearchParams({ password: 'x', username: 'tester' }),
-    method: 'POST',
-  })
+const READY_AGENTS: TaskCreationAgents = {
+  items: [{ id: 'storyboard', name: '分镜 Agent' }],
+  pending: false,
+  error: null,
+  retry: () => undefined,
 }
 
 const makeTask = (overrides: Partial<(typeof mockTasks)[number]>) => ({
@@ -36,13 +36,44 @@ const makeTask = (overrides: Partial<(typeof mockTasks)[number]>) => ({
   ...overrides,
 })
 
-const renderLoggedIn = async (onStartCreation?: (draft: TaskCreationDraft) => Promise<void>) => {
-  await login()
-  return renderWithProviders(<TasksRoute {...(onStartCreation ? { onStartCreation } : {})} />)
+/** 以测试用户登录后挂载；给了 start 就接上现成名册，overrides 换权限等字段。 */
+const renderLoggedIn = async (
+  start?: (draft: TaskCreationDraft, agentId: string) => Promise<void>,
+  overrides: Partial<MockUser> = {},
+) => {
+  loginAs(mockAuthUser, overrides)
+  return renderWithProviders(
+    <TasksRoute {...(start ? { creation: { agents: READY_AGENTS, start } } : {})} />,
+  )
+}
+
+const chooseAgent = async (user: ReturnType<typeof userEvent.setup>, dialog: HTMLElement) => {
+  await user.click(within(dialog).getByRole('button', { name: '请选择 Agent' }))
+  await user.click(await screen.findByRole('menuitem', { name: '分镜 Agent' }))
 }
 
 describe('TasksRoute', () => {
   afterEach(() => vi.unstubAllGlobals())
+  it.each([0, 3])('仅有 %i 张我的需求单时全部展示且无需展开', async (count) => {
+    const tasks = Array.from({ length: count }, (_, index) =>
+      makeTask({
+        assigneeUserIds: [mockAuthUser.id],
+        status: 'confirmed',
+        title: `已认领的需求 ${index + 1}`,
+      }),
+    )
+    mockTasks.push(...tasks, makeTask({ title: '其他需求' }))
+    await renderLoggedIn()
+    await screen.findByText('其他需求')
+
+    const mine = within(screen.getByRole('region', { name: '我的需求单' }))
+    await waitFor(() =>
+      expect(mine.queryAllByRole('button', { name: /^查看需求：/ })).toHaveLength(count),
+    )
+    expect(mine.queryByRole('button', { name: '展开更多' })).not.toBeInTheDocument()
+    expect(mine.queryByRole('button', { name: '收起' })).not.toBeInTheDocument()
+  })
+
   it('渲染两个分区与卡片', async () => {
     mockTasks.push(
       makeTask({ status: 'published', title: '夏季新品视频' }),
@@ -62,12 +93,120 @@ describe('TasksRoute', () => {
     expect(within(mine).queryByText('夏季新品视频')).not.toBeInTheDocument()
   })
 
-  it('创建后回读规格、多款商品、分类参考图与单视频，字段归属保持一致', async () => {
-    vi.stubGlobal('createImageBitmap', async () => ({
-      close: () => {},
-      height: 800,
-      width: 600,
-    }))
+  it('读取中两个分区各显示读取文案', async () => {
+    let requested = 0
+    server.use(
+      http.get('*/api/tasks', async () => {
+        requested += 1
+        await delay('infinite')
+      }),
+    )
+    await renderLoggedIn()
+    await waitFor(() => expect(requested).toBe(2))
+
+    const mine = within(screen.getByRole('region', { name: '我的需求单' }))
+    const all = within(screen.getByRole('region', { name: '全部需求单' }))
+    expect(mine.getByRole('status')).toHaveTextContent('正在读取我的需求单')
+    expect(all.getByRole('status')).toHaveTextContent('正在读取全部需求单')
+  })
+
+  it('列表读取失败显示错误，点重新加载后恢复出卡片', async () => {
+    mockTasks.push(
+      makeTask({
+        assigneeUserIds: [mockAuthUser.id],
+        status: 'confirmed',
+        title: '我认领的需求单',
+      }),
+      makeTask({ status: 'published', title: '夏季新品视频' }),
+    )
+    let unavailable = true
+    server.use(
+      http.get('*/api/tasks', () =>
+        unavailable ? new HttpResponse(null, { status: 500 }) : undefined,
+      ),
+    )
+    const user = userEvent.setup()
+    await renderLoggedIn()
+
+    const mine = within(screen.getByRole('region', { name: '我的需求单' }))
+    const all = within(screen.getByRole('region', { name: '全部需求单' }))
+    expect(await mine.findByRole('alert')).toHaveTextContent('读取我的需求单失败')
+    expect(await all.findByRole('alert')).toHaveTextContent('读取需求单列表失败')
+
+    unavailable = false
+    await user.click(mine.getByRole('button', { name: '重新加载' }))
+    await user.click(all.getByRole('button', { name: '重新加载' }))
+    expect(await mine.findByRole('button', { name: '查看需求：我认领的需求单' })).toBeVisible()
+    expect(await all.findByRole('button', { name: '查看需求：夏季新品视频' })).toBeVisible()
+    expect(mine.queryByRole('alert')).not.toBeInTheDocument()
+    expect(all.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('翻页失败保留已读取的卡片，页脚报错并可重试', async () => {
+    const first = makeTask({ status: 'published', title: '第一页的需求单' })
+    const second = makeTask({ status: 'published', title: '第二页的需求单' })
+    let nextPageDown = true
+    server.use(
+      http.get('*/api/tasks', ({ request }) => {
+        const params = new URL(request.url).searchParams
+        if (params.get('claimedBy') === 'me') return undefined
+        if (params.get('cursor') === null) {
+          return HttpResponse.json({ items: [first], nextCursor: 'page-2', total: 2 })
+        }
+        return nextPageDown
+          ? new HttpResponse(null, { status: 500 })
+          : HttpResponse.json({ items: [second], nextCursor: null, total: 2 })
+      }),
+    )
+    const user = userEvent.setup()
+    await renderLoggedIn()
+
+    const all = within(screen.getByRole('region', { name: '全部需求单' }))
+    await user.click(await all.findByRole('button', { name: '展开显示更多需求单' }))
+    expect(await all.findByRole('alert')).toHaveTextContent('读取需求单列表失败')
+    expect(all.getByRole('button', { name: '查看需求：第一页的需求单' })).toBeVisible()
+
+    nextPageDown = false
+    await user.click(all.getByRole('button', { name: '重新加载' }))
+    expect(await all.findByRole('button', { name: '查看需求：第二页的需求单' })).toBeVisible()
+    expect(all.getByRole('button', { name: '查看需求：第一页的需求单' })).toBeVisible()
+    expect(all.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('两个分区都没有需求单时各自显示空态', async () => {
+    await renderLoggedIn()
+
+    const mine = within(screen.getByRole('region', { name: '我的需求单' }))
+    const all = within(screen.getByRole('region', { name: '全部需求单' }))
+    expect(await mine.findByText('还没有认领的需求单')).toBeVisible()
+    expect(await all.findByText('还没有需求单')).toBeVisible()
+  })
+
+  it('搜索没有匹配时两个分区显示没有匹配的需求单', async () => {
+    mockTasks.push(
+      makeTask({
+        assigneeUserIds: [mockAuthUser.id],
+        status: 'confirmed',
+        title: '我认领的需求单',
+      }),
+      makeTask({ status: 'published', title: '夏季新品视频' }),
+    )
+    const user = userEvent.setup()
+    await renderLoggedIn()
+
+    const mine = within(screen.getByRole('region', { name: '我的需求单' }))
+    const all = within(screen.getByRole('region', { name: '全部需求单' }))
+    await mine.findByRole('button', { name: '查看需求：我认领的需求单' })
+    await all.findByRole('button', { name: '查看需求：夏季新品视频' })
+
+    await user.type(screen.getByRole('textbox', { name: '搜索需求单' }), '没有这个关键字')
+    expect(mine.getByText('没有匹配的需求单')).toBeVisible()
+    expect(all.getByText('没有匹配的需求单')).toBeVisible()
+    expect(screen.queryAllByRole('button', { name: /^查看需求：/ })).toHaveLength(0)
+  })
+
+  // 三条按数据类别分：一条里串上几十次交互会在 CI 上撞满 5 秒超时，见 PR「tasks 与 audit 收尾」。
+  it('创建后回读视频规格与创作要求', async () => {
     const user = userEvent.setup()
     await renderLoggedIn()
 
@@ -82,6 +221,55 @@ describe('TasksRoute', () => {
       target: { value: '2026-10-01T18:30' },
     })
     await fillText('商品 1 款号', 'SBPU24001W')
+    await fillText('发布平台', 'douyin')
+    await fillText('视频类型', 'product_showcase')
+    await fillText('内容类型', 'short_video')
+    expect(within(dialog).getByLabelText('发布平台')).toHaveValue('抖音')
+    expect(within(dialog).getByLabelText('视频类型')).toHaveValue('产品展示')
+    expect(within(dialog).getByLabelText('内容类型')).toHaveValue('短视频')
+    await fillText('分辨率', '1080p')
+    await user.click(within(dialog).getByRole('combobox', { name: '比例' }))
+    await user.click(screen.getByRole('option', { name: '9:16' }))
+    await user.type(within(dialog).getByLabelText('目标时长（秒）'), '15')
+    await fillText('创作要求', '展示面料的轻薄透气')
+    await user.click(within(dialog).getByRole('button', { name: '创建需求单' }))
+
+    expect(await screen.findByText('新品测评视频')).toBeVisible()
+    expect(mockTasks[0]?.deadline).toBe(new Date('2026-10-01T18:30').toISOString())
+    expect(mockTasks[0]?.inputs.video_spec).toEqual({
+      platform: 'douyin',
+      video_type: 'product_showcase',
+      content_type: 'short_video',
+      resolution: '1080p',
+      aspect_ratio: '9:16',
+      duration_seconds: 15,
+    })
+    expect(mockTasks[0]?.inputs.creative_requirement).toBe('展示面料的轻薄透气')
+
+    await user.click(screen.getByText('新品测评视频'))
+    const reopened = await screen.findByRole('dialog')
+    expect(within(reopened).getByLabelText('截止时间')).toHaveValue('2026-10-01T18:30')
+    expect(within(reopened).getByLabelText('目标时长（秒）')).toHaveValue(15)
+    expect(within(reopened).getByLabelText('分辨率')).toHaveValue('1080p')
+    expect(within(reopened).getByRole('combobox', { name: '比例' })).toHaveTextContent('9:16')
+    expect(within(reopened).getByLabelText('发布平台')).toHaveValue('抖音')
+    expect(within(reopened).getByLabelText('视频类型')).toHaveValue('产品展示')
+    expect(within(reopened).getByLabelText('内容类型')).toHaveValue('短视频')
+    expect(within(reopened).getByLabelText('创作要求')).toHaveValue('展示面料的轻薄透气')
+  })
+
+  it('创建后回读多款商品，移除后编号顺延、款号冻结', async () => {
+    const user = userEvent.setup()
+    await renderLoggedIn()
+
+    await user.click(await screen.findByRole('button', { name: '新建需求单' }))
+    const dialog = await screen.findByRole('dialog')
+    const fillText = async (label: string, value: string) => {
+      await user.click(within(dialog).getByLabelText(label))
+      await user.paste(value)
+    }
+    await fillText('需求单名称', '多款商品需求')
+    await fillText('商品 1 款号', 'SBPU24001W')
     await fillText('商品 1 名称', '轻薄防晒衣')
     await fillText('商品 1 品牌', '品牌甲')
     await fillText('商品 1 品类', '外套')
@@ -93,16 +281,60 @@ describe('TasksRoute', () => {
     await user.click(within(dialog).getByRole('button', { name: '移除商品 2' }))
     expect(within(dialog).getByLabelText('商品 2 款号')).toHaveValue('SBPU24003W')
     expect(within(dialog).queryByLabelText('商品 3 款号')).not.toBeInTheDocument()
-    await fillText('发布平台', 'douyin')
-    await fillText('视频类型', 'product_showcase')
-    await fillText('内容类型', 'short_video')
-    expect(within(dialog).getByLabelText('发布平台')).toHaveValue('抖音')
-    expect(within(dialog).getByLabelText('视频类型')).toHaveValue('产品展示')
-    expect(within(dialog).getByLabelText('内容类型')).toHaveValue('短视频')
-    await fillText('分辨率', '1080p')
-    await user.selectOptions(within(dialog).getByLabelText('比例'), '9:16')
-    await user.type(within(dialog).getByLabelText('目标时长（秒）'), '15')
-    await fillText('创作要求', '展示面料的轻薄透气')
+    await user.click(within(dialog).getByRole('button', { name: '创建需求单' }))
+
+    expect(await screen.findByText('多款商品需求')).toBeVisible()
+    expect(mockTasks[0]?.inputs.products).toEqual([
+      {
+        style_no: 'SBPU24001W',
+        name: '轻薄防晒衣',
+        brand: '品牌甲',
+        category: '外套',
+        color_name: '白色',
+        image_oss_urls: [],
+      },
+      {
+        style_no: 'SBPU24003W',
+        name: '',
+        brand: '',
+        category: '',
+        color_name: '',
+        image_oss_urls: [],
+      },
+    ])
+    expect(screen.getByText(/SBPU24001W 等 2 款/)).toBeVisible()
+
+    await user.click(screen.getByText('多款商品需求'))
+    const reopened = await screen.findByRole('dialog')
+    expect(within(reopened).getByLabelText('商品 1 名称')).toHaveValue('轻薄防晒衣')
+    expect(within(reopened).getByLabelText('商品 1 品牌')).toHaveValue('品牌甲')
+    expect(within(reopened).getByLabelText('商品 1 品类')).toHaveValue('外套')
+    expect(within(reopened).getByLabelText('商品 1 颜色')).toHaveValue('白色')
+    expect(within(reopened).getByLabelText('商品 2 款号')).toBeDisabled()
+    expect(within(reopened).getByLabelText('商品 2 名称')).toBeEnabled()
+    expect(within(reopened).queryByRole('button', { name: '添加商品' })).not.toBeInTheDocument()
+    expect(within(reopened).queryByRole('button', { name: '移除商品 2' })).not.toBeInTheDocument()
+  })
+
+  it('创建后回读分类参考图与单条参考视频，各归各位', async () => {
+    vi.stubGlobal('createImageBitmap', async () => ({
+      close: () => {},
+      height: 800,
+      width: 600,
+    }))
+    const user = userEvent.setup()
+    await renderLoggedIn()
+
+    await user.click(await screen.findByRole('button', { name: '新建需求单' }))
+    const dialog = await screen.findByRole('dialog')
+    const fillText = async (label: string, value: string) => {
+      await user.click(within(dialog).getByLabelText(label))
+      await user.paste(value)
+    }
+    await fillText('需求单名称', '参考素材需求')
+    await fillText('商品 1 款号', 'SBPU24001W')
+    await user.click(within(dialog).getByRole('button', { name: '添加商品' }))
+    await fillText('商品 2 款号', 'SBPU24002W')
 
     const uploadReferenceImage = async (label: string) => {
       await user.upload(
@@ -131,58 +363,20 @@ describe('TasksRoute', () => {
     )
     await user.click(within(dialog).getByRole('button', { name: '创建需求单' }))
 
-    expect(await screen.findByText('新品测评视频')).toBeVisible()
-    expect(mockTasks[0]?.deadline).toBe(new Date('2026-10-01T18:30').toISOString())
-    expect(mockTasks[0]?.inputs).toEqual({
-      video_spec: {
-        platform: 'douyin',
-        video_type: 'product_showcase',
-        content_type: 'short_video',
-        resolution: '1080p',
-        aspect_ratio: '9:16',
-        duration_seconds: 15,
-      },
-      products: [
-        {
-          style_no: 'SBPU24001W',
-          name: '轻薄防晒衣',
-          brand: '品牌甲',
-          category: '外套',
-          color_name: '白色',
-          image_oss_urls: [],
-        },
-        {
-          style_no: 'SBPU24003W',
-          name: '',
-          brand: '',
-          category: '',
-          color_name: '',
-          image_oss_urls: [productUrl],
-        },
-      ],
-      reference_image_oss_urls: { model: [modelUrl], outfit: [outfitUrl], prop: [propUrl] },
-      reference_video_oss_url: videoUrl,
-      creative_requirement: '展示面料的轻薄透气',
+    expect(await screen.findByText('参考素材需求')).toBeVisible()
+    expect(mockTasks[0]?.inputs.reference_image_oss_urls).toEqual({
+      model: [modelUrl],
+      outfit: [outfitUrl],
+      prop: [propUrl],
     })
-    expect(screen.getByText(/SBPU24001W 等 2 款/)).toBeVisible()
-    await user.click(screen.getByText('新品测评视频'))
+    expect(mockTasks[0]?.inputs.reference_video_oss_url).toBe(videoUrl)
+    expect(mockTasks[0]?.inputs.products.map((product) => product.image_oss_urls)).toEqual([
+      [],
+      [productUrl],
+    ])
+
+    await user.click(screen.getByText('参考素材需求'))
     const reopened = await screen.findByRole('dialog')
-    expect(within(reopened).getByLabelText('截止时间')).toHaveValue('2026-10-01T18:30')
-    expect(within(reopened).getByLabelText('商品 1 名称')).toHaveValue('轻薄防晒衣')
-    expect(within(reopened).getByLabelText('商品 1 品牌')).toHaveValue('品牌甲')
-    expect(within(reopened).getByLabelText('商品 1 品类')).toHaveValue('外套')
-    expect(within(reopened).getByLabelText('商品 1 颜色')).toHaveValue('白色')
-    expect(within(reopened).getByLabelText('商品 2 款号')).toBeDisabled()
-    expect(within(reopened).getByLabelText('商品 2 名称')).toBeEnabled()
-    expect(within(reopened).queryByRole('button', { name: '添加商品' })).not.toBeInTheDocument()
-    expect(within(reopened).queryByRole('button', { name: '移除商品 2' })).not.toBeInTheDocument()
-    expect(within(reopened).getByLabelText('目标时长（秒）')).toHaveValue(15)
-    expect(within(reopened).getByLabelText('分辨率')).toHaveValue('1080p')
-    expect(within(reopened).getByLabelText('比例')).toHaveValue('9:16')
-    expect(within(reopened).getByLabelText('发布平台')).toHaveValue('抖音')
-    expect(within(reopened).getByLabelText('视频类型')).toHaveValue('产品展示')
-    expect(within(reopened).getByLabelText('内容类型')).toHaveValue('短视频')
-    expect(within(reopened).getByLabelText('创作要求')).toHaveValue('展示面料的轻薄透气')
     expect(within(reopened).getByRole('img', { name: '商品 2 图片 1' })).toHaveAttribute(
       'src',
       productUrl,
@@ -385,14 +579,9 @@ describe('TasksRoute', () => {
   })
 
   it('只有查看权限时详情只读', async () => {
-    server.use(
-      http.get('*/api/users/me', () =>
-        HttpResponse.json({ user: { ...mockAuthUser, permissions: ['tasks:read'] } }),
-      ),
-    )
     mockTasks.push(makeTask({ status: 'published', title: '只读需求' }))
     const user = userEvent.setup()
-    await renderLoggedIn()
+    await renderLoggedIn(undefined, { permissions: ['tasks:read'] })
     await user.click(await screen.findByText('只读需求'))
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByLabelText('创作要求')).toBeDisabled()
@@ -409,8 +598,26 @@ describe('TasksRoute', () => {
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByLabelText('需求单名称')).toBeDisabled()
     expect(within(dialog).getByLabelText('创作要求')).toBeDisabled()
-    expect(within(dialog).getByRole('button', { name: '保存' })).toBeDisabled()
+    expect(within(dialog).queryByRole('button', { name: '保存' })).not.toBeInTheDocument()
     expect(within(dialog).queryByRole('button', { name: '发布' })).not.toBeInTheDocument()
+  })
+  it.each([
+    { owner: '自己', creatorUserId: mockAuthUser.id, menus: 1 },
+    { owner: '他人', creatorUserId: '4133e687-07d8-4460-a0dc-954f802697f4', menus: 0 },
+  ])('我的需求单里 $owner 创建的草稿，重命名入口与详情改标题同一规则', async (row) => {
+    // 卡片只在「我的需求单」挂重命名；mock 按认领人筛，挂上认领人让草稿落进这一区。
+    mockTasks.push(
+      makeTask({
+        assigneeUserIds: [mockAuthUser.id],
+        creatorUserId: row.creatorUserId,
+        title: '认领区里的草稿',
+      }),
+    )
+    await renderLoggedIn()
+
+    const mine = within(screen.getByRole('region', { name: '我的需求单' }))
+    await mine.findByRole('button', { name: '查看需求：认领区里的草稿' })
+    expect(mine.queryAllByRole('button', { name: '更多操作' })).toHaveLength(row.menus)
   })
   it('详情加载失败显示错误，可重试恢复', async () => {
     const task = makeTask({ title: '读取重试需求' })
@@ -473,10 +680,12 @@ describe('TasksRoute', () => {
     task.inputs.reference_image_oss_urls.outfit = ['https://assets.example.com/excluded.png']
     mockTasks.push(task)
     const sent: TaskCreationDraft[] = []
+    const agentIds: string[] = []
     const user = userEvent.setup()
-    await renderLoggedIn(async (draft) => {
+    await renderLoggedIn(async (draft, agentId) => {
       sent.push(draft)
-      if (sent.length === 1) throw new Error('启动连接失败，可重试')
+      agentIds.push(agentId)
+      if (sent.length === 1) throw new ApiError(503, '启动连接失败，可重试')
     })
     const mine = screen.getByRole('region', { name: '我的需求单' })
     await user.click(await within(mine).findByText(task.title))
@@ -487,6 +696,9 @@ describe('TasksRoute', () => {
     expect(previewText).toHaveAttribute('readonly')
     expect((previewText as HTMLTextAreaElement).value).toContain(task.inputs.creative_requirement)
     expect(within(dialog).getAllByRole('img')).toHaveLength(2)
+    expect(within(dialog).getByRole('button', { name: '确认并开始' })).toBeDisabled()
+    await chooseAgent(user, dialog)
+    expect(within(dialog).getByRole('button', { name: '分镜 Agent' })).toBeVisible()
     expect(sent).toHaveLength(0)
     await user.click(within(dialog).getByRole('button', { name: '返回修改' }))
     expect(within(await screen.findByRole('dialog')).getByLabelText('创作要求')).toHaveValue(
@@ -494,6 +706,10 @@ describe('TasksRoute', () => {
     )
     expect(sent).toHaveLength(0)
     await user.click(screen.getByRole('button', { name: '开始创作' }))
+    // 重新进入预览不沿用上一次的选择。
+    dialog = await screen.findByRole('dialog', { name: '发起创作' })
+    expect(within(dialog).getByRole('button', { name: '确认并开始' })).toBeDisabled()
+    await chooseAgent(user, dialog)
     await user.click(screen.getByRole('button', { name: '确认并开始' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('启动连接失败，可重试')
     expect(screen.getByLabelText<HTMLTextAreaElement>('发送文字预览').value).toContain(
@@ -503,6 +719,7 @@ describe('TasksRoute', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(sent).toHaveLength(2)
     expect(sent[1]).toBe(sent[0])
+    expect(agentIds).toEqual(['storyboard', 'storyboard'])
     expect(sent[0]?.content.filter((part) => part.type === 'text')).toHaveLength(1)
     expect(task.inputs.creative_requirement).toBe('  保留原文\n口播：Hello!  ')
   })
@@ -540,22 +757,10 @@ describe('TasksRoute', () => {
   })
 
   it.each([
-    { status: 'confirmed', claimed: false, canRun: true },
-    { status: 'published', claimed: true, canRun: true },
-    { status: 'confirmed', claimed: true, canRun: false },
+    { status: 'confirmed' as const, claimed: false, canRun: true },
+    { status: 'published' as const, claimed: true, canRun: true },
+    { status: 'confirmed' as const, claimed: true, canRun: false },
   ])('开始入口要求已认领、confirmed和agent:run：%j', async ({ status, claimed, canRun }) => {
-    server.use(
-      http.get('*/api/users/me', () =>
-        HttpResponse.json({
-          user: {
-            ...mockAuthUser,
-            permissions: canRun
-              ? mockAuthUser.permissions
-              : mockAuthUser.permissions.filter((permission) => permission !== 'agent:run'),
-          },
-        }),
-      ),
-    )
     const task = makeTask({
       status,
       assigneeUserIds: claimed ? [mockAuthUser.id] : [],
@@ -564,7 +769,11 @@ describe('TasksRoute', () => {
     task.inputs.creative_requirement = '需求内容'
     mockTasks.push(task)
     const user = userEvent.setup()
-    await renderLoggedIn(async () => {})
+    await renderLoggedIn(async () => {}, {
+      permissions: canRun
+        ? mockAuthUser.permissions
+        : mockAuthUser.permissions.filter((permission) => permission !== 'agent:run'),
+    })
     await user.click(
       await within(screen.getByRole('region', { name: '全部需求单' })).findByText(task.title),
     )
@@ -591,6 +800,7 @@ describe('TasksRoute', () => {
     const preview = await screen.findByRole('dialog', { name: '发起创作' })
     task.status = 'withdrawn'
     task.inputs.creative_requirement = '另一个窗口修改的内容'
+    await chooseAgent(user, preview)
     await user.click(within(preview).getByRole('button', { name: '确认并开始' }))
     expect(await within(preview).findByRole('alert')).toHaveTextContent(
       '需求单已撤回，无法开始创作',

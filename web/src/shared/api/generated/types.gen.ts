@@ -81,7 +81,32 @@ export type AnomaliesOut = {
 }
 
 /**
+ * AnomalyCountOut
+ */
+export type AnomalyCountOut = {
+  /**
+   * Count
+   */
+  count: number
+  /**
+   * Kind
+   */
+  kind:
+    | 'retry'
+    | 'idle'
+    | 'slow'
+    | 'stuck'
+    | 'spend'
+    | 'task_stuck'
+    | 'deleted'
+    | 'no_task'
+    | 'missing_shot'
+}
+
+/**
  * AnomalyOut
+ *
+ * 一条异常。``ref`` 是「种类:对象」的稳定文本，与 ``at`` 一起构成排序键与游标，不出接口。
  */
 export type AnomalyOut = {
   /**
@@ -146,7 +171,7 @@ export type ApiKeyCreateIn = {
   /**
    * Permissions
    */
-  permissions: Array<string>
+  permissions: Array<Permission>
 }
 
 /**
@@ -300,7 +325,7 @@ export type AttachmentSource = {
 /**
  * AttemptBucketOut
  *
- * 出片次数正好是 ``attempts`` 次的镜有多少个。
+ * 出片次数正好是 ``attempts`` 次的镜有多少个。次数按镜上全部出片记录数，不看终态。
  */
 export type AttemptBucketOut = {
   /**
@@ -381,6 +406,10 @@ export type ClipIn = {
    * Purpose
    */
   purpose: 'reference' | 'master'
+  /**
+   * Rootjobid
+   */
+  rootJobId?: string | null
   /**
    * Segments
    */
@@ -528,7 +557,7 @@ export type ConversationAgentsOut = {
 /**
  * ConversationAuditOut
  *
- * 一段有成片的对话；指标与镜、用量都是这段对话的全量。
+ * 一段有成片的对话；指标与镜、用量都是这段对话的全量，不按时间窗裁。
  */
 export type ConversationAuditOut = {
   /**
@@ -1042,7 +1071,7 @@ export type GenerationOut = {
   /**
    * Kind
    */
-  kind: string
+  kind: 'video' | 'image' | 'clip'
   /**
    * Metadata
    */
@@ -1060,9 +1089,13 @@ export type GenerationOut = {
     [key: string]: unknown
   }
   /**
+   * Rootjobid
+   */
+  rootJobId: string | null
+  /**
    * Status
    */
-  status: string
+  status: 'pending' | 'submitting' | 'submitted' | 'completed' | 'failed'
   /**
    * Taskid
    */
@@ -1146,6 +1179,10 @@ export type ImageGenerationIn = {
    * Resolution
    */
   resolution?: '1k' | '2k' | '4k'
+  /**
+   * Rootjobid
+   */
+  rootJobId?: string | null
   /**
    * Taskid
    */
@@ -1299,7 +1336,7 @@ export type MetricFiltersIn = {
 /**
  * MetricsOut
  *
- * 一格指标。每一层都是这个形状，见合同 §12。
+ * 一格指标。全体、人、需求单、时段、对话各层都是这个形状，只是维度键不同；见合同 §12。
  */
 export type MetricsOut = {
   /**
@@ -1309,7 +1346,7 @@ export type MetricsOut = {
   /**
    * Attemptspershot
    */
-  attemptsPerShot: number | null
+  readonly attemptsPerShot: number | null
   /**
    * Completedvideos
    */
@@ -1329,12 +1366,16 @@ export type MetricsOut = {
   deliveredTasks: number
   /**
    * Deliveries
+   *
+   * 成片件数：有成片的需求单各一件，加没挂需求单却有成片的对话各一件。
    */
-  deliveries: number
+  readonly deliveries: number
   /**
    * Onetakerate
+   *
+   * 一次通过率：只出了一条且成了的镜占全部镜的比例。
    */
-  oneTakeRate: number | null
+  readonly oneTakeRate: number | null
   /**
    * Onetakeshots
    */
@@ -1354,7 +1395,7 @@ export type MetricsOut = {
   /**
    * Tokensperdelivery
    */
-  tokensPerDelivery: number | null
+  readonly tokensPerDelivery: number | null
   upstreamSeconds: SpreadOut | null
   usage: UsageOut
   videoSeconds: SpreadOut | null
@@ -1461,6 +1502,21 @@ export type PeriodMetricsOut = {
    */
   periodStart: string
 }
+
+export type Permission =
+  | 'collections:read'
+  | 'collections:write'
+  | 'tasks:read'
+  | 'tasks:write'
+  | 'inspirations:read'
+  | 'uploads:write'
+  | 'generation:read'
+  | 'generation:submit'
+  | 'users:manage'
+  | 'users:act_as'
+  | 'api_keys:issue'
+  | 'agent:read'
+  | 'agent:run'
 
 /**
  * Prompt
@@ -1657,7 +1713,7 @@ export type SidebarOut = {
 /**
  * SpreadOut
  *
- * 时长分布，单位秒。
+ * 一组时长样本的分布，单位秒。
  */
 export type SpreadOut = {
   /**
@@ -1798,6 +1854,10 @@ export type StyleMatchOut = {
  * SummaryOut
  */
 export type SummaryOut = {
+  /**
+   * Anomalycounts
+   */
+  anomalyCounts: Array<AnomalyCountOut>
   /**
    * Attemptdistribution
    */
@@ -1976,7 +2036,7 @@ export type TaskOut = {
   /**
    * Status
    */
-  status: string
+  status: 'draft' | 'published' | 'confirmed' | 'withdrawn'
   /**
    * Title
    */
@@ -2168,12 +2228,22 @@ export type TaskVideoSpecOutput = {
 
 /**
  * TasksPageOut
+ *
+ * 一页需求单。``nextCursor`` 为空即没有更多了；``total`` 是当前筛选下一共几张，不随翻页变。
  */
 export type TasksPageOut = {
   /**
    * Items
    */
   items: Array<TaskOut>
+  /**
+   * Nextcursor
+   */
+  nextCursor: string | null
+  /**
+   * Total
+   */
+  total: number
 }
 
 /**
@@ -2735,8 +2805,10 @@ export type UploadTicketOut = {
 export type UsageOut = {
   /**
    * Cachehitrate
+   *
+   * 缓存读取 ÷（新输入 + 缓存读取 + 缓存写入）；没有输入时为空。
    */
-  cacheHitRate: number | null
+  readonly cacheHitRate: number | null
   /**
    * Cachereadtokens
    */
@@ -2760,7 +2832,7 @@ export type UsageOut = {
   /**
    * Totaltokens
    */
-  totalTokens: number
+  readonly totalTokens: number
 }
 
 /**
@@ -2880,7 +2952,7 @@ export type UserPatchIn = {
   /**
    * Directpermissions
    */
-  directPermissions?: Array<string> | null
+  directPermissions?: Array<Permission> | null
   /**
    * Isactive
    */
@@ -3016,6 +3088,10 @@ export type VideoGenerationIn = {
    * Resolution
    */
   resolution?: string | null
+  /**
+   * Root Job Id
+   */
+  root_job_id?: string | null
   /**
    * Seconds
    */
@@ -4711,11 +4787,17 @@ export type ListGenerationsGenerationsGetData = {
     /**
      * Kind
      */
-    kind?: 'image' | 'video' | 'clip' | null
+    kind?: 'video' | 'image' | 'clip' | null
+    /**
+     * Rootjobid
+     *
+     * 只列这条出片名下的衍生记录（视频编辑链）
+     */
+    rootJobId?: string | null
     /**
      * Metadata
      *
-     * JSON 对象；只列坐标包含这些键值的记录，服务端不解释键的含义
+     * JSON 对象；只列坐标包含这些键值的记录，服务端只认其中的 shot
      */
     metadata?: string | null
     /**
@@ -4981,9 +5063,17 @@ export type ListTasksTasksGetData = {
      */
     status?: 'draft' | 'published' | 'confirmed' | 'withdrawn' | null
     /**
+     * Ids
+     */
+    ids?: Array<string> | null
+    /**
      * Limit
      */
     limit?: number
+    /**
+     * Cursor
+     */
+    cursor?: string | null
     /**
      * Claimedby
      */

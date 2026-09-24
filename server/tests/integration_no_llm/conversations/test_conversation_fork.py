@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import NoReturn
 
 import httpx
 import pytest
@@ -17,12 +18,14 @@ from pydantic_ai_harness.step_persistence import ContinuableSnapshot, RunRecord,
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from iclip.common.errors import Conflict, NotFound
+from iclip.domains.conversations.infra_sql import SqlConversationRepository
+from iclip.domains.conversations.service import ConversationService
+from iclip.domains.identity.public import Principal
 from iclip.harness.step_store_pg import PgStepStore
-from tests.integration_no_llm.conftest import (
-    make_client,
-    register_and_login,
-    set_roles_in_db,
-)
+from tests.helpers.app import make_client
+from tests.helpers.auth import register_and_login, set_roles_in_db
+from tests.helpers.pg import connected
 
 URL = "/conversations"
 AGENT_ID = "storyboard"
@@ -90,61 +93,85 @@ async def seed_turns(pg_url: str, conversation_id: str, prompts: list[str]) -> l
 async def seed_side_data(pg_url: str, namespace: str) -> None:
     """工作区文件与素材台账各放一条，两者都按命名空间隔离。"""
 
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "INSERT INTO agent_runtime.workspace_files"
-                    " (namespace, path, content, version, created_at, updated_at)"
-                    " VALUES (:ns, 'video_shot.json', :content, 3, now(), now())"
-                ),
-                {"ns": namespace, "content": '{"shots": []}'},
-            )
-            await conn.execute(
-                text(
-                    "INSERT INTO agent_runtime.materials (namespace, url, kind)"
-                    " VALUES (:ns, 'https://example.test/ref.mp4', 'video')"
-                ),
-                {"ns": namespace},
-            )
-    finally:
-        await engine.dispose()
+    async with connected(pg_url) as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO agent_runtime.workspace_files"
+                " (namespace, path, content, version, created_at, updated_at)"
+                " VALUES (:ns, 'video_shot.json', :content, 3, now(), now())"
+            ),
+            {"ns": namespace, "content": '{"shots": []}'},
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO agent_runtime.materials (namespace, url, kind)"
+                " VALUES (:ns, 'https://example.test/ref.mp4', 'video')"
+            ),
+            {"ns": namespace},
+        )
 
 
 async def side_data(pg_url: str, namespace: str) -> tuple[list[str], list[str]]:
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.connect() as conn:
-            paths = list(
-                (
-                    await conn.execute(
-                        text(
-                            "SELECT path FROM agent_runtime.workspace_files"
-                            " WHERE namespace = :ns ORDER BY path"
-                        ),
-                        {"ns": namespace},
-                    )
-                ).scalars()
-            )
-            urls = list(
-                (
-                    await conn.execute(
-                        text(
-                            "SELECT url FROM agent_runtime.materials"
-                            " WHERE namespace = :ns ORDER BY url"
-                        ),
-                        {"ns": namespace},
-                    )
-                ).scalars()
-            )
-    finally:
-        await engine.dispose()
+    async with connected(pg_url) as conn:
+        paths = list(
+            (
+                await conn.execute(
+                    text(
+                        "SELECT path FROM agent_runtime.workspace_files"
+                        " WHERE namespace = :ns ORDER BY path"
+                    ),
+                    {"ns": namespace},
+                )
+            ).scalars()
+        )
+        urls = list(
+            (
+                await conn.execute(
+                    text(
+                        "SELECT url FROM agent_runtime.materials WHERE namespace = :ns ORDER BY url"
+                    ),
+                    {"ns": namespace},
+                )
+            ).scalars()
+        )
     return paths, urls
 
 
 async def fork(client: httpx.AsyncClient, conversation_id: str, **body: object) -> httpx.Response:
     return await client.post(f"{URL}/{conversation_id}:fork", json={"turn": 1, **body})
+
+
+def _untouched(*_: object, **__: object) -> NoReturn:
+    raise AssertionError("分叉用不到这个端口")
+
+
+class StartMovedUnderUs:
+    """起点端口的替身：源闲着、有一轮，可写种子快照时报源变了。"""
+
+    def __init__(self) -> None:
+        self.targets: list[uuid.UUID] = []
+
+    async def idle(self, conversation_id: uuid.UUID) -> bool:
+        return True
+
+    async def turn_count(self, conversation_id: uuid.UUID) -> int:
+        return 1
+
+    async def seed(self, *, source_id: uuid.UUID, target_id: uuid.UUID, turn: int) -> bool:
+        self.targets.append(target_id)
+        return False
+
+
+async def copy_no_workspace(
+    *, source_owner: uuid.UUID, source_id: uuid.UUID, target_owner: uuid.UUID, target_id: uuid.UUID
+) -> None:
+    return None
+
+
+async def copy_no_generations(
+    *, source_id: uuid.UUID, target_id: uuid.UUID, owner: uuid.UUID, task_id: uuid.UUID | None
+) -> int:
+    return 0
 
 
 async def test_fork_carries_history_and_workspace_and_leaves_the_source_alone(
@@ -288,27 +315,68 @@ async def test_source_with_an_unfinished_prompt_is_409(
     owner = await login_as(client, pg_url, username="luke")
     source = await open_conversation(client)
     await seed_turns(pg_url, source, ["第一句"])
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "INSERT INTO agent_runtime.agent_jobs"
-                    " (prompt_id, conversation_id, agent_id, owner_user_id, user_name,"
-                    "  content, status, created_at)"
-                    " VALUES (:pid, :cid, :agent, :owner, 'luke', '[]', 'queued', now())"
-                ),
-                {
-                    "pid": f"prm_{uuid.uuid4().hex[:16]}",
-                    "cid": source,
-                    "agent": AGENT_ID,
-                    "owner": owner,
-                },
-            )
-    finally:
-        await engine.dispose()
+    async with connected(pg_url) as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO agent_runtime.agent_jobs"
+                " (prompt_id, conversation_id, agent_id, owner_user_id, user_name,"
+                "  content, status, created_at)"
+                " VALUES (:pid, :cid, :agent, :owner, 'luke', '[]', 'queued', now())"
+            ),
+            {
+                "pid": f"prm_{uuid.uuid4().hex[:16]}",
+                "cid": source,
+                "agent": AGENT_ID,
+                "owner": owner,
+            },
+        )
 
     assert (await fork(client, source)).status_code == 409
+
+
+async def test_start_moving_between_counting_and_seeding_voids_the_fork(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """数完轮数到写种子快照之间源变了，起点端口回 False：这次分叉作废，对话行不落库。
+
+    HTTP 层造不出这个间隙，直接装配用例：仓储用真的，起点端口用一个报「源变了」的替身，
+    分叉用不到的端口一碰就报错。中途失败只留下寻址不到的副本数据，见 architecture.md §4 对话分叉。
+    """
+
+    owner = await login_as(client, pg_url, username="luke")
+    source = await open_conversation(client)
+    start = StartMovedUnderUs()
+    engine = create_async_engine(pg_url)
+    try:
+        repo = SqlConversationRepository(engine)
+        service = ConversationService(
+            repo,
+            list_collections=_untouched,
+            claim_task=_untouched,
+            list_derived_files=_untouched,
+            read_derived_file=_untouched,
+            write_derived_file=_untouched,
+            document_validators={},
+            generate_title=_untouched,
+            announce_title=_untouched,
+            activities_of=_untouched,
+            busy_conversation_ids=_untouched,
+            fork_transcript=start,
+            copy_workspace=copy_no_workspace,
+            copy_generations=copy_no_generations,
+        )
+        principal = Principal(
+            kind="user", user_id=uuid.UUID(owner), permissions=frozenset(), audit_label="luke"
+        )
+
+        with pytest.raises(Conflict):
+            await service.fork(principal, uuid.UUID(source), turn=1)
+
+        [target] = start.targets
+        with pytest.raises(NotFound):
+            await repo.get(target, owner=None, include_deleted=True)
+    finally:
+        await engine.dispose()
 
 
 async def test_a_fork_of_a_fork_points_at_its_direct_parent(

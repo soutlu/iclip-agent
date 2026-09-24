@@ -55,9 +55,9 @@ DB_SCHEMA: Final = "agent_runtime"
 # 官方 SqliteStepStore 的默认外置阈值（私有常量，镜像其值）。
 _DEFAULT_MEDIA_THRESHOLD_BYTES: Final = 64 * 1024
 
-_EVENT_KINDS: Final[frozenset[str]] = frozenset(get_args(EventKind))
-_TOOL_STATUSES: Final[frozenset[str]] = frozenset(get_args(ToolEffectStatus))
-_SNAPSHOT_STATES: Final[frozenset[str]] = frozenset(get_args(SnapshotState))
+_EVENT_KINDS: Final[frozenset[EventKind]] = frozenset(get_args(EventKind))
+_TOOL_STATUSES: Final[frozenset[ToolEffectStatus]] = frozenset(get_args(ToolEffectStatus))
+_SNAPSHOT_STATES: Final[frozenset[SnapshotState]] = frozenset(get_args(SnapshotState))
 
 _EMPTY_CONTEXT: Final = MediaContext()
 
@@ -165,22 +165,12 @@ def _str_str_dict(raw: object) -> dict[str, str]:
     return out
 
 
-def _event_kind(raw: object) -> EventKind:
-    if isinstance(raw, str) and raw in _EVENT_KINDS:
-        return cast(EventKind, raw)
-    raise ValueError(f"unknown event kind {raw!r}")
+def _literal[T: str](raw: object, allowed: frozenset[T], what: str) -> T:
+    """把读出的文本列收窄为 allowed 里的 Literal 成员；不认识的值抛 ValueError，what 写进报错。"""
 
-
-def _tool_status(raw: object) -> ToolEffectStatus:
-    if isinstance(raw, str) and raw in _TOOL_STATUSES:
-        return cast(ToolEffectStatus, raw)
-    raise ValueError(f"unknown tool-effect status {raw!r}")
-
-
-def _snapshot_state(raw: object) -> SnapshotState:
-    if isinstance(raw, str) and raw in _SNAPSHOT_STATES:
-        return cast(SnapshotState, raw)
-    raise ValueError(f"unknown snapshot state {raw!r}")
+    if isinstance(raw, str) and raw in allowed:
+        return cast(T, raw)
+    raise ValueError(f"unknown {what} {raw!r}")
 
 
 class PgMediaStore:
@@ -296,15 +286,7 @@ class PgStepStore:
             ).one_or_none()
         if row is None:
             return None
-        return RunRecord(
-            run_id=row.run_id,
-            conversation_id=row.conversation_id,
-            parent_run_id=row.parent_run_id,
-            agent_name=row.agent_name,
-            metadata=_str_str_dict(json.loads(row.metadata)),
-            started_at=row.started_at,
-            registration_id=row.registration_id,
-        )
+        return self._run_from_row(row)
 
     async def list_runs(
         self,
@@ -319,18 +301,20 @@ class PgStepStore:
             stmt = stmt.where(runs_table.c.conversation_id == conversation_id)
         async with self._engine.connect() as conn:
             rows = (await conn.execute(stmt)).all()
-        return [
-            RunRecord(
-                run_id=row.run_id,
-                conversation_id=row.conversation_id,
-                parent_run_id=row.parent_run_id,
-                agent_name=row.agent_name,
-                metadata=_str_str_dict(json.loads(row.metadata)),
-                started_at=row.started_at,
-                registration_id=row.registration_id,
-            )
-            for row in rows
-        ]
+        return [self._run_from_row(row) for row in rows]
+
+    @staticmethod
+    def _run_from_row(row: object) -> RunRecord:
+        r = cast("_RunRow", row)
+        return RunRecord(
+            run_id=r.run_id,
+            conversation_id=r.conversation_id,
+            parent_run_id=r.parent_run_id,
+            agent_name=r.agent_name,
+            metadata=_str_str_dict(json.loads(r.metadata)),
+            started_at=r.started_at,
+            registration_id=r.registration_id,
+        )
 
     # -- events ---------------------------------------------------------------
 
@@ -369,7 +353,7 @@ class PgStepStore:
         return [
             StepEvent(
                 run_id=row.run_id,
-                kind=_event_kind(row.kind),
+                kind=_literal(row.kind, _EVENT_KINDS, "event kind"),
                 step_index=row.step_index,
                 timestamp=row.timestamp,
                 conversation_id=row.conversation_id,
@@ -510,7 +494,7 @@ class PgStepStore:
             parent_run_id=r.parent_run_id,
             agent_name=r.agent_name,
             timestamp=r.timestamp,
-            state=_snapshot_state(r.state),
+            state=_literal(r.state, _SNAPSHOT_STATES, "snapshot state"),
             idempotency_key=r.idempotency_key,
         )
 
@@ -568,12 +552,24 @@ class PgStepStore:
             tool_call_id=r.tool_call_id,
             tool_name=r.tool_name,
             run_id=r.run_id,
-            status=_tool_status(r.status),
+            status=_literal(r.status, _TOOL_STATUSES, "tool-effect status"),
             started_at=r.started_at,
             ended_at=r.ended_at,
             idempotency_key=r.idempotency_key,
             effect_summary=r.effect_summary,
         )
+
+
+class _RunRow:
+    """运行行的结构声明（仅供类型检查，运行时是 SQLAlchemy Row）。"""
+
+    run_id: str
+    conversation_id: str | None
+    parent_run_id: str | None
+    agent_name: str | None
+    metadata: str
+    started_at: datetime
+    registration_id: str | None
 
 
 class _SnapshotRow:

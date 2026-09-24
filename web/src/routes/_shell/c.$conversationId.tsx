@@ -1,19 +1,19 @@
 import { createFileRoute, Link, redirect, useNavigate, useParams } from '@tanstack/react-router'
 import { z } from 'zod'
 import { ConversationRoute } from '@/features/conversations'
-import { shotContentIdSchema } from '@/features/storyboard'
+import { readerSheetSchema, shotContentIdSchema } from '@/features/storyboard'
 import { ensureSessionUser } from '@/shared/auth'
 import { canonicalUuid } from '@/shared/lib/uuid'
-import { WorkbenchHost } from '@/shared/workbench'
+import { ARTIFACT_SEARCH_KEY, WorkbenchHost } from '@/shared/workbench'
 import { conversationsReturnSearch } from '../-conversations-return'
 
-// 产物、组、帧与正在看的文件保存在查询参数，支持刷新与分享（ADR-0009 决策 6）。
+// 产物、组、帧与正在看的文件保存在查询参数，支持刷新与分享。
 const ConversationSearchSchema = z.object({
-  artifact: z.string().optional().catch(undefined),
+  [ARTIFACT_SEARCH_KEY]: z.string().optional().catch(undefined),
   file: z.string().optional().catch(undefined),
   content: shotContentIdSchema.optional().catch(undefined),
   frame: z.int().positive().optional().catch(undefined),
-  sheet: z.enum(['all', 'prompt', 'records']).optional().catch(undefined),
+  sheet: readerSheetSchema.optional().catch(undefined),
   shot: z.int().positive().optional().catch(undefined),
   take: z.string().optional().catch(undefined),
   /** 视频编辑器开在哪条出片记录上（编辑链的根）。 */

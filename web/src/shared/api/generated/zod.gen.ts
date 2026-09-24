@@ -32,7 +32,27 @@ export const zAgentStatusMeta = z.object({
 })
 
 /**
+ * AnomalyCountOut
+ */
+export const zAnomalyCountOut = z.object({
+  count: z.int(),
+  kind: z.enum([
+    'retry',
+    'idle',
+    'slow',
+    'stuck',
+    'spend',
+    'task_stuck',
+    'deleted',
+    'no_task',
+    'missing_shot',
+  ]),
+})
+
+/**
  * AnomalyOut
+ *
+ * 一条异常。``ref`` 是「种类:对象」的稳定文本，与 ``at`` 一起构成排序键与游标，不出接口。
  */
 export const zAnomalyOut = z.object({
   at: z.iso.datetime(),
@@ -62,15 +82,6 @@ export const zAnomalyOut = z.object({
 export const zAnomaliesOut = z.object({
   items: z.array(zAnomalyOut),
   nextCursor: z.string().nullable(),
-})
-
-/**
- * ApiKeyCreateIn
- */
-export const zApiKeyCreateIn = z.object({
-  expiresAt: z.iso.datetime().nullish(),
-  name: z.string(),
-  permissions: z.array(z.string()),
 })
 
 /**
@@ -137,7 +148,7 @@ export const zAttachmentSource = z.object({
 /**
  * AttemptBucketOut
  *
- * 出片次数正好是 ``attempts`` 次的镜有多少个。
+ * 出片次数正好是 ``attempts`` 次的镜有多少个。次数按镜上全部出片记录数，不看终态。
  */
 export const zAttemptBucketOut = z.object({
   attempts: z.int(),
@@ -183,6 +194,7 @@ export const zClipIn = z.object({
   conversationId: z.uuid().nullish(),
   metadata: z.record(z.string(), z.unknown()).nullish(),
   purpose: z.enum(['reference', 'master']),
+  rootJobId: z.uuid().nullish(),
   segments: z.array(zClipSegmentIn).min(1).max(50),
   taskId: z.uuid().nullish(),
 })
@@ -493,11 +505,12 @@ export const zGenerationOut = z.object({
   durationMs: z.int().nullable(),
   errorMessage: z.string().nullable(),
   id: z.uuid(),
-  kind: z.string(),
+  kind: z.enum(['video', 'image', 'clip']),
   metadata: z.record(z.string(), z.unknown()).nullable(),
   outputUrl: z.string().nullable(),
   request: z.record(z.string(), z.unknown()),
-  status: z.string(),
+  rootJobId: z.uuid().nullable(),
+  status: z.enum(['pending', 'submitting', 'submitted', 'completed', 'failed']),
   taskId: z.uuid().nullable(),
   watermarkOutputUrl: z.string().nullable(),
 })
@@ -547,6 +560,7 @@ export const zImageGenerationIn = z.object({
   prompt: z.string().min(1).max(4000),
   referenceImageUrls: z.array(z.string()).max(10).optional().default([]),
   resolution: z.enum(['1k', '2k', '4k']).optional().default('1k'),
+  rootJobId: z.uuid().nullish(),
   taskId: z.uuid().nullish(),
   userName: z.string().min(1).max(200).nullish(),
 })
@@ -631,6 +645,31 @@ export const zNoticeFrame = z.object({
   source: z.string().nullish(),
 })
 
+export const zPermission = z.enum([
+  'collections:read',
+  'collections:write',
+  'tasks:read',
+  'tasks:write',
+  'inspirations:read',
+  'uploads:write',
+  'generation:read',
+  'generation:submit',
+  'users:manage',
+  'users:act_as',
+  'api_keys:issue',
+  'agent:read',
+  'agent:run',
+])
+
+/**
+ * ApiKeyCreateIn
+ */
+export const zApiKeyCreateIn = z.object({
+  expiresAt: z.iso.datetime().nullish(),
+  name: z.string(),
+  permissions: z.array(zPermission),
+})
+
 /**
  * RunStatusOut
  *
@@ -685,7 +724,7 @@ export const zSidebarOut = z.object({
 /**
  * SpreadOut
  *
- * 时长分布，单位秒。
+ * 一组时长样本的分布，单位秒。
  */
 export const zSpreadOut = z.object({
   avg: z.number(),
@@ -902,7 +941,7 @@ export const zTaskOut = z.object({
   id: z.uuid(),
   inputs: zTaskInputsOutput,
   priority: z.int(),
-  status: z.string(),
+  status: z.enum(['draft', 'published', 'confirmed', 'withdrawn']),
   title: z.string(),
   updatedAt: z.iso.datetime(),
 })
@@ -916,9 +955,13 @@ export const zTaskEnvelope = z.object({
 
 /**
  * TasksPageOut
+ *
+ * 一页需求单。``nextCursor`` 为空即没有更多了；``total`` 是当前筛选下一共几张，不随翻页变。
  */
 export const zTasksPageOut = z.object({
   items: z.array(zTaskOut),
+  nextCursor: z.string().nullable(),
+  total: z.int(),
 })
 
 /**
@@ -1081,13 +1124,13 @@ export const zUsageOut = z.object({
   inputTokens: z.int(),
   outputTokens: z.int(),
   requests: z.int(),
-  totalTokens: z.int(),
+  totalTokens: z.int().readonly(),
 })
 
 /**
  * MetricsOut
  *
- * 一格指标。每一层都是这个形状，见合同 §12。
+ * 一格指标。全体、人、需求单、时段、对话各层都是这个形状，只是维度键不同；见合同 §12。
  */
 export const zMetricsOut = z.object({
   attempts: z.int(),
@@ -1097,7 +1140,7 @@ export const zMetricsOut = z.object({
   deliveredConversations: z.int(),
   deliveredOrphanConversations: z.int(),
   deliveredTasks: z.int(),
-  deliveries: z.int(),
+  deliveries: z.int().readonly(),
   oneTakeRate: z.number().nullable(),
   oneTakeShots: z.int(),
   producers: z.int(),
@@ -1120,7 +1163,7 @@ export const zModelUsageOut = z.object({
 /**
  * ConversationAuditOut
  *
- * 一段有成片的对话；指标与镜、用量都是这段对话的全量。
+ * 一段有成片的对话；指标与镜、用量都是这段对话的全量，不按时间窗裁。
  */
 export const zConversationAuditOut = z.object({
   conversationId: z.uuid(),
@@ -1185,6 +1228,7 @@ export const zUserMetricsOut = z.object({
  * SummaryOut
  */
 export const zSummaryOut = z.object({
+  anomalyCounts: z.array(zAnomalyCountOut),
   attemptDistribution: z.array(zAttemptBucketOut),
   overall: zMetricsOut,
   series: z.array(zPeriodMetricsOut).nullable(),
@@ -1223,7 +1267,7 @@ export const zUserEnvelope = z.object({
  * UserPatchIn
  */
 export const zUserPatchIn = z.object({
-  directPermissions: z.array(z.string()).nullish(),
+  directPermissions: z.array(zPermission).nullish(),
   isActive: z.boolean().nullish(),
   roles: z.array(z.string()).nullish(),
 })
@@ -1569,6 +1613,7 @@ export const zVideoGenerationIn = z.object({
   reference_image_urls: z.array(z.string()).max(30).optional().default([]),
   reference_video_urls: z.array(z.string()).max(30).optional().default([]),
   resolution: z.string().min(1).max(50).nullish(),
+  root_job_id: z.uuid().nullish(),
   seconds: z.int().gte(-1).nullish(),
   shot: zVideoShotIn.nullish(),
   shot_index: z.int().gte(1).nullish(),
@@ -2081,7 +2126,8 @@ export const zListGenerationsGenerationsGetQuery = z.object({
   limit: z.int().gte(1).lte(100).optional().default(20),
   conversationId: z.uuid().nullish(),
   taskId: z.uuid().nullish(),
-  kind: z.enum(['image', 'video', 'clip']).nullish(),
+  kind: z.enum(['video', 'image', 'clip']).nullish(),
+  rootJobId: z.uuid().nullish(),
   metadata: z.string().nullish(),
   before: z.uuid().nullish(),
 })
@@ -2156,7 +2202,9 @@ export const zSearchVideosInspirationsVideosSearchPostResponse = zVideoSearchOut
 
 export const zListTasksTasksGetQuery = z.object({
   status: z.enum(['draft', 'published', 'confirmed', 'withdrawn']).nullish(),
+  ids: z.array(z.uuid()).nullish(),
   limit: z.int().gte(1).lte(100).optional().default(20),
+  cursor: z.string().nullish(),
   claimedBy: z.string().regex(/^me$/).nullish(),
 })
 

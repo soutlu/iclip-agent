@@ -1,4 +1,4 @@
-"""媒体生成持久模型。请求类型统一定义于 schemas.py，同时用于 HTTP 与持久化。"""
+"""媒体生成持久模型。请求类型与状态词统一定义于 schemas.py，同时用于 HTTP 与持久化。"""
 
 from __future__ import annotations
 
@@ -7,17 +7,16 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final, Literal
 
-from iclip.domains.generation.schemas import GenerationKind, GenerationRequest
-
-GenerationStatus = Literal["pending", "submitting", "submitted", "completed", "failed"]
-STATUS_PENDING: Final = "pending"
-"""已受理，尚未提交给 Provider。"""
-STATUS_SUBMITTING: Final = "submitting"
-"""提交中断时禁止自动重投，避免重复计费；恢复规则见 queue.py。"""
-STATUS_SUBMITTED: Final = "submitted"
-"""Provider 已接受任务，等待结果。"""
-STATUS_COMPLETED: Final = "completed"
-STATUS_FAILED: Final = "failed"
+from iclip.domains.generation.schemas import (
+    STATUS_COMPLETED,
+    STATUS_FAILED,
+    STATUS_PENDING,
+    STATUS_SUBMITTED,
+    STATUS_SUBMITTING,
+    GenerationKind,
+    GenerationRequest,
+    GenerationStatus,
+)
 
 TERMINAL_STATUSES: Final = frozenset({STATUS_COMPLETED, STATUS_FAILED})
 
@@ -52,9 +51,16 @@ class GenerationJob:
     conversation_id: uuid.UUID | None = None
     """生成来源对话。无对话上下文时为空；不设外键，删除对话后仍保留来源。"""
     metadata: dict[str, Any] | None = None
-    """调用方自带的坐标标签（分镜页写 ``{"shot", "frame"}``），服务端不解释。"""
+    """调用方自带的坐标标签（分镜页写 ``{"shot", "frame"}``）。服务端只认 ``shot`` 一个键，
+    审计按它数镜；其余键不读、不校验。"""
     task_id: uuid.UUID | None = None
     """需求单 id，调用方给的归属标签；不设外键，只做筛选。"""
+    root_job_id: uuid.UUID | None = None
+    """原作号：衍生记录指向它所属的那条独立记录，空即独立记录。
+
+    视频编辑的参考片段、编辑结果与成片都写最初那条出片，不写各自基于的版本，所以链只有
+    一层，``root_job_id = A`` 就是 A 名下的全部衍生记录。衍生记录不计审计口径；分叉时跟着根
+    一起拷，原作号换成副本里的新根。"""
     watermark_output_url: str | None = None
     """视频成功时上游发布的水印版地址；图片没有这一份。"""
 

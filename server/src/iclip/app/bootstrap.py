@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 import signal
 import uuid
-from collections.abc import AsyncGenerator, Callable, Mapping, Sequence
+from collections.abc import AsyncGenerator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 import httpx
 import procrastinate
@@ -29,6 +29,7 @@ from iclip.app.agent_layer import (
     watch_and_reload,
 )
 from iclip.app.capability_table import build_capability_table, build_display_registry
+from iclip.app.conversation_fork import ForkTranscriptAdapter, GenerationsCopier, WorkspaceCopier
 from iclip.app.conversation_workspace import (
     ConversationWorkspace,
     validate_video_shots,
@@ -37,9 +38,8 @@ from iclip.app.errors import install_error_handlers
 from iclip.app.generation_live import AnnouncingGenerationRepository
 from iclip.app.logging import configure_logging
 from iclip.capabilities.shot_document import SHOTS_PATH
-from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
-from iclip.capabilities.workspace.scope import namespace_for
-from iclip.common.errors import Conflict, NotFound
+from iclip.capabilities.workspace.scope import parse_namespace
+from iclip.common.errors import NotFound
 from iclip.config import (
     ObjectStoreEnv,
     ResolvedAgent,
@@ -56,11 +56,7 @@ from iclip.domains.collections.infra_sql import SqlCollectionRepository
 from iclip.domains.collections.module import build_collections_module
 from iclip.domains.conversations.infra_sql import SqlConversationRepository
 from iclip.domains.conversations.module import build_conversations_module
-from iclip.domains.conversations.service import (
-    SIDEBAR_COLLECTIONS,
-    CollectionInfo,
-    ConversationActivity,
-)
+from iclip.domains.conversations.service import CollectionInfo, ConversationActivity
 from iclip.domains.generation.infra_sql import SqlGenerationRepository
 from iclip.domains.generation.module import (
     GenerationModule,
@@ -104,13 +100,13 @@ from iclip.platform.file_store.store import (
     StoredFile,
 )
 from iclip.platform.material_ledger.pg import PgMaterialLedger
+from iclip.platform.media.ffmpeg import ffmpeg_available
 from iclip.platform.object_store.oss import (
     OssObjectStore,
     OssSettings,
-    PublicBucket,
-    PublicObjectStore,
     validate_public_url_base,
 )
+from iclip.platform.object_store.store import PublicBucket, PublicObjectStore
 
 _logger = structlog.stdlib.get_logger(__name__)
 
@@ -135,16 +131,11 @@ def _object_store(
     )
 
 
-_SOCKET_TIMEOUT_MARGIN = 5.0
-"""socket 超时比阻塞等待多留的余量（秒）。"""
-
-
 def _namespace_owner(namespace: str) -> tuple[uuid.UUID, uuid.UUID] | None:
     """从工作区命名空间解析属主与对话；非对话命名空间返回 None。"""
 
-    owner, _, conversation_id = namespace.partition("/")
     try:
-        return uuid.UUID(owner), uuid.UUID(conversation_id)
+        return parse_namespace(namespace)
     except ValueError:
         return None
 
@@ -189,32 +180,6 @@ class AnnouncingFileStore:
         return await self._inner.search(namespace, query, limit=limit)
 
 
-def _openapi_with_string_validation_error(app: FastAPI) -> Callable[[], dict[str, Any]]:
-    """让文档里的 422 与实际返回一致：字符串信封，不是 FastAPI 默认的逐条列表。
-
-    路由没声明 422 时 FastAPI 自动注入 ``HTTPValidationError``，改不了声明只能改成品；
-    合同由 ``scripts/dump_openapi.py`` 从这里导出，前端类型跟着走。
-    """
-
-    default_openapi = app.openapi
-
-    def openapi() -> dict[str, Any]:
-        document = default_openapi()
-        schemas = document.get("components", {}).get("schemas", {})
-        if "HTTPValidationError" in schemas:
-            schemas["HTTPValidationError"] = {
-                "description": "请求校验失败，与领域错误同一个信封。",
-                "properties": {"detail": {"title": "Detail", "type": "string"}},
-                "required": ["detail"],
-                "title": "HTTPValidationError",
-                "type": "object",
-            }
-            schemas.pop("ValidationError", None)
-        return document
-
-    return openapi
-
-
 def _conversation_of(deps: object) -> str | None:
     """用量记到运行依赖里继承的对话上；不是本系统的运行依赖就不记。"""
 
@@ -232,11 +197,13 @@ def _install_hup_reload(agent_layer: CurrentAgentLayer) -> bool:
     return True
 
 
-def _require_ffmpeg(enabled: bool) -> None:
-    """启动时验证 ffmpeg 与 ffprobe，避免已启用的抽帧工具在调用时才暴露部署缺失。"""
+def _require_ffmpeg(required: bool) -> None:
+    """启动时验证 ffmpeg 与 ffprobe，避免用得上它的功能在调用时才暴露部署缺失。"""
 
-    if enabled and not ffmpeg_available():
-        raise RuntimeError("启用了取帧与出图但 PATH 上找不到 ffmpeg/ffprobe：抽帧与切格都要用它")
+    if required and not ffmpeg_available():
+        raise RuntimeError(
+            "PATH 上找不到 ffmpeg/ffprobe：取帧与出图要用它抽帧切格，视频裁剪拼接要用它切段合成"
+        )
 
 
 def _product_catalog_engine(
@@ -342,7 +309,6 @@ def build_app(
         sessions,
         CookieAuthSettings(
             secret=settings.security.secret,
-            cookie_name=settings.security.cookie_name,
             lifetime_seconds=settings.security.lifetime_seconds,
             cookie_secure=settings.security.cookie_secure,
         ),
@@ -360,7 +326,7 @@ def build_app(
     )
     # 素材、生成与镜头能力依赖同一对象存储，先完成装配。
     public_objects = _object_store(settings.object_store, object_store)
-    _require_ffmpeg(settings.shot_tools_enabled)
+    _require_ffmpeg(settings.ffmpeg_required)
     if settings.shot_tools_missing:
         # 声明了 shot_video 的 Agent 会在解析能力名时报错，这里先点名缺什么。
         _logger.warning(
@@ -390,15 +356,18 @@ def build_app(
     )
 
     async def clear_conversation_completion(conversation_id: uuid.UUID, owner: uuid.UUID) -> None:
-        """出片提交即在这段对话里又开工了，收尾标记不再成立（ADR-0031）。
+        """出片提交即在这段对话里又开工了，收尾标记不再成立。
 
         对话模块在下面才装配好，这里靠闭包在调用时才取；两个域仍互不引用。"""
 
         await conversations.service.clear_completed(conversation_id, owner)
 
     # 镜头能力依赖生成服务，须先于 Agent 装配。
-    generation = (
-        _generation_module(
+    generation: GenerationModule | None = None
+    if settings.media_generation is not None:
+        if public_objects is None:
+            raise RuntimeError("媒体生成已启用却没有对象存储；resolve_settings 应当已拒绝这种配置")
+        generation = _generation_module(
             settings.media_generation,
             active_engine,
             act_as=identity.act_as,
@@ -408,9 +377,6 @@ def build_app(
             queue_connector=queue_connector,
             live=live_connections,
         )
-        if settings.media_generation is not None and public_objects is not None
-        else None
-    )
 
     # step store、工作区与 identity 共用同一个 engine（表在 agent_runtime schema）。
     step_store = PgStepStore(
@@ -422,13 +388,26 @@ def build_app(
     collection_repo = SqlCollectionRepository(active_engine)
     collections = build_collections_module(collection_repo)
 
-    async def list_owner_collections(owner: uuid.UUID) -> tuple[CollectionInfo, ...]:
+    async def list_owner_collections(owner: uuid.UUID, *, limit: int) -> tuple[CollectionInfo, ...]:
         """将合集元信息适配到对话侧栏，保持两个领域独立。"""
 
-        found = await collection_repo.list_recent(owner=owner, limit=SIDEBAR_COLLECTIONS)
+        found = await collection_repo.list_recent(owner=owner, limit=limit)
         return tuple(
             CollectionInfo(id=item.id, name=item.name, updated_at=item.updated_at) for item in found
         )
+
+    def on_activity(conversation_id: str, owner: uuid.UUID, state: ActivityState) -> None:
+        """同步向属主连接广播活动变化，避免 await 使连续状态通知乱序。"""
+
+        live_connections.announce_activity(
+            owner,
+            uuid.UUID(conversation_id),
+            busy=state.busy,
+            pending_interaction=state.pending_interaction,
+            last_turn_reason=state.last_turn_reason,
+        )
+
+    job_queue = JobQueue(active_engine, on_activity=on_activity)
 
     async def activities_of(
         conversation_ids: Sequence[uuid.UUID],
@@ -455,76 +434,6 @@ def build_app(
         """票据表里的对话 id 是文本，转回对话域的 uuid；None 是全平台。"""
 
         return frozenset(uuid.UUID(one) for one in await job_queue.busy_conversation_ids(owner))
-
-    class _ForkTranscript:
-        """把对话域的分叉用例接到 agent 引擎的历史读写上；``transcript_history`` 在下面才装好。"""
-
-        async def idle(self, conversation_id: uuid.UUID) -> bool:
-            view = await job_queue.view(str(conversation_id))
-            return view.active is None and not view.queued
-
-        async def turn_count(self, conversation_id: uuid.UUID) -> int:
-            return await transcript_history.turn_count(str(conversation_id))
-
-        async def seed(self, *, source_id: uuid.UUID, target_id: uuid.UUID, turn: int) -> None:
-            plan = await transcript_history.plan_fork(
-                str(source_id), ordinal=turn, target_conversation_id=str(target_id)
-            )
-            if plan is None:
-                # 先数过轮数才动手拷的，走到这儿说明源对话在这期间又跑了一轮。
-                raise Conflict("这段对话刚刚又跑了一轮，重新挑一个分叉点")
-            await plan.commit()
-
-    async def copy_conversation_workspace(
-        *,
-        source_owner: uuid.UUID,
-        source_id: uuid.UUID,
-        target_owner: uuid.UUID,
-        target_id: uuid.UUID,
-    ) -> None:
-        """工作区文件与素材台账整份搬进副本的命名空间。
-
-        走 FileStore 的写入口而不是裸 SQL：容量上限与路径校验对副本照旧生效。不走会发帧的
-        那一层——副本的对话行还没落库，这一刻没人订阅得了它。"""
-
-        source = namespace_for(source_owner, str(source_id))
-        target = namespace_for(target_owner, str(target_id))
-        for entry in await workspace_store.entries(source):
-            found = await workspace_store.read(source, entry.path)
-            if found is None:
-                # 列得出来却读不出来，只可能是绕过存储写进去的非规范路径：不静默少拷一个文件。
-                raise RuntimeError(f"工作区列出了 {entry.path} 却读不出来，这段对话的文件存坏了")
-            await workspace_store.write(target, entry.path, found.content)
-        await material_ledger.record(target, await material_ledger.list_all(source))
-
-    async def copy_conversation_generations(
-        *,
-        source_id: uuid.UUID,
-        target_id: uuid.UUID,
-        owner: uuid.UUID,
-        task_id: uuid.UUID | None,
-    ) -> int:
-        """副本的结果条来自这一步；没开媒体生成就没有出片记录可拷。"""
-
-        if generation is None:
-            return 0
-        return await generation.service.copy_to_fork(
-            source_conversation_id=source_id,
-            target_conversation_id=target_id,
-            owner=owner,
-            task_id=task_id,
-        )
-
-    def on_activity(conversation_id: str, owner: uuid.UUID, state: ActivityState) -> None:
-        """同步向属主连接广播活动变化，避免 await 使连续状态通知乱序。"""
-
-        live_connections.announce_activity(
-            owner,
-            uuid.UUID(conversation_id),
-            busy=state.busy,
-            pending_interaction=state.pending_interaction,
-            last_turn_reason=state.last_turn_reason,
-        )
 
     capability_table = build_capability_table(
         workspace_store=announcing_workspace_store,
@@ -553,8 +462,11 @@ def build_app(
         source=reload_source,
     )
 
+    # 显示、续跑与分叉共用历史投影。
+    transcript_history = TranscriptHistory(step_store, job_queue, tool_displays, DELEGATE_TOOL)
+
     tasks = build_tasks_module(SqlTaskRepository(active_engine), act_as=identity.act_as)
-    # 审计报表跨模块只读聚合，直接查表（决策见 ADR-0027）。
+    # 审计报表跨模块只读聚合，直接查表。
     audit = build_audit_module(PgAuditReports(active_engine))
     conversations = build_conversations_module(
         SqlConversationRepository(active_engine),
@@ -572,15 +484,14 @@ def build_app(
         announce_title=live_connections.announce_title,
         activities_of=activities_of,
         busy_conversation_ids=busy_conversation_ids,
-        fork_transcript=_ForkTranscript(),
-        copy_workspace=copy_conversation_workspace,
-        copy_generations=copy_conversation_generations,
+        fork_transcript=ForkTranscriptAdapter(queue=job_queue, history=transcript_history),
+        copy_workspace=WorkspaceCopier(store=workspace_store, ledger=material_ledger),
+        copy_generations=GenerationsCopier(generation),
     )
     uploads = build_uploads_module(public_objects) if public_objects is not None else None
-    job_queue = JobQueue(active_engine, on_activity=on_activity)
     context_limits = live_context_limits(agent_layer)
 
-    # 删除不中止在跑的 run（ADR-0024），删掉那一刻在跑或排队的几轮收尾时对话已是墓碑：
+    # 删除不中止在跑的 run，删掉那一刻在跑或排队的几轮收尾时对话已是墓碑：
     # 这是预期内的常态，记一条 info 就够，不让 runner 的兜底打成带栈的 exception。
 
     async def name_conversation(row: JobRow) -> None:
@@ -609,7 +520,9 @@ def build_app(
             )
 
     async def deps_for_prompt(row: JobRow) -> AgentRunDeps:
-        """按队列记录的属主重建运行主体，以开跑时的账号状态和权限执行。"""
+        """按队列记录的属主重建运行主体，以开跑时的账号状态和权限执行。
+
+        替人办事的消息，属主就是 ``user_name`` 指名的人；不带发消息那把 key 的身份与权限。"""
 
         account = await identity.service.get_account(row.owner_user_id)
         return AgentRunDeps(
@@ -618,8 +531,6 @@ def build_app(
             user_name=row.user_name,
         )
 
-    # 显示与续跑共用历史投影，用于初始化续跑的实时状态。
-    transcript_history = TranscriptHistory(step_store, job_queue, tool_displays, DELEGATE_TOOL)
     transcripts = TranscriptService(
         store=transcript_store,
         history=transcript_history,
@@ -685,7 +596,6 @@ def build_app(
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
     install_error_handlers(app)
-    app.openapi = _openapi_with_string_validation_error(app)  # type: ignore[method-assign]
 
     @app.get("/healthz")
     async def healthz() -> dict[str, object]:
@@ -730,12 +640,7 @@ def build_app(
             allow_headers=["*"],
         )
 
-    app.state.identity = identity
     app.state.agent_layer = agent_layer
-    app.state.conversations = conversations
-    app.state.generation = generation
-    app.state.collections = collections
-    app.state.tasks = tasks
     return app
 
 

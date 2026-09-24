@@ -1,14 +1,13 @@
 /** 阅读一份工作区文件：头上是返回、文件名、类型；正文按后缀选渲染器。 */
 
-import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
-import { ApiError } from '@/shared/api/client'
+import { ApiError, errorMessageOf } from '@/shared/api/client'
 import { copyText } from '@/shared/lib/clipboard'
 import { Button, IconButton } from '@/shared/ui/button'
 import { Markdown } from '@/shared/ui/markdown'
 import { Tag } from '@/shared/ui/tag'
 import { toast } from '@/shared/ui/toast'
-import { useWorkbenchRegistry, useWorkspaceFile } from '@/shared/workbench'
+import { useOpenArtifact, useWorkbenchRegistry, useWorkspaceFile } from '@/shared/workbench'
 import { baseName, fileKindOf } from '../file-kind'
 import { JsonTree } from './json-tree'
 import { PanelNotice } from './panel-notice'
@@ -23,7 +22,7 @@ type FileReaderProps = {
 export function FileReader({ conversationId, onBack, path }: FileReaderProps) {
   const file = useWorkspaceFile(conversationId, path)
   const registry = useWorkbenchRegistry()
-  const navigate = useNavigate()
+  const openArtifact = useOpenArtifact()
   const kind = fileKindOf(path, file.data?.file.content)
   // JSON 默认看结构，想核对原文再切。
   const [raw, setRaw] = useState(false)
@@ -34,7 +33,7 @@ export function FileReader({ conversationId, onBack, path }: FileReaderProps) {
     if (file.data === undefined) return
     try {
       await copyText(file.data.file.content)
-      toast.success('已复制')
+      toast('已复制')
     } catch {
       toast.error('复制失败')
     }
@@ -50,16 +49,7 @@ export function FileReader({ conversationId, onBack, path }: FileReaderProps) {
         <Tag className="shrink-0">{kind.label}</Tag>
         <span className="flex-1" />
         {own === undefined ? null : (
-          <Button
-            onClick={() =>
-              void navigate({
-                search: (previous: Record<string, unknown>) => ({ ...previous, artifact: own.id }),
-                to: '.',
-              })
-            }
-            size="md"
-            variant="ghost"
-          >
+          <Button onClick={() => void openArtifact(own.id)} size="md" variant="ghost">
             在{own.title}里打开
           </Button>
         )}
@@ -83,7 +73,7 @@ export function FileReader({ conversationId, onBack, path }: FileReaderProps) {
         file.error instanceof ApiError && file.error.status === 404 ? (
           <PanelNotice hint="它已经被删掉了，回列表看看还有什么。" text="这个文件已经不在了" />
         ) : (
-          <PanelNotice text={file.error.message} />
+          <PanelNotice text={errorMessageOf(file.error, '读取工作区文件失败')} />
         )
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">

@@ -1,4 +1,4 @@
-/** 在 shared 层连接工作台与聊天 feature 的选中引用，发送时转换为正文前缀（ADR-0009 决策 6）。 */
+/** 在 shared 层连接工作台与聊天 feature 的选中引用，发送时转换为正文前缀。 */
 
 import { createContext } from 'react'
 

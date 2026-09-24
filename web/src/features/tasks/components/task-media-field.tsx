@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { errorMessageOf } from '@/shared/api/client'
 import { MEDIA_IMAGE_ACCEPT, MEDIA_VIDEO_ACCEPT, uploadMediaFile } from '@/shared/api/media-upload'
 import { Icon } from '@/shared/icons'
-import { hasDraggedFiles } from '@/shared/lib/drag-files'
 import { videoSnapshotUrl } from '@/shared/lib/media-url'
 import { cn } from '@/shared/lib/utils'
+import { useFileDropTarget } from '@/shared/ui/file-drop'
+import { MediaFallback } from '@/shared/ui/media-fallback'
 import { MediaLightbox, type LightboxMedia } from '@/shared/ui/media-lightbox'
+import { MAX_REFERENCE_URLS } from '../task-limits'
 
 type TaskMediaFieldProps = {
   label: string
@@ -27,20 +30,18 @@ export function TaskMediaField({
   value,
   onChange,
   disabled = false,
-  maxFiles = kind === 'video' ? 1 : 16,
+  maxFiles = kind === 'video' ? 1 : MAX_REFERENCE_URLS,
   compact = false,
   onUploadingChange,
 }: TaskMediaFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const operationRef = useRef({ active: true, busy: false })
   const callbacksRef = useRef({ onChange, onUploadingChange })
-  const dragDepthRef = useRef(0)
   const [uploading, setUploading] = useState(false)
-  const [dragOver, setDragOver] = useState(false)
   const [progress, setProgress] = useState('')
   const [error, setError] = useState('')
   const [preview, setPreview] = useState<LightboxMedia | null>(null)
-  const limit = Math.min(maxFiles, kind === 'video' ? 1 : 16)
+  const limit = Math.min(maxFiles, kind === 'video' ? 1 : MAX_REFERENCE_URLS)
   const blocked = disabled || uploading
 
   useEffect(() => {
@@ -84,7 +85,7 @@ export function TaskMediaField({
           nextUrls = kind === 'video' ? [url] : [...nextUrls, url]
           callbacksRef.current.onChange(nextUrls)
         } catch (cause) {
-          failures.push(`${file.name}：${cause instanceof Error ? cause.message : '上传失败'}`)
+          failures.push(`${file.name}：${errorMessageOf(cause, '上传失败')}`)
         }
       }
       if (operation.active && failures.length > 0) {
@@ -100,41 +101,21 @@ export function TaskMediaField({
     }
   }
 
-  const onDragEnter = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasDraggedFiles(event)) return
-    event.preventDefault()
-    dragDepthRef.current += 1
-    if (!blocked) setDragOver(true)
-  }
-  const onDragOver = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasDraggedFiles(event)) return
-    event.preventDefault()
-    event.dataTransfer.dropEffect = blocked ? 'none' : 'copy'
-  }
-  const onDragLeave = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasDraggedFiles(event)) return
-    event.preventDefault()
-    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
-    if (dragDepthRef.current === 0) setDragOver(false)
-  }
-  const onDrop = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasDraggedFiles(event)) return
-    // 保留冒泡以清理全局拖放状态，defaultPrevented 表明此字段已接管上传。
-    event.preventDefault()
-    dragDepthRef.current = 0
-    setDragOver(false)
-    if (blocked) return
-    if ([...event.dataTransfer.items].some((item) => item.webkitGetAsEntry?.()?.isDirectory)) {
-      setError('请选择文件，不支持上传文件夹')
-      return
-    }
-    void uploadFiles([...event.dataTransfer.files])
-  }
+  const { dragOver, dragHandlers } = useFileDropTarget({
+    blocked,
+    onDirectory: () => setError('请选择文件，不支持上传文件夹'),
+    onFiles: (files) => void uploadFiles(files),
+  })
 
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <div className="flex min-h-5 items-center gap-3">
-        <span className="text-body-sm text-on-surface-variant">{label}</span>
+        <span className="text-body-sm font-medium text-on-surface-variant">{label}</span>
+        {kind === 'image' && (
+          <span className="text-caption text-on-surface-faint tabular-nums">
+            {value.length}/{limit}
+          </span>
+        )}
         {kind === 'video' && value.length > 0 && !disabled && (
           <button
             aria-label={`替换${name}`}
@@ -155,10 +136,7 @@ export function TaskMediaField({
           'relative flex flex-wrap gap-2 rounded-sm',
           dragOver && 'outline-2 outline-offset-4 outline-primary',
         )}
-        onDragEnter={onDragEnter}
-        onDragLeave={onDragLeave}
-        onDragOver={onDragOver}
-        onDrop={onDrop}
+        {...dragHandlers}
         role="group"
       >
         {value.map((url, index) => (
@@ -167,10 +145,7 @@ export function TaskMediaField({
               'relative',
               kind === 'video'
                 ? 'w-full'
-                : cn(
-                    'overflow-hidden rounded-sm border border-border bg-surface-container-low',
-                    compact ? 'size-20' : 'size-28',
-                  ),
+                : 'max-w-full shrink-0 overflow-hidden rounded-md bg-surface-container-low',
             )}
             key={url}
           >
@@ -183,13 +158,16 @@ export function TaskMediaField({
             ) : (
               <button
                 aria-label={`预览${name} ${index + 1}`}
-                className="size-full cursor-zoom-in overflow-hidden rounded-xs ui-focus"
+                className="block max-w-full cursor-zoom-in overflow-hidden rounded-md ui-focus"
                 onClick={() => setPreview({ kind, name: `${name} ${index + 1}`, url })}
                 type="button"
               >
                 <img
                   alt={`${name} ${index + 1}`}
-                  className="size-full object-contain"
+                  className={cn(
+                    'block h-auto w-auto max-w-full',
+                    compact ? 'max-h-20' : 'max-h-24',
+                  )}
                   draggable={false}
                   src={url}
                 />
@@ -214,12 +192,12 @@ export function TaskMediaField({
           <button
             aria-label={`添加${name}`}
             className={cn(
-              'flex ui-state cursor-pointer items-center justify-center gap-2 rounded-sm border border-dashed border-outline-variant bg-surface text-on-surface-variant ui-focus disabled:cursor-not-allowed',
+              'flex ui-state cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-outline-variant/60 bg-surface-container-low/50 text-on-surface-variant ui-focus disabled:cursor-not-allowed',
               kind === 'video'
                 ? 'h-10 w-full text-body-sm'
                 : compact
                   ? 'size-20 flex-col text-caption'
-                  : 'size-28 flex-col text-body-sm',
+                  : 'size-24 flex-col text-body-sm',
             )}
             disabled={blocked}
             onClick={() => inputRef.current?.click()}
@@ -236,7 +214,7 @@ export function TaskMediaField({
         {disabled && value.length === 0 && (
           <p className="text-body-sm text-on-surface-faint">未添加</p>
         )}
-        {dragOver && !blocked && (
+        {dragOver && (
           <div className="pointer-events-none absolute inset-0 grid place-items-center rounded-sm bg-primary-container text-body-sm text-on-primary-container">
             松开{kind === 'video' && value.length > 0 ? '替换视频' : '添加素材'}
           </div>
@@ -295,7 +273,7 @@ export function TaskVideoPreview({
   return (
     <button
       aria-label={`预览${name}`}
-      className="relative block h-46 w-full cursor-zoom-in overflow-hidden rounded-sm border border-border bg-surface-container-highest ui-focus ui-focus-inline"
+      className="task-video-preview relative block h-46 w-full cursor-zoom-in overflow-hidden rounded-sm border border-border bg-surface-container-highest ui-focus ui-focus-inline"
       onClick={onOpen}
       type="button"
     >
@@ -320,9 +298,12 @@ export function TaskVideoPreview({
         </span>
       </span>
       {failed ? (
-        <span className="absolute right-2 bottom-2 left-2 rounded-xs bg-scrim/60 px-2 py-1 text-caption text-on-scrim">
-          视频暂时无法加载，点击打开预览
-        </span>
+        <MediaFallback
+          className="absolute right-2 bottom-2 left-2 rounded-xs bg-scrim/60 px-2 py-1 text-on-scrim"
+          compact
+          hint="点击打开预览"
+          kind="video"
+        />
       ) : durationLabel ? (
         <span className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-xs bg-scrim/60 px-2 py-0.5 text-caption text-on-scrim">
           {durationLabel}

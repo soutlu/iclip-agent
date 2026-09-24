@@ -3,13 +3,12 @@
  * 卡身按 view 选：读文件带行号，检索逐条命中，媒体一排图，其余多行结果原文展开。
  */
 
-import { useNavigate } from '@tanstack/react-router'
 import { useState, type ReactNode } from 'react'
 import type { ToolCallFrame } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { type LightboxMedia, MediaLightbox } from '@/shared/ui/media-lightbox'
-import { frameArtifactId, useWorkbenchSelection } from '@/shared/workbench'
+import { frameArtifactId, useOpenArtifact, useWorkbenchSelection } from '@/shared/workbench'
 import { DisclosureBody, DisclosureChevron } from './disclosure'
 import {
   toolBodyText,
@@ -199,7 +198,7 @@ function SearchResultsBody({
 
 /** 派出了子代理的卡：点开的是右侧面板里它那条流。产物参数记在 URL 上，刷新与分享都还在；再点一次也能把折叠的面板重新打开。 */
 function DelegatedHead({ children, toolCallId }: { children: ReactNode; toolCallId: string }) {
-  const navigate = useNavigate()
+  const openArtifact = useOpenArtifact()
   const { requestOpen } = useWorkbenchSelection()
   return (
     <button
@@ -207,13 +206,7 @@ function DelegatedHead({ children, toolCallId }: { children: ReactNode; toolCall
       className="flex w-full cursor-pointer items-center gap-1.5 rounded-xs py-1.5 text-left text-body ui-focus"
       onClick={() => {
         requestOpen()
-        void navigate({
-          search: (previous: Record<string, unknown>) => ({
-            ...previous,
-            artifact: frameArtifactId(toolCallId),
-          }),
-          to: '.',
-        })
+        void openArtifact(frameArtifactId(toolCallId))
       }}
       type="button"
     >

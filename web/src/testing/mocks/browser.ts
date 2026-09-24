@@ -6,6 +6,7 @@ import {
   handlers,
   mockGovernor,
 } from './handlers'
+import { seedDemoTasks } from './demo-tasks'
 import { markMockAwaitingApproval, markMockJustFinished } from './transcript'
 import { seedMockReplicaWorkspace, seedMockWorkspace } from './workspace'
 
@@ -63,10 +64,10 @@ if (queuedVideo !== undefined) {
 }
 
 // 独立的无图草稿用于演示先编辑正文、再补充第一张图片。
-const withoutImages = addMockConversation('无图分镜草稿', new Date().toISOString())
+const withoutImages = addMockConversation('无图分镜草稿')
 seedMockWorkspace(withoutImages.id, { withoutImages: true })
 
-const replica = addMockConversation('乐福鞋 · 完全复刻', new Date().toISOString())
+const replica = addMockConversation('乐福鞋 · 完全复刻')
 seedMockReplicaWorkspace(replica.id)
 
 // 两个会话归入示例合集，其余保持未分组。
@@ -94,7 +95,7 @@ governorDone.lastRunId = 'run-governor-1'
 
 // 别人的对话：测试用户的侧栏看不到，用 governor 登录后在「全部对话」里看，点进去是只读。
 const wang = addMockUser('小王')
-const wangRunning = addMockConversation('小王 · 秋季新品短片', new Date().toISOString(), wang.id)
+const wangRunning = addMockConversation('小王 · 秋季新品短片', undefined, wang.id)
 wangRunning.activity = {
   busy: true,
   lastTurnReason: null,
@@ -113,5 +114,15 @@ wangDone.activity = {
   videoGeneration: 'none',
 }
 wangDone.lastRunId = 'run-wang-1'
+
+seedDemoTasks([
+  ...seeded,
+  withoutImages,
+  replica,
+  governorShots,
+  governorDone,
+  wangRunning,
+  wangDone,
+])
 
 export const worker = setupWorker(...handlers)

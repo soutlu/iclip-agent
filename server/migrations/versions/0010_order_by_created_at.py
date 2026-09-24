@@ -4,7 +4,7 @@ Revision ID: 4b6f18c3ea70
 Revises: 7c4a91e2b5d8
 Create Date: 2026-09-17 10:00:00.000000
 
-对话、合集、需求单的列表一律按 ``(created_at, id)`` 倒序（决策见 docs/adr/0030-list-order-by-created-at.md），
+对话、合集、需求单的列表一律按 ``(created_at, id)`` 倒序，
 原先按 ``updated_at`` 编的索引就没有读路径了。这里把它们换成建立时间的复合索引，索引里带上 ``id``
 以同时支撑排序与游标。``ix_conversations_updated`` 保留：审计报表的 idle 指标仍按最近活动筛。
 ``ix_conversations_task`` 不动，升序索引反向扫即可服务倒序。

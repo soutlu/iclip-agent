@@ -1,59 +1,34 @@
-import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { useRef } from 'react'
-import {
-  conversationsQueryKeys,
-  createConversation,
-  mintPromptId,
-  submitPrompt,
-} from '@/features/conversations'
-import type { TaskCreationDraft } from '@/features/tasks'
+import { useConversationAgents, useStartConversation } from '@/features/conversations'
+import type { TaskCreationStarter } from '@/features/tasks'
+import { hasPermission, PERMISSION, useUser } from '@/shared/auth'
 
-type CreationAttempt = {
-  draft: TaskCreationDraft
-  conversationId: string | null
-  promptId: string
-  inFlight: Promise<void> | null
-}
-
-/** 在路由层连接需求单与对话；同一份预览重试时沿用已创建的对话和首次消息。 */
-export function useStartTaskCreation() {
-  const queryClient = useQueryClient()
+/**
+ * 在路由层连接需求单与对话：名册与首页同一份 Agent 目录，开始时把预览里确认的消息和选中的 Agent
+ * 交给起步原语，成功后进对话页；重试与幂等由原语负责。
+ */
+export function useStartTaskCreation(): TaskCreationStarter {
   const navigate = useNavigate()
-  const currentRef = useRef<CreationAttempt | null>(null)
+  const { data: user } = useUser()
+  const agents = useConversationAgents(hasPermission(user, PERMISSION.agentRun))
+  const start = useStartConversation(user?.id ?? null, (conversationId) => {
+    void navigate({ params: { conversationId }, to: '/c/$conversationId' })
+  })
 
-  return async (draft: TaskCreationDraft): Promise<void> => {
-    if (currentRef.current?.draft !== draft) {
-      currentRef.current = { draft, conversationId: null, promptId: mintPromptId(), inFlight: null }
-    }
-    const attempt = currentRef.current
-    if (attempt.inFlight) return attempt.inFlight
-
-    const send = async () => {
-      if (attempt.conversationId === null) {
-        const conversation = await createConversation({
-          agentId: 'storyboard',
-          taskId: draft.taskId,
-          title: draft.title,
-        })
-        attempt.conversationId = conversation.id
-        // 即使首次消息发送失败，也让用户能够从侧栏找到已创建的对话。
-        void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })
-      }
-      await submitPrompt(attempt.conversationId, {
-        content: attempt.draft.content,
-        promptId: attempt.promptId,
+  return {
+    agents: {
+      items: agents.data?.items,
+      pending: agents.isPending,
+      error: agents.error,
+      retry: () => void agents.refetch(),
+    },
+    start: async (draft, agentId) => {
+      await start.mutateAsync({
+        agentId,
+        content: draft.content,
+        taskId: draft.taskId,
+        title: draft.title,
       })
-      void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })
-      await navigate({
-        params: { conversationId: attempt.conversationId },
-        to: '/c/$conversationId',
-      })
-    }
-
-    attempt.inFlight = send().finally(() => {
-      attempt.inFlight = null
-    })
-    return attempt.inFlight
+    },
   }
 }

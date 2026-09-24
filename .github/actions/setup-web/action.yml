@@ -3,7 +3,7 @@ description: 安装 pnpm、Node 与 web 依赖；按需准备带缓存的 Playwr
 
 inputs:
   playwright:
-    description: 为 true 时安装 Playwright Chromium 及系统依赖。
+    description: 为 true 时安装 Playwright Chromium 与中文字体。
     default: 'false'
 
 runs:
@@ -43,9 +43,11 @@ runs:
       if: inputs.playwright == 'true' && steps.browsers.outputs.cache-hit != 'true'
       shell: bash
       working-directory: web
-      run: pnpm exec playwright install --with-deps chromium
-    - name: Install Playwright system deps
-      if: inputs.playwright == 'true' && steps.browsers.outputs.cache-hit == 'true'
+      run: pnpm exec playwright install chromium
+    # 不跑 install-deps：它每次 apt-get update 再装一串用不到的外文字体，约 30s。浏览器要的系统库
+    # runner 镜像随 Chrome 已经装齐，缺库时 Playwright 启动会报出库名；镜像没有中文字体，只补这一个。
+    # 这个包多年未变，镜像自带的软件源索引就能装，不必 apt-get update。
+    - name: Install CJK font
+      if: inputs.playwright == 'true'
       shell: bash
-      working-directory: web
-      run: pnpm exec playwright install-deps chromium
+      run: sudo apt-get install -y -qq --no-install-recommends fonts-wqy-zenhei

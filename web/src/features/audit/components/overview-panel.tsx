@@ -1,17 +1,14 @@
 /** 总览：结果 → 效率 → 消耗 → 问题，一屏看完；人和需求单两张排行表放在下面下钻。 */
 
+import type { ComponentProps } from 'react'
+import { errorMessageOf } from '@/shared/api/client'
 import { Icon } from '@/shared/icons'
 import { Button } from '@/shared/ui/button'
+import { InlineAlert } from '@/shared/ui/inline-alert'
+import { ListError } from '@/shared/ui/list-state'
 import { Tag } from '@/shared/ui/tag'
-import { ANOMALY_META } from '../anomaly-kinds'
-import {
-  bucketFor,
-  useAuditAnomalies,
-  useAuditSummary,
-  type AnomalyKind,
-  type AuditScope,
-  type Metrics,
-} from '../audit.api'
+import { ANOMALY_META, type AnomalyTone } from '../anomaly-kinds'
+import { bucketFor, useAuditSummary, type AuditScope, type Metrics } from '../audit.api'
 import {
   compareWithPrevious,
   EMPTY,
@@ -22,16 +19,10 @@ import {
   formatTimes,
   formatTokens,
 } from '../format'
-import {
-  cumulativePass,
-  distributionRows,
-  foldTail,
-  gini,
-  lorenzPoints,
-  topShareOfAttempts,
-} from '../attempt-distribution'
+import { attemptChartModel } from '../attempt-distribution'
 import { ConcentrationChart } from './concentration-chart'
 import { MetricsTable, type MetricsColumn } from './metrics-table'
+import { SpreadTable } from './spread-table'
 import { StatTile } from './stat-tile'
 import { TrendChart } from './trend-chart'
 
@@ -47,6 +38,12 @@ const USAGE_NOTE = '自用量台账上线起累计'
 const SAMPLE_HINT = '上游段不给样本：没留提交时刻的记录不计入这一行'
 /** 出片次数画到第几档为止，再多的并成「N 次以上」。 */
 const ATTEMPT_CAP = 5
+/** 异常概览标签按轻重配色；异常列表的圆点色是另一张表，在 anomalies-panel。 */
+const TONE_TAG = {
+  bad: 'error',
+  warn: 'running',
+  info: 'soft',
+} as const satisfies Record<AnomalyTone, NonNullable<ComponentProps<typeof Tag>['variant']>>
 
 const RANK_COLUMNS: readonly MetricsColumn[] = [
   {
@@ -69,7 +66,7 @@ const RANK_COLUMNS: readonly MetricsColumn[] = [
     render: (m) => formatTimes(m.attemptsPerShot),
   },
   {
-    key: 'firstPass',
+    key: 'oneTake',
     label: '一次通过',
     render: (m) => formatRate(m.oneTakeRate),
   },
@@ -123,7 +120,6 @@ const SPREAD_ROWS: readonly {
 
 export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelProps) {
   const { current, previous } = useAuditSummary(scope)
-  const anomalies = useAuditAnomalies(scope, null)
   const summary = current.data
   const overall = summary?.overall
   const before = previous.data?.overall
@@ -134,17 +130,10 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
 
   if (current.isError) {
     return (
-      <div className="flex flex-col items-center gap-3 py-16" role="alert">
-        <p className="text-body text-error">{current.error.message}</p>
-        <Button
-          leadingIcon="refresh"
-          onClick={() => void current.refetch()}
-          size="md"
-          variant="outlined"
-        >
-          重新加载
-        </Button>
-      </div>
+      <ListError
+        message={errorMessageOf(current.error, '读取审计汇总失败')}
+        onRetry={() => void current.refetch()}
+      />
     )
   }
 
@@ -163,60 +152,24 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
   const beforeOf = (pick: (metrics: Metrics) => number | null) =>
     beforeSeries.length === 0 ? undefined : beforeSeries.map((period) => pick(period.metrics))
 
-  // 出片次数：折尾只为画图，本期与上期折到同一档位才能按下标对齐；集中度一律吃未折叠的原始分布。
-  const distribution = summary?.attemptDistribution ?? []
-  const beforeDistribution = previous.data?.attemptDistribution ?? []
-  const pass = cumulativePass(foldTail(distribution, ATTEMPT_CAP))
-  const passPoints = pass.map((point) => {
-    // 折尾后的末档装着「cap 次及以上」，标签与悬停都照这个说，不能写成「以内完成」。
-    const tail = point.attempts === ATTEMPT_CAP
-    const label = tail ? `${ATTEMPT_CAP} 次以上` : `${point.attempts} 次`
-    return {
-      key: String(point.attempts),
-      label,
-      tooltipLabel: tail ? label : `${label}以内完成`,
-      value: point.cumulative,
-    }
-  })
-  const beforePassAt = new Map(
-    cumulativePass(foldTail(beforeDistribution, ATTEMPT_CAP)).map((point) => [
-      point.attempts,
-      point.cumulative,
-    ]),
+  const attempts = attemptChartModel(
+    summary?.attemptDistribution ?? [],
+    previous.data?.attemptDistribution ?? [],
+    ATTEMPT_CAP,
   )
-  const beforePass =
-    beforeDistribution.length === 0
-      ? undefined
-      : passPoints.map((point) => beforePassAt.get(Number(point.key)) ?? null)
-  // 末档一定收在 100%，「尚有 N 镜未完成」在那里恒为 0，不写。
-  const attemptNotes = new Map(
-    pass.map((point, index) => [
-      String(point.attempts),
-      index === pass.length - 1
-        ? `本档 ${point.shots} 镜`
-        : `本档 ${point.shots} 镜 · 尚有 ${point.entering - point.shots} 镜未完成`,
-    ]),
-  )
-  const passSummary =
-    pass.length < 2
-      ? undefined
-      : `一次完成 ${Math.round((pass[0]?.cumulative ?? 0) * 100)}% · 两次以内 ${Math.round(
-          (pass[1]?.cumulative ?? 0) * 100,
-        )}%`
-  const lorenz = lorenzPoints(distribution)
-  const rows = distributionRows(distribution, ATTEMPT_CAP)
-  const topShare = topShareOfAttempts(distribution)
-  const beforeTopShare = topShareOfAttempts(beforeDistribution)
-  const concentration = gini(distribution)
 
-  const anomalyItems = anomalies.data?.pages.flatMap((page) => page.items) ?? []
-  const anomalyCounts = new Map<AnomalyKind, number>()
-  for (const item of anomalyItems) {
-    anomalyCounts.set(item.kind, (anomalyCounts.get(item.kind) ?? 0) + 1)
-  }
+  // 各种异常有几条由汇总一并给出，与汇总同一份读取状态，不再另拉异常列表的第一页来数。
+  const anomalyCounts = summary?.anomalyCounts ?? []
 
   return (
     <div className="flex flex-col gap-5">
+      {/* 上一期只是对照：取不到就说一声，本期照常显示，环比与对照序列留空。 */}
+      {previous.isError ? (
+        <InlineAlert
+          action={{ label: '重试', onClick: () => void previous.refetch() }}
+          message="上一期汇总没读到，暂不显示较上期的变化"
+        />
+      ) : null}
       <section aria-label="头条指标" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile
           delta={compareWithPrevious(overall?.deliveries ?? null, before?.deliveries)}
@@ -268,93 +221,38 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
         />
       </section>
 
-      <section
-        aria-busy={pending}
-        aria-label="耗时分布"
-        className="flex min-w-0 flex-col rounded-lg bg-surface-container-lowest shadow-[var(--shadow-1)]"
-      >
-        <header className="px-5 pt-5 pb-3">
-          <h3 className="text-title font-medium text-on-surface">耗时分布</h3>
-        </header>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-120 border-collapse text-body">
-            <thead>
-              <tr className="text-left text-body-sm text-on-surface-variant">
-                <th className="px-5 py-2 font-normal" scope="col">
-                  口径
-                </th>
-                {['平均', '中位', '最慢一成（P90）'].map((label) => (
-                  <th
-                    className="px-3 py-2 text-right font-normal whitespace-nowrap"
-                    key={label}
-                    scope="col"
-                  >
-                    {label}
-                  </th>
-                ))}
-                <th
-                  className="px-5 py-2 text-right font-normal whitespace-nowrap"
-                  scope="col"
-                  title={SAMPLE_HINT}
-                >
-                  样本
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {SPREAD_ROWS.map((row) => {
-                const spread = overall === undefined ? null : row.spread(overall)
-                const sample = overall === undefined ? null : row.sample(overall)
-                return (
-                  <tr className="border-t-[0.5px] border-border/70" key={row.key}>
-                    <th className="px-5 py-3 text-left font-normal" scope="row">
-                      <span className="flex min-w-0 flex-col">
-                        <span className="font-medium text-on-surface">{row.label}</span>
-                        <span className="text-body-sm text-on-surface-variant">{row.hint}</span>
-                      </span>
-                    </th>
-                    {[
-                      { key: 'avg', seconds: spread?.avg },
-                      { key: 'median', seconds: spread?.median },
-                      { key: 'p90', seconds: spread?.p90 },
-                    ].map((cell) => (
-                      <td
-                        className="px-3 py-3 text-right whitespace-nowrap text-on-surface tabular-nums"
-                        key={cell.key}
-                      >
-                        {formatDuration(cell.seconds ?? null)}
-                      </td>
-                    ))}
-                    <td className="px-5 py-3 text-right whitespace-nowrap text-on-surface-variant tabular-nums">
-                      {sample === null || spread === null ? EMPTY : formatCount(sample)}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <SpreadTable
+        pending={pending}
+        rows={SPREAD_ROWS.map((row) => ({
+          key: row.key,
+          label: row.label,
+          hint: row.hint,
+          spread: overall === undefined ? null : row.spread(overall),
+          sample: overall === undefined ? null : row.sample(overall),
+        }))}
+        sampleHint={SAMPLE_HINT}
+        title="耗时分布"
+      />
 
       <section aria-label="出片次数分析" className="grid gap-4 lg:grid-cols-2">
         <TrendChart
           curve="step"
-          description={passSummary ?? '出到第 n 次为止已完成的镜占比'}
-          detail={(point) => attemptNotes.get(point.key)}
+          description={attempts.passSummary ?? '出到第 n 次为止已完成的镜占比'}
+          detail={(point) => attempts.notes.get(point.key)}
           empty="该时段无出片记录"
           format={(value) => `${Math.round(value * 100)}%`}
           kind="line"
           max={1}
-          points={passPoints}
-          previous={beforePass}
+          points={attempts.passPoints}
+          previous={attempts.beforePass}
           title="出片次数分布"
         />
         <ConcentrationChart
-          beforeTopShare={beforeTopShare}
-          concentration={concentration}
-          points={lorenz}
-          rows={rows}
-          topShare={topShare}
+          beforeTopShare={attempts.beforeTopShare}
+          concentration={attempts.concentration}
+          points={attempts.lorenz}
+          rows={attempts.rows}
+          topShare={attempts.topShare}
           title="出片次数集中度"
         />
       </section>
@@ -412,33 +310,17 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
             }
             value={overall === undefined ? EMPTY : formatTokens(overall.usage.totalTokens)}
           />
-          <article
-            aria-label="缓存命中率"
-            className="flex min-w-0 flex-col gap-3 rounded-lg bg-surface-container-lowest p-5 shadow-[var(--shadow-1)]"
-          >
-            <h3 className="text-body text-on-surface-variant">缓存命中率</h3>
-            <p className="text-headline-lg font-semibold tracking-tight text-on-surface tabular-nums">
-              {formatRate(overall?.usage.cacheHitRate ?? null)}
-            </p>
-            <div
-              aria-label="缓存命中率"
-              aria-valuemax={100}
-              aria-valuemin={0}
-              aria-valuenow={Math.round((overall?.usage.cacheHitRate ?? 0) * 100)}
-              className="h-1.5 overflow-hidden rounded-full bg-surface-container"
-              role="meter"
-            >
-              <span
-                className="block h-full rounded-full bg-primary ui-motion-m"
-                style={{ width: `${Math.round((overall?.usage.cacheHitRate ?? 0) * 100)}%` }}
-              />
-            </div>
-            <p className="text-body-sm text-on-surface-variant">
-              {overall === undefined
+          <StatTile
+            label="缓存命中率"
+            meter={overall?.usage.cacheHitRate ?? null}
+            pending={pending}
+            sub={
+              overall === undefined
                 ? '缓存读取占全部输入的比例'
-                : `缓存读取 ${formatTokens(overall.usage.cacheReadTokens)} · 新输入 ${formatTokens(overall.usage.inputTokens)}`}
-            </p>
-          </article>
+                : `缓存读取 ${formatTokens(overall.usage.cacheReadTokens)} · 新输入 ${formatTokens(overall.usage.inputTokens)}`
+            }
+            value={formatRate(overall?.usage.cacheHitRate ?? null)}
+          />
           <StatTile
             delta={compareWithPrevious(
               overall?.tokensPerDelivery ?? null,
@@ -470,39 +352,23 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
         className="flex flex-col gap-3 rounded-lg bg-surface-container-lowest p-5 shadow-[var(--shadow-1)]"
       >
         <header className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="flex items-baseline gap-2 text-title font-medium text-on-surface">
-            异常
-            {/* 概览只拿了第一页，还有下一页时说清这是「最近一批」，不当总数。 */}
-            {anomalies.hasNextPage ? (
-              <span className="text-body-sm font-normal text-on-surface-variant">
-                只数了最近 {anomalyItems.length} 条
-              </span>
-            ) : null}
-          </h3>
+          <h3 className="text-title font-medium text-on-surface">异常</h3>
           <Button onClick={onOpenAnomalies} size="md" trailingIcon="next" variant="ghost">
             查看全部
           </Button>
         </header>
-        {anomalies.isPending ? (
+        {pending ? (
           <p className="text-body-sm text-on-surface-variant">正在读取…</p>
-        ) : anomalyItems.length === 0 ? (
+        ) : anomalyCounts.length === 0 ? (
           <p className="flex items-center gap-2 text-body text-on-surface-variant">
             <Icon className="text-primary" decorative name="success" size="sm" />
             这个范围里没有异常
           </p>
         ) : (
           <ul aria-label="异常按种类" className="flex flex-wrap gap-2">
-            {[...anomalyCounts.entries()].map(([kind, count]) => (
+            {anomalyCounts.map(({ kind, count }) => (
               <li key={kind}>
-                <Tag
-                  variant={
-                    ANOMALY_META[kind].tone === 'bad'
-                      ? 'error'
-                      : ANOMALY_META[kind].tone === 'warn'
-                        ? 'running'
-                        : 'soft'
-                  }
-                >
+                <Tag variant={TONE_TAG[ANOMALY_META[kind].tone]}>
                   {ANOMALY_META[kind].label}
                   <span className="tabular-nums">{count}</span>
                 </Tag>

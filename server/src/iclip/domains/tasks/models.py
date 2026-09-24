@@ -7,11 +7,9 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Final, Literal
+from typing import Final
 
-from iclip.domains.tasks.schemas import TaskInputs
-
-TaskStatus = Literal["draft", "published", "confirmed", "withdrawn"]
+from iclip.domains.tasks.schemas import TaskInputs, TaskStatus
 
 STATUS_DRAFT: Final = "draft"
 STATUS_PUBLISHED: Final = "published"
@@ -21,7 +19,7 @@ STATUS_WITHDRAWN: Final = "withdrawn"
 """撤回是终态，禁止修改和删除。"""
 
 ACTIVE_STATUSES: Final = frozenset({STATUS_PUBLISHED, STATUS_CONFIRMED})
-"""允许开工的需求单状态。"""
+"""已下发、未撤回：认领与撤回只在这两个状态上走得通。"""
 
 TASK_STATUSES: Final = (STATUS_DRAFT, STATUS_PUBLISHED, STATUS_CONFIRMED, STATUS_WITHDRAWN)
 
@@ -44,6 +42,14 @@ class Task:
     """task_assignees 表中认领关系的读取投影。"""
 
 
+@dataclass(frozen=True, slots=True)
+class TaskCursor:
+    """按（建立时刻，需求单 id）倒序续页的位置：上一页末行的排序键。"""
+
+    created_at: datetime
+    task_id: uuid.UUID
+
+
 __all__ = [
     "ACTIVE_STATUSES",
     "STATUS_CONFIRMED",
@@ -52,5 +58,6 @@ __all__ = [
     "STATUS_WITHDRAWN",
     "TASK_STATUSES",
     "Task",
+    "TaskCursor",
     "TaskStatus",
 ]

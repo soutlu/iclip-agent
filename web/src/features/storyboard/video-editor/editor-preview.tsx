@@ -16,6 +16,7 @@ import {
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
+import { MediaFallback } from '@/shared/ui/media-fallback'
 import { toast } from '@/shared/ui/toast'
 import { locateClock, totalDuration, type LaidOutSegment } from './edit-chain'
 import { timeLabel } from './time-label'
@@ -313,18 +314,14 @@ export function EditorPreview({
       ) : null}
       {failed ? (
         <div className="video-editor-preview-message" role="alert">
-          <span>视频加载失败</span>
-          <button
-            className="video-editor-text-button"
-            onClick={() => {
+          <MediaFallback
+            kind="video"
+            onRetry={() => {
               setFailed(false)
               const segment = segments?.[index]
               if (segment !== undefined) load(active, segment, 0, true)
             }}
-            type="button"
-          >
-            重新加载
-          </button>
+          />
         </div>
       ) : null}
       <div aria-label="播放控件" className="video-editor-transport" role="group">

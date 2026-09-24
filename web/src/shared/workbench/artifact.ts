@@ -1,4 +1,4 @@
-/** 文件、工具帧与整个工作区共用产物合同（ADR-0009 决策 1，ADR-0015 加第三种来源）；具体渲染器由 app 注册，shared 宿主仅分派。 */
+/** 文件、工具帧与整个工作区共用产物合同；具体渲染器由 app 注册，shared 宿主仅分派。 */
 
 import type { ComponentType } from 'react'
 import type { IconName } from '@/shared/icons'

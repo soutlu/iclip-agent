@@ -23,7 +23,9 @@ from iclip.domains.audit.models import (
     Thresholds,
 )
 from iclip.domains.audit.reports_pg import PgAuditReports
-from tests.helpers.pg import IDENTITY_TABLES, truncate_clean
+from iclip.domains.generation.models import STATUS_COMPLETED, STATUS_FAILED, STATUS_SUBMITTED
+from iclip.domains.generation.schemas import KIND_VIDEO
+from tests.helpers.pg import reset_database
 
 BASE = datetime.now(UTC).replace(microsecond=0)
 SHAN = "Shan.Hu"
@@ -133,20 +135,22 @@ class Seed:
                 finished_at: datetime | None = None,
                 video_id: uuid.UUID | None = None,
                 metadata: dict[str, object] | None = None,
+                root_job_id: uuid.UUID | None = None,
             ) -> None:
                 if metadata is None and shot is not None:
                     metadata = {"shot": shot}
                 await conn.execute(
                     text(
                         "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id,"
-                        " kind, provider, request, status, metadata, created_at, updated_at,"
-                        " submitted_at, finished_at)"
-                        " VALUES (:id, :owner, :conversation_id, 'video', 'test',"
+                        " kind, provider, request, status, metadata, root_job_id, created_at,"
+                        " updated_at, submitted_at, finished_at)"
+                        " VALUES (:id, :owner, :conversation_id, :kind, 'test',"
                         " CAST(:request AS jsonb), :status, CAST(:metadata AS jsonb),"
-                        " :created_at, :created_at, :submitted_at, :finished_at)"
+                        " :root_job_id, :created_at, :created_at, :submitted_at, :finished_at)"
                     ),
                     {
                         "id": video_id or uuid.uuid4(),
+                        "kind": KIND_VIDEO,
                         "owner": self.shan,
                         "conversation_id": conversation_id,
                         "request": json.dumps(
@@ -154,6 +158,7 @@ class Seed:
                         ),
                         "status": status,
                         "metadata": None if metadata is None else json.dumps(metadata),
+                        "root_job_id": root_job_id,
                         "created_at": created_at,
                         "submitted_at": submitted_at,
                         "finished_at": finished_at,
@@ -205,7 +210,7 @@ class Seed:
                 self.c1,
                 user_name=SHAN,
                 shot=1,
-                status="completed",
+                status=STATUS_COMPLETED,
                 created_at=ago(minutes=100),
                 submitted_at=ago(minutes=99),
                 finished_at=ago(minutes=90),
@@ -214,7 +219,7 @@ class Seed:
                 self.c1,
                 user_name=SHAN,
                 shot=1,
-                status="completed",
+                status=STATUS_COMPLETED,
                 created_at=ago(minutes=95),
                 submitted_at=ago(minutes=94),
                 finished_at=ago(minutes=85),
@@ -223,7 +228,7 @@ class Seed:
                 self.c1,
                 user_name=SHAN,
                 shot=2,
-                status="failed",
+                status=STATUS_FAILED,
                 created_at=ago(minutes=80),
                 finished_at=ago(minutes=75),
             )
@@ -231,7 +236,7 @@ class Seed:
                 self.c1,
                 user_name=SHAN,
                 shot=2,
-                status="completed",
+                status=STATUS_COMPLETED,
                 created_at=ago(minutes=70),
                 submitted_at=ago(minutes=69),
                 finished_at=ago(minutes=60),
@@ -240,7 +245,7 @@ class Seed:
                 self.c1,
                 user_name=SHAN,
                 shot=2,
-                status="completed",
+                status=STATUS_COMPLETED,
                 created_at=ago(minutes=50),
                 submitted_at=ago(minutes=49),
                 finished_at=ago(minutes=40),
@@ -249,21 +254,21 @@ class Seed:
                 self.c1,
                 user_name=SHAN,
                 shot=None,
-                status="completed",
+                status=STATUS_COMPLETED,
                 created_at=ago(minutes=10),
                 finished_at=ago(minutes=5),
                 video_id=self.missing_shot_video,
             )
-            # 视频编辑的结果：只带编辑链坐标、没有镜头组，不该算成缺坐标。
+            # 视频编辑的结果：衍生记录没有镜头组，不算出片、也不算缺坐标。
             await video(
                 self.c1,
                 user_name=SHAN,
                 shot=None,
-                status="completed",
+                status=STATUS_COMPLETED,
                 created_at=ago(minutes=8),
                 finished_at=ago(minutes=4),
+                root_job_id=self.missing_shot_video,
                 metadata={
-                    "rootJob": str(self.missing_shot_video),
                     "baseJob": str(self.missing_shot_video),
                     "editId": "e1",
                     "editStart": 1,
@@ -303,7 +308,7 @@ class Seed:
                 self.c2,
                 user_name=DONNIE,
                 shot=1,
-                status="completed",
+                status=STATUS_COMPLETED,
                 created_at=ago(hours=4),
                 submitted_at=ago(hours=4) + timedelta(minutes=1),
                 finished_at=ago(hours=3),
@@ -312,7 +317,7 @@ class Seed:
                 self.c2,
                 user_name=DONNIE,
                 shot=2,
-                status="submitted",
+                status=STATUS_SUBMITTED,
                 created_at=ago(hours=3),
                 submitted_at=ago(hours=3),
                 video_id=self.stuck_video,
@@ -331,7 +336,7 @@ class Seed:
                 self.c3,
                 user_name=SHAN,
                 shot=1,
-                status="completed",
+                status=STATUS_COMPLETED,
                 created_at=ago(hours=29),
                 submitted_at=ago(hours=29) + timedelta(minutes=1),
                 finished_at=ago(hours=28),
@@ -383,8 +388,7 @@ class Seed:
 async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
     created = create_async_engine(migrated_pg)
     async with created.begin() as conn:
-        await truncate_clean(conn, IDENTITY_TABLES, cascade=True)
-        await truncate_clean(conn, ("agent_runtime.agent_jobs", "agent_runtime.conversation_usage"))
+        await reset_database(conn)
     try:
         yield created
     finally:
@@ -587,7 +591,7 @@ async def test_conversations_carry_whole_conversation_detail_and_page_by_cursor(
         (1, 1, True),
         (2, 1, False),
     ]
-    assert c2.usage == ()
+    assert c2.usage == []
 
     second_page = await reports.conversations(
         Scope(),
@@ -695,6 +699,34 @@ async def test_anomalies_respect_scope_filters(reports: PgAuditReports, seed: Se
     assert {item.kind for item in in_task} == {"retry", "idle", "slow", "stuck", "missing_shot"}
 
 
+async def test_anomaly_counts_share_the_anomaly_judgement(
+    reports: PgAuditReports, seed: Seed
+) -> None:
+    """计数与列表同一套判定：全范围九种各一条，筛到 Donnie 只剩空转与悬挂，放宽阈值就少一种；同数按种类名排。"""
+
+    everything = await reports.anomaly_counts(Scope(), Thresholds())
+    by_donnie = await reports.anomaly_counts(Scope(user_name=DONNIE), Thresholds())
+    lenient = await reports.anomaly_counts(Scope(), Thresholds(retry_over=3))
+
+    assert {(row.kind, row.count) for row in everything} == {
+        (kind, 1)
+        for kind in (
+            "retry",
+            "idle",
+            "slow",
+            "stuck",
+            "spend",
+            "task_stuck",
+            "deleted",
+            "no_task",
+            "missing_shot",
+        )
+    }
+    assert [row.kind for row in everything] == sorted(row.kind for row in everything)
+    assert [(row.kind, row.count) for row in by_donnie] == [("idle", 1), ("stuck", 1)]
+    assert "retry" not in {row.kind for row in lenient}
+
+
 async def test_forks_do_not_count_toward_any_metric(
     reports: PgAuditReports, seed: Seed, engine: AsyncEngine
 ) -> None:
@@ -717,14 +749,16 @@ async def test_forks_do_not_count_toward_any_metric(
                 "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, metadata,"
                 " kind, provider, request, status, output_url, created_at, updated_at,"
                 " submitted_at, finished_at)"
-                " VALUES (:id, :owner, :conversation_id, :metadata, 'video', 'p',"
-                " :request, 'completed', 'https://example.test/copy.mp4', :at, :at, :at, :at)"
+                " VALUES (:id, :owner, :conversation_id, :metadata, :kind, 'p',"
+                " :request, :status, 'https://example.test/copy.mp4', :at, :at, :at, :at)"
             ),
             {
                 "id": uuid.uuid4(),
                 "owner": seed.shan,
                 "conversation_id": fork_id,
                 "metadata": json.dumps({"shot": 1}),
+                "kind": KIND_VIDEO,
+                "status": STATUS_COMPLETED,
                 "request": json.dumps({"kind": "video", "user_name": SHAN}),
                 "at": at,
             },

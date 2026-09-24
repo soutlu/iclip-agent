@@ -15,14 +15,9 @@ from pydantic_ai.capabilities import AgentCapability, Capability
 
 from iclip.config import ResolvedAgent
 from iclip.domains.agents.public import AgentRunDeps
-from tests.integration_no_llm.agents.waiting import settled
-from tests.integration_no_llm.conftest import (
-    TEST_MODEL_NAME,
-    make_client,
-    new_conversation,
-    register_and_login,
-    set_roles_in_db,
-)
+from tests.helpers.agents import declared_agent
+from tests.helpers.app import make_client, new_conversation, settled
+from tests.helpers.auth import register_and_login, set_roles_in_db
 
 AGENT_ID = "storyboard"
 
@@ -52,22 +47,7 @@ def identity_capability() -> tuple[AgentCapability[AgentRunDeps], ...]:
 
 @pytest.fixture
 def agent_declarations(tmp_path: Path) -> tuple[ResolvedAgent, ...]:
-    spec_dir = tmp_path / AGENT_ID
-    spec_dir.mkdir(parents=True)
-    spec = spec_dir / "agent.yaml"
-    spec.write_text("", encoding="utf-8")
-    return (
-        ResolvedAgent(
-            agent_id=AGENT_ID,
-            name=AGENT_ID,
-            spec=spec,
-            instructions=None,
-            model=TEST_MODEL_NAME,
-            skills=None,
-            capabilities=("identity",),
-            subagents=(),
-        ),
-    )
+    return (declared_agent(tmp_path, AGENT_ID, capabilities=("identity",)),)
 
 
 @pytest.fixture(autouse=True)

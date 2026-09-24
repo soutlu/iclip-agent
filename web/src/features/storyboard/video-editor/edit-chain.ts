@@ -39,6 +39,16 @@ export type EditStage =
   | 'composing'
   | 'failed'
 
+/** 各阶段给人看的词；版本菜单里在途编辑的备注用它。 */
+export const EDIT_STAGE_LABEL: Record<EditStage, string> = {
+  cutting: '切片中',
+  cut: '待生成',
+  generating: '生成中',
+  ready: '待预览',
+  composing: '合成中',
+  failed: '失败',
+}
+
 export type PendingEdit = {
   key: string
   /** 合成后会成为第几版；提交时就先叫这个名，和以前的任务列表一致。 */
@@ -71,9 +81,6 @@ const promptOf = (job: GenerationJob | undefined): string | undefined => {
   return typeof prompt === 'string' ? prompt : undefined
 }
 
-const newest = (jobs: readonly GenerationJob[]): GenerationJob | undefined =>
-  [...jobs].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
-
 const coordsOf = (job: GenerationJob | undefined): VideoEditMetadata | undefined =>
   job === undefined ? undefined : readVideoEditMetadata(job)
 
@@ -84,7 +91,7 @@ type EditGroup = {
   master: GenerationJob | undefined
 }
 
-/** 按 editId 分组，每种角色只认最新的一条。 */
+/** 按 editId 分组，每种角色只认最新的一条：分桶只过滤不重排，桶里第一条就是。 */
 const groupEdits = (jobs: readonly GenerationJob[]): Map<string, EditGroup> => {
   const buckets = new Map<
     string,
@@ -113,10 +120,10 @@ const groupEdits = (jobs: readonly GenerationJob[]): Map<string, EditGroup> => {
       {
         // 坐标以编辑结果为准：它记的 editStart 是按片段实际时长反算的，参考片段上是用户选的。
         // 同一 editId 重发过就跟着展示的那条（最新的）取，别一条显示、一条给坐标。
-        coords: coordsOf(newest(bucket.video)) ?? coordsOf(newest(bucket.master)) ?? bucket.coords,
-        reference: newest(bucket.reference),
-        video: newest(bucket.video),
-        master: newest(bucket.master),
+        coords: coordsOf(bucket.video[0]) ?? coordsOf(bucket.master[0]) ?? bucket.coords,
+        reference: bucket.reference[0],
+        video: bucket.video[0],
+        master: bucket.master[0],
       },
     ]),
   )
@@ -158,7 +165,8 @@ export const splicePreview = (
   return segments
 }
 
-/** 版本与进行中的编辑。`jobs` 是链查询拿回来的（编辑记录与成片），根自己不在里面，单独传。 */
+/** 版本与进行中的编辑。`jobs` 是链查询拿回来的（编辑记录与成片），根自己不在里面，单独传；
+ * 顺序照服务端给的（新的在前），同一 editId 重发过时各角色取最前那条。 */
 export const projectEditChain = (
   root: GenerationJob,
   jobs: readonly GenerationJob[],
@@ -185,7 +193,7 @@ export const projectEditChain = (
     })
     .sort((left, right) => left.master.createdAt.localeCompare(right.master.createdAt))
   for (const { group, master, mediaUrl } of composed) {
-    const base = versions.find((version) => version.jobId === group.coords.baseJob)
+    const base = versions.find((version) => version.key === (group.coords.baseEdit ?? root.id))
     versions.push({
       key: group.coords.editId,
       jobId: master.id,
@@ -199,7 +207,7 @@ export const projectEditChain = (
   const pending: PendingEdit[] = []
   for (const group of groups.values()) {
     if (composed.some((item) => item.group === group)) continue
-    const base = versions.find((version) => version.jobId === group.coords.baseJob)
+    const base = versions.find((version) => version.key === (group.coords.baseEdit ?? root.id))
     // 基底不在链里（别的根、或根本没出片）：这次编辑无处安放，不展示。
     if (base === undefined) continue
     const { stage, error } = stageOf(group)
@@ -294,13 +302,12 @@ export const composeSegments = (
 export const actualEditStart = (editEnd: number, clipDuration: number): number =>
   Math.max(0, Math.round((editEnd - clipDuration) * 1000) / 1000)
 
-/** 每条根被成功编辑过几次，给抽屉那张卡显示。编辑结果不带 path/shot，只能靠 rootJob 认。 */
+/** 每条根被成功编辑过几次，给抽屉那张卡显示：数它名下已完成的编辑结果。 */
 export const editCountsByRoot = (jobs: readonly GenerationJob[]): ReadonlyMap<string, number> => {
   const counts = new Map<string, number>()
   for (const job of jobs) {
-    if (job.kind !== 'video' || job.status !== 'completed') continue
-    const root = readVideoEditMetadata(job)?.rootJob
-    if (root !== undefined) counts.set(root, (counts.get(root) ?? 0) + 1)
+    if (job.kind !== 'video' || job.status !== 'completed' || job.rootJobId === null) continue
+    counts.set(job.rootJobId, (counts.get(job.rootJobId) ?? 0) + 1)
   }
   return counts
 }

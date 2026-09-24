@@ -1,11 +1,13 @@
 import { IconButton } from '@/shared/ui/button'
 import { Select } from '@/shared/ui/field'
 import { MenuRadioGroup, MenuRadioItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
-import type {
-  ImageChannel,
-  ImageModel,
-  ImageResolution,
-  ResolvedImageOptions,
+import {
+  isChannel,
+  isResolution,
+  type ImageChannel,
+  type ImageModel,
+  type ImageResolution,
+  type ResolvedImageOptions,
 } from './image-edit.api'
 
 type EditGenerationSettingsProps = {
@@ -63,7 +65,10 @@ export function EditGenerationSettings({
           value={resolution ?? ''}
           variant="inline"
           wrapperClassName="image-edit-resolution-option"
-          onChange={(event) => onResolutionChange(event.target.value as ImageResolution)}
+          onChange={(event) => {
+            const value = event.target.value
+            if (isResolution(value)) onResolutionChange(value)
+          }}
         >
           {model?.resolutions.map((value) => (
             <option key={value} value={value}>
@@ -81,7 +86,9 @@ export function EditGenerationSettings({
               <MenuRadioGroup
                 aria-label="图片生成渠道"
                 value={channel}
-                onValueChange={(value) => onChannelChange(value as ImageChannel)}
+                onValueChange={(value) => {
+                  if (isChannel(value)) onChannelChange(value)
+                }}
               >
                 {model?.channels.map((value) => (
                   <MenuRadioItem key={value} value={value} disabled={disabled}>

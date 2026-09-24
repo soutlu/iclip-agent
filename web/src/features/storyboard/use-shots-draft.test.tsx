@@ -345,3 +345,52 @@ describe('分镜草稿整份写回与版本冲突', () => {
     },
   )
 })
+
+describe('未落盘的上传', () => {
+  const ORIGINAL = 'https://example.com/frame-2.png'
+  const UPLOADED = 'https://example.com/uploaded-2.png'
+
+  it('记过的上传在落盘前一直算，保存失败也算；落盘后再改文字就不算了', async () => {
+    const workspace = serveWorkspace(initialDocument(), async (_write, count) =>
+      count === 1 ? HttpResponse.json({ detail: '服务暂时不可用' }, { status: 503 }) : undefined,
+    )
+    const result = await renderDraft()
+    act(() => {
+      result.current.replaceFrame(2, 1, ORIGINAL, UPLOADED)
+      result.current.recordUpload(2, 1, UPLOADED)
+    })
+    expect(result.current.hasUnsavedUpload).toBe(true)
+
+    expect(await saveDraft(result)).toBe(false)
+    expect(result.current.state.kind).toBe('error')
+    expect(result.current.hasUnsavedUpload).toBe(true)
+
+    expect(await saveDraft(result)).toBe(true)
+    expect(workspace.read().document.shots[1]?.image_urls).toEqual([UPLOADED])
+    act(() => {
+      result.current.updateShot(2, (shot) => withBody(shot, '落盘之后的文字'))
+    })
+    expect(result.current.hasUnsavedChanges).toBe(true)
+    expect(result.current.hasUnsavedUpload).toBe(false)
+    expect(await saveDraft(result)).toBe(true)
+  })
+
+  it('冲突选最新的之后，之前记过的上传一律不再算', async () => {
+    const initial = initialDocument()
+    const workspace = serveWorkspace(initial)
+    const result = await renderDraft()
+    workspace.publish(changedBody(initial, 1, '服务端更新第一组'))
+    act(() => {
+      result.current.updateShot(1, (shot) => withBody(shot, '本地更新第一组'))
+      result.current.replaceFrame(2, 1, ORIGINAL, UPLOADED)
+      result.current.recordUpload(2, 1, UPLOADED)
+    })
+    expect(await saveDraft(result)).toBe(false)
+    expect(result.current.state).toMatchObject({ kind: 'conflict', shots: [{ index: 1 }] })
+    expect(result.current.hasUnsavedUpload).toBe(true)
+
+    act(() => result.current.resolveConflict('theirs'))
+    expect(result.current.hasUnsavedUpload).toBe(false)
+    await waitFor(() => expect(result.current.state.kind).toBe('saved'))
+  })
+})

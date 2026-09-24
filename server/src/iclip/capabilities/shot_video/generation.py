@@ -12,7 +12,7 @@ import structlog
 from pydantic_ai import ModelRetry, ToolFailed
 
 from iclip.capabilities.shot_document import AspectError, parse_aspect
-from iclip.capabilities.shot_video import ffmpeg
+from iclip.capabilities.shot_video.ffmpeg import crop_cells, decode_gray
 from iclip.capabilities.shot_video.grid import (
     GridError,
     fit_box_to_aspect,
@@ -30,6 +30,7 @@ from iclip.capabilities.shot_video.ports import (
 )
 from iclip.capabilities.shot_video.prompt import GRID_CELLS, GRID_COLS, GRID_ROWS
 from iclip.domains.identity.public import Principal
+from iclip.platform.media.ffmpeg import MAX_IMAGE_BYTES, MediaError, fetched
 
 _logger = structlog.stdlib.get_logger(__name__)
 
@@ -48,14 +49,16 @@ _JPEG: Final = "image/jpeg"
 
 @dataclass(frozen=True, slots=True)
 class GenerationPolicy:
-    """按配置的 dev、pro 顺序重试失败生成；已有成功结果时不自动升级渠道。"""
+    """按配置的 dev、pro 顺序重试失败生成；已有成功结果时不自动升级渠道。
 
-    poll_interval_seconds: float = 5.0
-    dev_attempts: int = 2
-    pro_attempts: int = 1
-    backoff_seconds: float = 5.0
-    backoff_factor: float = 3.0
-    total_timeout_seconds: float = 1800.0
+    各字段的默认值与校验只在 ``shot_video`` 配置段一处，这里全部由组合根显式传入。"""
+
+    poll_interval_seconds: float
+    dev_attempts: int
+    pro_attempts: int
+    backoff_seconds: float
+    backoff_factor: float
+    total_timeout_seconds: float
 
     def channels(self) -> tuple[ImageChannel, ...]:
         dev: tuple[ImageChannel, ...] = ("dev",) * self.dev_attempts
@@ -122,7 +125,7 @@ class FrameGenerator:
             job_failure(job, message=failure_message, reason="生成记录未携带结果 URL")
         try:
             cells = await self._slice_grid(grid_url, aspect=aspect)
-        except (ffmpeg.MediaError, GridError, AspectError) as exc:
+        except (MediaError, GridError, AspectError) as exc:
             job_failure(job, message=failure_message, reason=str(exc))
         if len(cells) != GRID_CELLS:
             job_failure(job, message=failure_message, reason="整图切格数量异常")
@@ -176,10 +179,10 @@ class FrameGenerator:
     async def _slice_grid(self, grid_url: str, *, aspect: str | None) -> list[bytes]:
         """检测网格并裁剪，指定 aspect 时居中收缩；检测不到分隔带的轴由 grid 按等分退回。"""
 
-        async with ffmpeg.fetched(
-            self._client, grid_url, max_bytes=ffmpeg.MAX_IMAGE_BYTES, suffix=".img"
+        async with fetched(
+            self._client, grid_url, max_bytes=MAX_IMAGE_BYTES, suffix=".img"
         ) as source:
-            gray, full_width = await ffmpeg.decode_gray(source)
+            gray, full_width = await decode_gray(source)
             layout = grid_cell_boxes(gray, rows=GRID_ROWS, cols=GRID_COLS)
             boxes = [
                 scale_box(box, from_width=gray.width, to_width=full_width) for box in layout.boxes
@@ -187,7 +190,7 @@ class FrameGenerator:
             if aspect is not None:
                 ratio = parse_aspect(aspect)
                 boxes = [fit_box_to_aspect(box, ratio) for box in boxes]
-            return await ffmpeg.crop_cells(source, boxes)
+            return await crop_cells(source, boxes)
 
 
 def job_failure(job: ImageJob, *, message: str, reason: str | None = None) -> NoReturn:

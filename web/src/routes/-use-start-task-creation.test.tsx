@@ -3,21 +3,28 @@ import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { TasksRoute } from '@/features/tasks'
-import { addMockTask, mockAuthUser, mockConversations } from '@/testing/mocks/handlers'
+import {
+  addMockConversation,
+  addMockTask,
+  liveMockConversation,
+  loginAs,
+  mockAuthUser,
+  mockConversations,
+} from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
 import { useStartTaskCreation } from './-use-start-task-creation'
 
 function TaskCreationPage() {
-  const startCreation = useStartTaskCreation()
-  return <TasksRoute onStartCreation={startCreation} />
+  const creation = useStartTaskCreation()
+  return <TasksRoute creation={creation} />
 }
 
-const prepare = async () => {
-  await fetch('/api/auth/login', {
-    body: new URLSearchParams({ username: 'tester', password: 'x' }),
-    method: 'POST',
-  })
+const liveConversations = () => mockConversations.filter((item) => item.deletedAt === null)
+
+/** 打开一张可开始的需求单的预览；给了 agentName 就在预览里选上它。 */
+const prepare = async (agentName: string | null = '分镜 Agent') => {
+  loginAs(mockAuthUser)
   const task = addMockTask('短靴创作需求')
   task.status = 'confirmed'
   task.assigneeUserIds = [mockAuthUser.id]
@@ -36,10 +43,69 @@ const prepare = async () => {
   const mine = await screen.findByRole('region', { name: '我的需求单' })
   await user.click(await within(mine).findByRole('button', { name: /短靴创作需求/ }))
   await user.click(await screen.findByRole('button', { name: '开始创作' }))
-  return { ...rendered, user, task }
+  const preview = await screen.findByRole('dialog', { name: '发起创作' })
+  if (agentName !== null) {
+    await user.click(await within(preview).findByRole('button', { name: '请选择 Agent' }))
+    await user.click(await screen.findByRole('menuitem', { name: agentName }))
+  }
+  return { ...rendered, user, task, preview }
+}
+
+const promptReceipt = async (request: Request) => {
+  const body = (await request.json()) as { prompt_id: string }
+  return HttpResponse.json({
+    createdAt: new Date().toISOString(),
+    promptId: body.prompt_id,
+    status: 'queued',
+  })
 }
 
 describe('需求单发起对话', () => {
+  it('预览不预选 Agent，选定名册里的哪一项就用哪一项建对话', async () => {
+    server.use(
+      http.post('*/api/conversations/:conversationId/prompts', ({ request }) =>
+        promptReceipt(request),
+      ),
+    )
+    const { user, router, task, preview } = await prepare(null)
+    const confirm = within(preview).getByRole('button', { name: '确认并开始' })
+    expect(within(preview).getByRole('button', { name: '请选择 Agent' })).toBeVisible()
+    expect(confirm).toBeDisabled()
+
+    await user.click(within(preview).getByRole('button', { name: '请选择 Agent' }))
+    await user.click(await screen.findByRole('menuitem', { name: '完全复刻' }))
+    expect(within(preview).getByRole('button', { name: '完全复刻' })).toBeVisible()
+    await user.click(confirm)
+    await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/c\//))
+    expect(mockConversations).toHaveLength(1)
+    expect(mockConversations[0]).toMatchObject({ agentId: 'replica', taskId: task.id })
+  })
+
+  it('名册读取失败显示原因并可重新加载，空名册不能开始', async () => {
+    server.use(
+      http.get(
+        '*/api/conversations/agents',
+        () => HttpResponse.json({ detail: '目录读取失败' }, { status: 503 }),
+        { once: true },
+      ),
+      http.get('*/api/conversations/agents', () => HttpResponse.json({ items: [], default: null })),
+    )
+    const { user, preview } = await prepare(null)
+    const confirm = within(preview).getByRole('button', { name: '确认并开始' })
+    await user.click(await within(preview).findByRole('button', { name: 'Agent 加载失败' }))
+    const failedMenu = await screen.findByRole('menu')
+    expect(within(failedMenu).getByRole('alert')).toHaveTextContent('目录读取失败')
+    expect(confirm).toBeDisabled()
+
+    await user.click(within(failedMenu).getByRole('menuitem', { name: '重新加载 Agent' }))
+    await user.click(await within(preview).findByRole('button', { name: '暂无可用 Agent' }))
+    expect(within(await screen.findByRole('menu')).getByRole('status')).toHaveTextContent(
+      '暂无可用 Agent',
+    )
+    expect(confirm).toBeDisabled()
+    expect(mockConversations).toHaveLength(0)
+  })
+
   it('首次消息失败后重试复用已关联的对话、消息编号和原始内容', async () => {
     const bodies: { prompt_id: string; content: unknown[] }[] = []
     server.use(
@@ -111,5 +177,77 @@ describe('需求单发起对话', () => {
     if (!conversation) throw new Error('未创建对话')
     await waitFor(() => expect(router.state.location.pathname).toBe(`/c/${conversation.id}`))
     expect(sends).toBe(1)
+  })
+
+  it('建对话已落库但回执丢了：重试沿用同一个客户端 id，不多建一段', async () => {
+    const ids: string[] = []
+    server.events.on('request:start', async ({ request }) => {
+      if (request.method === 'POST' && new URL(request.url).pathname === '/api/conversations') {
+        const body = (await request.clone().json()) as { id: string }
+        ids.push(body.id)
+      }
+    })
+    server.use(
+      http.post(
+        '*/api/conversations',
+        async ({ request }) => {
+          const body = (await request.json()) as { id: string; taskId: string; title: string }
+          // 服务端已经落库，回执在路上丢了。
+          Object.assign(addMockConversation(body.title), { id: body.id, taskId: body.taskId })
+          return HttpResponse.error()
+        },
+        { once: true },
+      ),
+      http.post('*/api/conversations/:conversationId/prompts', ({ request }) =>
+        promptReceipt(request),
+      ),
+    )
+    const { user, router, task } = await prepare()
+    await user.click(screen.getByRole('button', { name: '确认并开始' }))
+    expect(await screen.findByRole('alert')).toBeVisible()
+    expect(mockConversations).toHaveLength(1)
+
+    await user.click(screen.getByRole('button', { name: /确认并开始|重试发送/ }))
+    await waitFor(() => expect(ids).toHaveLength(2))
+    expect(ids[1]).toBe(ids[0])
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/c/${ids[0]}`))
+    expect(mockConversations).toHaveLength(1)
+    expect(mockConversations[0]).toMatchObject({ id: ids[0], taskId: task.id })
+  })
+
+  it('对话在两次重试之间被删：明确收到 404 后，下一次重试另起一段', async () => {
+    const targets: string[] = []
+    server.use(
+      http.post('*/api/conversations/:conversationId/prompts', ({ params, request }) => {
+        const target = String(params['conversationId'])
+        targets.push(target)
+        if (!liveMockConversation(target)) {
+          return HttpResponse.json({ detail: '对话已不存在' }, { status: 404 })
+        }
+        if (targets.length === 1) {
+          return HttpResponse.json({ detail: '暂时无法发送' }, { status: 503 })
+        }
+        return promptReceipt(request)
+      }),
+    )
+    const { user, router, task } = await prepare()
+    await user.click(screen.getByRole('button', { name: '确认并开始' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('暂时无法发送')
+    const removed = mockConversations[0]
+    if (!removed) throw new Error('首次提交没有创建对话')
+    await fetch(`/api/conversations/${removed.id}`, { method: 'DELETE' })
+
+    await user.click(screen.getByRole('button', { name: /确认并开始|重试发送/ }))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('对话已不存在'))
+    // 删除留下墓碑（合同 §6），只数活着的对话。
+    expect(liveConversations()).toHaveLength(0)
+
+    await user.click(screen.getByRole('button', { name: /确认并开始|重试发送/ }))
+    await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/c\//))
+    expect(targets).toHaveLength(3)
+    expect(targets[1]).toBe(removed.id)
+    expect(targets[2]).not.toBe(removed.id)
+    expect(liveConversations()).toHaveLength(1)
+    expect(liveConversations()[0]).toMatchObject({ id: targets[2], taskId: task.id })
   })
 })

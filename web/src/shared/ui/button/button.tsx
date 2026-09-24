@@ -3,7 +3,7 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 
-export const buttonVariants = cva(
+const buttonVariants = cva(
   'hit-48 relative inline-flex ui-state cursor-pointer items-center justify-center gap-2 rounded-sm font-medium whitespace-nowrap ui-focus active:scale-[0.98]',
   {
     variants: {

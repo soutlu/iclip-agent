@@ -49,7 +49,7 @@ collections_table = Table(
 
 _ROWS = collections_table.c
 
-# 列表按 (created_at, id) 倒序（ADR-0030）；属主视角与治理者的全量视图各一个。
+# 列表按 (created_at, id) 倒序；属主视角与治理者的全量视图各一个。
 Index("ix_collections_owner_created", _ROWS.owner_user_id, _ROWS.created_at.desc(), _ROWS.id.desc())
 Index("ix_collections_created", _ROWS.created_at.desc(), _ROWS.id.desc())
 

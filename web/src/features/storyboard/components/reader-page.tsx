@@ -1,7 +1,8 @@
 /** 一组分镜的内容选择、预览与编辑；全局设定和时间线共用图片操作。 */
 import { useEffect, useEffectEvent, useRef, useState, type CSSProperties } from 'react'
+import { errorMessageOf, UserFacingError } from '@/shared/api/client'
+import { uploadMediaFile } from '@/shared/api/media-upload'
 import { Icon } from '@/shared/icons'
-import { copyText } from '@/shared/lib/clipboard'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import type { LightboxMedia } from '@/shared/ui/media-lightbox'
@@ -13,9 +14,11 @@ import {
   updateContentPrompt,
   insertContentReference,
   appendContentImage,
+  contentLabel,
+  resolveShotSelection,
 } from '../shot-content'
 import { aspectRatioStyle, MAX_REFERENCE_IMAGES } from '../shots'
-import { uploadFrameImage } from '../storyboard.api'
+import { copyWithToast } from './copy-with-toast'
 import { FrameAssignmentPicker } from './frame-assignment-picker'
 import { FramePreview } from './frame-preview'
 import { PromptEditor, type PromptEditorHandle } from './prompt-editor'
@@ -57,9 +60,10 @@ export function ReaderPage({
   shot,
 }: ReaderPageProps) {
   const contents = shotContents(shot)
-  const content = contents.find((item) => item.id === requestedContent) ?? contents[0]
-  const frameNumber =
-    frame !== undefined && content.frameNumbers.includes(frame) ? frame : content.frameNumbers[0]
+  const { content, frame: frameNumber } = resolveShotSelection(contents, {
+    content: requestedContent,
+    frame,
+  })
   const url = frameNumber === undefined ? undefined : shot.image_urls[frameNumber - 1]
   const currentFrameIndex = content.frameNumbers.indexOf(frameNumber ?? -1)
   const [width = 0, height = 0] = aspect_ratio.split(':').map(Number)
@@ -101,16 +105,16 @@ export function ReaderPage({
   const updateTarget = (updater: (current: Shot) => Shot): Shot => {
     const updated = onUpdateShot((current) => {
       const target = shotContents(current).find((item) => item.id === content.id)
-      if (target?.prompt === undefined) throw new Error('所选内容已不存在，请重新选择')
+      if (target?.prompt === undefined) throw new UserFacingError('所选内容已不存在，请重新选择')
       if (content.timelineIndex !== undefined) {
         const before = shot.prompt.timeline[content.timelineIndex]?.timestamps
         const after = current.prompt.timeline[content.timelineIndex]?.timestamps
         if (before?.[0] !== after?.[0] || before?.[1] !== after?.[1])
-          throw new Error('这个镜头已发生变化，请重新选择')
+          throw new UserFacingError('这个镜头已发生变化，请重新选择')
       }
       return updater(current)
     })
-    if (updated === undefined) throw new Error('镜头组已不存在，请重新选择')
+    if (updated === undefined) throw new UserFacingError('镜头组已不存在，请重新选择')
     return updated
   }
   const pickExisting = (number: number, previousUrl: string) => {
@@ -119,12 +123,12 @@ export function ReaderPage({
       const insertion = editorRef.current?.getInsertion()
       updateTarget((current) => {
         if (current.image_urls[number - 1] !== previousUrl)
-          throw new Error('这张图片已发生变化，请重新选择')
+          throw new UserFacingError('这张图片已发生变化，请重新选择')
         return insertContentReference(current, content.id, number, insertion)
       })
       select(content.id, number)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '关联图片失败')
+      toast.error(errorMessageOf(error, '关联图片失败'))
     }
   }
   const upload = async (file: File) => {
@@ -133,7 +137,7 @@ export function ReaderPage({
     setUploadTarget(targetKey)
     setPickerTarget(null)
     try {
-      const newUrl = await uploadFrameImage(file)
+      const newUrl = await uploadMediaFile(file, 'image')
       if (revision !== uploadRevisionRef.current) return
       const insertion = editorRef.current?.getInsertion()
       const updated = updateTarget((current) =>
@@ -143,7 +147,7 @@ export function ReaderPage({
       select(content.id, updated.image_urls.length)
     } catch (error) {
       // 切走之后结果可以不要，失败必须让人知道。
-      toast.error(error instanceof Error ? error.message : '上传失败')
+      toast.error(errorMessageOf(error, '上传失败'))
     } finally {
       if (revision === uploadRevisionRef.current) setUploadTarget(null)
     }
@@ -154,10 +158,10 @@ export function ReaderPage({
       : contents.filter((item) => item.frameNumbers.includes(frameNumber))
   const sharedCaption =
     sharing.length > 1
-      ? `@Image${frameNumber} · ${sharing.map((item) => (item.timelineIndex === undefined ? item.title : `镜头 ${item.timelineIndex + 1}`)).join('、')} 共用`
+      ? `@Image${frameNumber} · ${sharing.map(contentLabel).join('、')} 共用`
       : undefined
   const editorLabel =
-    content.timelineIndex === undefined ? content.title : `镜头 ${content.timelineIndex + 1} 的描述`
+    content.timelineIndex === undefined ? content.title : `${contentLabel(content)} 的描述`
 
   return (
     <section
@@ -205,7 +209,7 @@ export function ReaderPage({
                 onPreview({ kind: 'image', name: `镜头组 ${shot.index} 第 ${frameNumber} 帧`, url })
               }
               onReplace={(newUrl) => onReplaceFrame(frameNumber, url, newUrl)}
-              onUpload={uploadFrameImage}
+              onUpload={(file) => uploadMediaFile(file, 'image')}
               onUploadingChange={setReplacing}
             />
           )}
@@ -226,11 +230,7 @@ export function ReaderPage({
                   label={content.kind === 'global' ? '复制全局设定' : '复制镜头正文'}
                   name="copy"
                   size="sm"
-                  onClick={() =>
-                    void copyText(content.prompt ?? '')
-                      .then(() => toast('已复制'))
-                      .catch(() => toast.error('复制失败'))
-                  }
+                  onClick={() => void copyWithToast(content.prompt ?? '', '已复制')}
                 />
               )}
             </div>

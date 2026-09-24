@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
 
 import httpx
@@ -25,6 +26,7 @@ from iclip.config import (
 from iclip.config.models import ConversationsSection
 from iclip.domains.identity.middleware import PrincipalResolver
 from iclip.domains.identity.models import Principal
+from tests.helpers.agents import declared_agent
 
 MODEL_KEY_ENV = "TEST_MODEL_KEY"
 
@@ -49,36 +51,17 @@ def model(context_window: int | None = None) -> ModelSection:
     )
 
 
-def config(models: dict[str, ModelSection], *, cookie_name: str = "iclip_session") -> RuntimeConfig:
+def config(
+    models: dict[str, ModelSection], *, session_lifetime_seconds: int = 604800
+) -> RuntimeConfig:
     return RuntimeConfig(
         app=AppSection(name="t"),
         db=DbSection(schema="iclip"),
-        security=SecuritySection(session_cookie_name=cookie_name),
+        security=SecuritySection(session_lifetime_seconds=session_lifetime_seconds),
         sso=SsoSection(app_name="iclip"),
         ops=OpsSection(log_level="WARNING"),
         models=models,
         conversations=ConversationsSection(title_model=next(iter(models), None)),
-    )
-
-
-def agent(
-    tmp_path: Path, agent_id: str, *, model: str, instructions: str = "", name: str | None = None
-) -> ResolvedAgent:
-    spec_dir = tmp_path / agent_id
-    spec_dir.mkdir(parents=True, exist_ok=True)
-    spec = spec_dir / "agent.yaml"
-    spec.write_text("", encoding="utf-8")
-    instructions_path = spec_dir / "instructions.md"
-    instructions_path.write_text(instructions, encoding="utf-8")
-    return ResolvedAgent(
-        agent_id=agent_id,
-        name=name or agent_id,
-        spec=spec,
-        instructions=instructions_path,
-        model=model,
-        skills=None,
-        capabilities=(),
-        subagents=(),
     )
 
 
@@ -95,7 +78,7 @@ class _Source:
 
 def build(tmp_path: Path) -> tuple[CurrentAgentLayer, _Source, httpx.AsyncClient]:
     initial = config({"m": model(context_window=1000)})
-    source = _Source(initial, (agent(tmp_path, "storyboard", model="m"),))
+    source = _Source(initial, (declared_agent(tmp_path, "storyboard", model="m"),))
     app = build_app(
         initial,
         agents=source.agents,
@@ -163,8 +146,8 @@ async def test_agent_directory_follows_reload_order_and_empty_registry(
         }
 
         source.agents = (
-            agent(tmp_path, "replica", model="m", name="完全复刻"),
-            agent(tmp_path, "storyboard", model="m"),
+            replace(declared_agent(tmp_path, "replica", model="m"), name="完全复刻"),
+            declared_agent(tmp_path, "storyboard", model="m"),
         )
         layer.reload()
         changed = await client.get("/conversations/agents")
@@ -187,8 +170,8 @@ def test_reload_swaps_agents_and_reuses_unchanged_models(base_env: None, tmp_pat
     before = layer.current
     source.config = config({"m": model(context_window=1000), "n": model(context_window=2000)})
     source.agents = (
-        agent(tmp_path, "storyboard", model="n"),
-        agent(tmp_path, "assistant", model="m"),
+        declared_agent(tmp_path, "storyboard", model="n"),
+        declared_agent(tmp_path, "assistant", model="m"),
     )
 
     layer.reload()
@@ -205,7 +188,7 @@ def test_reload_swaps_agents_and_reuses_unchanged_models(base_env: None, tmp_pat
 def test_reload_with_undeclared_model_keeps_the_old_layer(base_env: None, tmp_path: Path) -> None:
     layer, source, _ = build(tmp_path)
     before = layer.current
-    source.agents = (agent(tmp_path, "storyboard", model="ghost"),)
+    source.agents = (declared_agent(tmp_path, "storyboard", model="ghost"),)
 
     layer.reload()
 
@@ -218,7 +201,7 @@ def test_reload_with_undeclared_model_keeps_the_old_layer(base_env: None, tmp_pa
 def test_reload_refuses_changes_outside_the_hot_sections(base_env: None, tmp_path: Path) -> None:
     layer, source, _ = build(tmp_path)
     before = layer.current
-    source.config = config({"m": model(context_window=1000)}, cookie_name="other_cookie")
+    source.config = config({"m": model(context_window=1000)}, session_lifetime_seconds=3600)
 
     layer.reload()
 
@@ -231,7 +214,7 @@ def test_reload_without_a_source_is_reported(base_env: None, tmp_path: Path) -> 
     initial = config({"m": model()})
     app = build_app(
         initial,
-        agents=(agent(tmp_path, "storyboard", model="m"),),
+        agents=(declared_agent(tmp_path, "storyboard", model="m"),),
         engine=create_async_engine("postgresql+asyncpg://iclip:iclip@localhost:5432/nowhere"),
     )
     layer: CurrentAgentLayer = app.state.agent_layer
@@ -246,7 +229,7 @@ async def test_healthz_reports_reload_state(base_env: None, tmp_path: Path) -> N
     layer, source, client = build(tmp_path)
     async with client:
         fresh = await client.get("/healthz")
-        source.config = config({"m": model(context_window=1000)}, cookie_name="other_cookie")
+        source.config = config({"m": model(context_window=1000)}, session_lifetime_seconds=3600)
         layer.reload()
         refused = await client.get("/healthz")
 

@@ -10,6 +10,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from iclip.common.generation_vocab import GenerationKind, GenerationStatus
 from iclip.platform.transcript.ops import (
     AgentDescriptor,
     EmittableOperation,
@@ -106,10 +107,17 @@ class SessionMetaUpdated(_Envelope):
     payload: SessionMetaPayload
 
 
+PendingInteraction = Literal["none", "approval", "question"]
+"""最高优先级的待处理事项。"""
+
+LastTurnReason = Literal["completed", "failed", "aborted"]
+"""最近完成轮次的结果。"""
+
+
 class SessionWorkPayload(_Envelope):
     busy: bool
-    pending_interaction: Literal["none", "approval", "question"]
-    last_turn_reason: Literal["completed", "failed", "aborted"] | None = None
+    pending_interaction: PendingInteraction
+    last_turn_reason: LastTurnReason | None = None
 
 
 class SessionWorkChanged(_Envelope):
@@ -130,11 +138,11 @@ class SessionWorkChanged(_Envelope):
 
 
 class GenerationChangedPayload(_Envelope):
-    """``kind`` 与 ``status`` 是生成域的词，这里只当字符串转发，与列表接口 ``GenerationOut`` 同一套。"""
+    """``kind`` 与 ``status`` 取 common 的生成词表，与列表接口 ``GenerationOut`` 是同一份。"""
 
     id: str
-    kind: str
-    status: str
+    kind: GenerationKind
+    status: GenerationStatus
     metadata: dict[str, Any] | None = None
 
 
@@ -403,9 +411,11 @@ __all__ = [
     "FsChanged",
     "GenerationChanged",
     "GenerationChangedPayload",
+    "LastTurnReason",
     "OpsBatchOut",
     "OpsCatchup",
     "OpsPayload",
+    "PendingInteraction",
     "Ping",
     "PingPayload",
     "Pong",

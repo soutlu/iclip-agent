@@ -157,7 +157,6 @@ class DbSection(ConfigSection):
 
 
 class SecuritySection(ConfigSection):
-    session_cookie_name: str = "iclip_session"
     session_lifetime_seconds: int = 604800
     cookie_secure: bool = False
     cors_allow_origins: tuple[str, ...] = ()
@@ -401,7 +400,6 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
 @dataclass(frozen=True, slots=True)
 class ResolvedSecurity:
     secret: str
-    cookie_name: str
     lifetime_seconds: int
     cookie_secure: bool
     cors_allow_origins: tuple[str, ...]
@@ -543,9 +541,15 @@ class ResolvedSettings:
 
     @property
     def shot_tools_enabled(self) -> bool:
-        """取帧与出图是否可用；ffmpeg 检查与能力登记都按这一处判断。"""
+        """取帧与出图是否可用；能力登记按这一处判断。"""
 
         return self.shot_video is not None and not self.shot_tools_missing
+
+    @property
+    def ffmpeg_required(self) -> bool:
+        """是否必须有 ffmpeg：取帧与出图要用，媒体生成带的视频裁剪拼接也要用。"""
+
+        return self.shot_tools_enabled or self.media_generation is not None
 
 
 def _from_env[EnvT: EnvSettings](cls: type[EnvT]) -> EnvT:
@@ -667,7 +671,6 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
         db_schema=config.db.db_schema,
         security=ResolvedSecurity(
             secret=core.auth_secret,
-            cookie_name=config.security.session_cookie_name,
             lifetime_seconds=config.security.session_lifetime_seconds,
             cookie_secure=config.security.cookie_secure,
             cors_allow_origins=config.security.cors_allow_origins,

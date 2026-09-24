@@ -7,16 +7,19 @@ import {
   zTaskInputsOutput,
   type zTaskOut,
 } from '@/shared/api/generated/zod.gen'
+import { PERMISSION } from '@/shared/auth/permissions'
 import { auditHandlers } from './audit'
 import { mockAuthUser, mockGovernor } from './auth-user'
 import {
   addMockCollection,
   addMockConversation,
+  liveMockConversation,
   mockCollections,
   mockConversations,
   resetMockConversations,
   type MockConversation,
 } from './conversations'
+import { byCreatedDesc, mockCreatedAt, pageByCreated } from './paging'
 import { transcriptHandlers } from './transcript'
 import { workspaceHandlers } from './workspace'
 
@@ -25,6 +28,7 @@ import { workspaceHandlers } from './workspace'
 export {
   addMockCollection,
   addMockConversation,
+  liveMockConversation,
   mockAuthUser,
   mockCollections,
   mockConversations,
@@ -32,12 +36,21 @@ export {
   resetMockConversations,
 }
 
-type MockUser = typeof mockAuthUser
+export type MockUser = typeof mockAuthUser
 
-// 登录的是谁由登录接口决定：governor 是治理者，其余用户名都是测试用户；页面刷新和单测清理后重置为未登录。
+// 登录的是谁由登录接口或单测的 loginAs 决定：governor 是治理者，其余用户名都是测试用户；页面刷新和单测清理后重置为未登录。
 let currentUser: MockUser | null = null
 
-/** 列表按属主过滤时用的身份；单测常用 server.use 直接给 /users/me 答复而不走登录，此时按测试用户算。 */
+/**
+ * 单测的登录态：直接把 mock 会话设成这个用户，`/users/me`、按属主过滤的列表与认领都认它，退出登录照常清掉。
+ * overrides 换权限等字段；返回实际登录的用户。
+ */
+export const loginAs = (user: MockUser, overrides: Partial<MockUser> = {}): MockUser => {
+  currentUser = { ...user, ...overrides }
+  return currentUser
+}
+
+/** 列表按属主过滤时用的身份；没登录就调列表接口的 API 测试按测试用户算。 */
 const activeUserId = () => (currentUser ?? mockAuthUser).id
 
 // 按 assetId 记录签名时的 contentType，登记响应复用此信息。
@@ -53,33 +66,16 @@ export const resetMockSession = () => {
 const SIDEBAR_PER_COLLECTION = 10
 const SIDEBAR_UNGROUPED = 20
 
-/** 登录人自己的对话；工作台接口只列这些。 */
-const mine = () => mockConversations.filter((item) => item.ownerUserId === activeUserId())
+/** 登录人自己还活着的对话；工作台接口只列这些，墓碑只进审计。 */
+const mine = () =>
+  mockConversations.filter((item) => item.ownerUserId === activeUserId() && item.deletedAt === null)
 
-const byRecent = (a: MockConversation, b: MockConversation) =>
-  b.updatedAt.localeCompare(a.updatedAt)
-
-const pageOf = (rows: MockConversation[], limit: number) => {
-  const items = rows.slice(0, limit)
-  const last = items[items.length - 1]
-  return {
-    items,
-    nextCursor: items.length === limit && last ? `${last.updatedAt}|${last.id}` : null,
-  }
-}
-
-/** 筛选与后端一致：running 包含待审批，done 要求已结束且至少运行过一轮；计数使用相同筛选。 */
+/** done / open 看 completedAt，running 含待审批；计数用相同筛选。 */
 const inState = (item: MockConversation, state: string | null) => {
   if (state === 'running') return item.activity.busy
   if (state === 'done') return item.completedAt !== null
   if (state === 'open') return item.completedAt === null
   return true
-}
-
-const after = (rows: MockConversation[], cursor: string | null) => {
-  if (!cursor) return rows
-  const index = rows.findIndex((item) => `${item.updatedAt}|${item.id}` === cursor)
-  return index < 0 ? rows : rows.slice(index + 1)
 }
 
 type MockTask = z.output<typeof zTaskOut>
@@ -102,7 +98,7 @@ const completeTaskInputs = (inputs: z.output<typeof zTaskCreateIn>['inputs']) =>
 export const mockTasks: MockTask[] = []
 
 export const addMockTask = (title: string) => {
-  const now = new Date().toISOString()
+  const now = mockCreatedAt()
   const task: MockTask = {
     assigneeUserIds: [],
     inputs: zTaskInputsOutput.parse({
@@ -137,7 +133,7 @@ export const addMockUser = (displayName: string, id = crypto.randomUUID()) => {
     displayName,
     email: `${id.slice(0, 8)}@example.com`,
     id,
-    permissions: ['agent:read', 'agent:run'],
+    permissions: [PERMISSION.agentRead, PERMISSION.agentRun],
     roles: ['editor'],
     username: id.slice(0, 8),
   }
@@ -149,23 +145,21 @@ export const resetMockUsers = () => {
   mockUsers.length = 0
 }
 
-/** 删没删、属主、需求单与时间先切出范围，state 再在范围内挑；runningTotal 只看范围。 */
+/** 删没删、属主、需求单与时间先切出范围，state 再在范围内挑；runningTotal 只看范围。时间窗作用在 createdAt 上。 */
 const auditScope = (query: URLSearchParams) => {
   const deleted = query.get('deleted') ?? 'live'
   const owner = query.get('ownerUserId')
   const taskId = query.get('taskId')
   const since = query.get('since')
   const until = query.get('until')
-  return [...mockConversations]
-    .sort(byRecent)
-    .filter(
-      (item) =>
-        (deleted === 'all' || (item.deletedAt !== null) === (deleted === 'deleted')) &&
-        (owner === null || item.ownerUserId === owner) &&
-        (taskId === null || item.taskId === taskId) &&
-        (since === null || item.updatedAt >= since) &&
-        (until === null || item.updatedAt <= until),
-    )
+  return mockConversations.filter(
+    (item) =>
+      (deleted === 'all' || (item.deletedAt !== null) === (deleted === 'deleted')) &&
+      (owner === null || item.ownerUserId === owner) &&
+      (taskId === null || item.taskId === taskId) &&
+      (since === null || Date.parse(item.createdAt) >= Date.parse(since)) &&
+      (until === null || Date.parse(item.createdAt) <= Date.parse(until)),
+  )
 }
 
 export const handlers = [
@@ -212,13 +206,12 @@ export const handlers = [
     const rows = scoped.filter((item) => inState(item, query.get('state')))
     const limit = Number(query.get('limit') ?? 20)
     return HttpResponse.json({
-      ...pageOf(after(rows, query.get('cursor')), limit),
+      ...pageByCreated(rows, query.get('cursor'), limit),
       runningTotal: scoped.filter((item) => item.activity.busy).length,
       total: rows.length,
     })
   }),
 
-  // 模拟 ILIKE 的大小写不敏感标题搜索，按最近活动排序。
   http.get('*/api/conversations/agents', () =>
     HttpResponse.json({
       items: [
@@ -230,42 +223,51 @@ export const handlers = [
   ),
 
   // 侧栏、搜索与分页都只列自己的对话，治理者也一样（合同 §6）；全平台的走 audit。
+  // 模拟 ILIKE 的大小写不敏感标题搜索。
   http.get('*/api/conversations/search', ({ request }) => {
     const keyword = (new URL(request.url).searchParams.get('q') ?? '').trim().toLowerCase()
     const items = mine()
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .sort(byCreatedDesc)
       .filter((item) => !keyword || item.title.toLowerCase().includes(keyword))
     return HttpResponse.json({ items })
   }),
 
-  // 分页游标使用 updatedAt|id；前端将其视为不透明值。
+  http.get('*/api/conversations/by-task/:taskId', ({ params }) =>
+    HttpResponse.json({
+      items: mine()
+        .filter((item) => item.taskId === params['taskId'])
+        .sort(byCreatedDesc),
+    }),
+  ),
+
+  // 列表按 createdAt 倒序、游标是 createdAt|id（合同 §3）；前端将游标视为不透明值。
   http.get('*/api/conversations', ({ request }) => {
     const state = new URL(request.url).searchParams.get('state')
-    const sorted = mine()
-      .sort(byRecent)
-      .filter((item) => inState(item, state))
-    const ungrouped = sorted.filter((item) => item.collectionId === null)
+    const rows = mine().filter((item) => inState(item, state))
+    const ungrouped = rows.filter((item) => item.collectionId === null)
     return HttpResponse.json({
-      collections: [...mockCollections]
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-        .map((collection) => {
-          const inside = sorted.filter((item) => item.collectionId === collection.id)
-          return {
-            conversationCount: inside.length,
-            id: collection.id,
-            name: collection.name,
-            page: pageOf(inside, SIDEBAR_PER_COLLECTION),
-            updatedAt: collection.updatedAt,
-          }
-        }),
-      ungrouped: pageOf(ungrouped, SIDEBAR_UNGROUPED),
+      collections: [...mockCollections].sort(byCreatedDesc).map((collection) => {
+        const inside = rows.filter((item) => item.collectionId === collection.id)
+        return {
+          conversationCount: inside.length,
+          id: collection.id,
+          name: collection.name,
+          page: pageByCreated(inside, null, SIDEBAR_PER_COLLECTION),
+          updatedAt: collection.updatedAt,
+        }
+      }),
+      ungrouped: pageByCreated(ungrouped, null, SIDEBAR_UNGROUPED),
       ungroupedCount: ungrouped.length,
     })
   }),
 
+  // 带 id 重发答复已有那一段；墓碑的 id 不能再用（合同 §6）。
   http.post('*/api/conversations', async ({ request }) => {
     const body = zConversationIn.parse(await request.json())
     const existing = mockConversations.find((item) => item.id === body.id)
+    if (existing?.deletedAt) {
+      return HttpResponse.json({ detail: '没有这段对话' }, { status: 404 })
+    }
     if (existing) return HttpResponse.json({ conversation: existing })
     const conversation = addMockConversation(body.title ?? '新对话', undefined, activeUserId())
     if (body.id) conversation.id = body.id
@@ -277,24 +279,22 @@ export const handlers = [
 
   http.get('*/api/conversations/ungrouped', ({ request }) => {
     const query = new URL(request.url).searchParams
-    const rows = mine()
-      .sort(byRecent)
-      .filter((item) => item.collectionId === null && inState(item, query.get('state')))
-    return HttpResponse.json(pageOf(after(rows, query.get('cursor')), SIDEBAR_UNGROUPED))
+    const rows = mine().filter(
+      (item) => item.collectionId === null && inState(item, query.get('state')),
+    )
+    return HttpResponse.json(pageByCreated(rows, query.get('cursor'), SIDEBAR_UNGROUPED))
   }),
 
   http.get('*/api/conversations/by-collection/:collectionId', ({ params, request }) => {
     const query = new URL(request.url).searchParams
-    const rows = mine()
-      .sort(byRecent)
-      .filter(
-        (item) => item.collectionId === params['collectionId'] && inState(item, query.get('state')),
-      )
-    return HttpResponse.json(pageOf(after(rows, query.get('cursor')), SIDEBAR_PER_COLLECTION))
+    const rows = mine().filter(
+      (item) => item.collectionId === params['collectionId'] && inState(item, query.get('state')),
+    )
+    return HttpResponse.json(pageByCreated(rows, query.get('cursor'), SIDEBAR_PER_COLLECTION))
   }),
 
   http.put('*/api/conversations/:conversationId/collection', async ({ params, request }) => {
-    const conversation = mockConversations.find((item) => item.id === params['conversationId'])
+    const conversation = liveMockConversation(String(params['conversationId']))
     if (!conversation) return HttpResponse.json({ detail: '没有这段对话' }, { status: 404 })
     const body = (await request.json()) as { collectionId: string | null }
     Object.assign(conversation, {
@@ -305,7 +305,7 @@ export const handlers = [
   }),
 
   http.put('*/api/conversations/:conversationId/task', async ({ params, request }) => {
-    const conversation = mockConversations.find((item) => item.id === params['conversationId'])
+    const conversation = liveMockConversation(String(params['conversationId']))
     if (!conversation) return HttpResponse.json({ detail: '没有这段对话' }, { status: 404 })
     const body = (await request.json()) as { taskId: string | null }
     Object.assign(conversation, { taskId: body.taskId, updatedAt: new Date().toISOString() })
@@ -313,7 +313,7 @@ export const handlers = [
   }),
 
   http.put('*/api/conversations/:conversationId/completion', async ({ params, request }) => {
-    const conversation = mockConversations.find((item) => item.id === params['conversationId'])
+    const conversation = liveMockConversation(String(params['conversationId']))
     if (!conversation) return HttpResponse.json({ detail: '没有这段对话' }, { status: 404 })
     const body = (await request.json()) as { completed: boolean }
     const now = new Date().toISOString()
@@ -325,24 +325,24 @@ export const handlers = [
   }),
 
   http.patch('*/api/conversations/:conversationId', async ({ params, request }) => {
-    const conversation = mockConversations.find((item) => item.id === params['conversationId'])
+    const conversation = liveMockConversation(String(params['conversationId']))
     if (!conversation) return HttpResponse.json({ detail: '没有这段对话' }, { status: 404 })
     const body = (await request.json()) as { title: string }
     Object.assign(conversation, { title: body.title, updatedAt: new Date().toISOString() })
     return HttpResponse.json({ conversation })
   }),
 
+  // 删除留下墓碑：行还在，deletedAt 记下时刻，审计的 deleted 筛选列得出它（合同 §6）。
   http.delete('*/api/conversations/:conversationId', ({ params }) => {
-    const index = mockConversations.findIndex((item) => item.id === params['conversationId'])
-    if (index < 0) return HttpResponse.json({ detail: '没有这段对话' }, { status: 404 })
-    mockConversations.splice(index, 1)
+    const conversation = liveMockConversation(String(params['conversationId']))
+    if (!conversation) return HttpResponse.json({ detail: '没有这段对话' }, { status: 404 })
+    const now = new Date().toISOString()
+    Object.assign(conversation, { deletedAt: now, updatedAt: now })
     return new HttpResponse(null, { status: 204 })
   }),
 
   http.get('*/api/collections', () =>
-    HttpResponse.json({
-      items: [...mockCollections].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
-    }),
+    HttpResponse.json({ items: [...mockCollections].sort(byCreatedDesc) }),
   ),
 
   http.post('*/api/collections', async ({ request }) => {
@@ -368,21 +368,28 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 })
   }),
 
+  // 与对话列表同一条排序键（合同 §3）：建立时间倒序，游标是上一页末行的「时刻|id」。
   http.get('*/api/tasks', ({ request }) => {
     const url = new URL(request.url)
-    let items = [...mockTasks]
+    let items: MockTask[] = mockTasks
     if (url.searchParams.get('claimedBy') === 'me') {
-      items = items.filter((task) => task.assigneeUserIds.includes(mockAuthUser.id))
+      items = items.filter((task) => task.assigneeUserIds.includes(activeUserId()))
     }
     const status = url.searchParams.get('status')
     if (status) items = items.filter((task) => task.status === status)
-    return HttpResponse.json({ items })
+    const ids = url.searchParams.getAll('ids')
+    if (ids.length > 0) items = items.filter((task) => ids.includes(task.id))
+    const limit = Number(url.searchParams.get('limit') ?? 20)
+    return HttpResponse.json({
+      ...pageByCreated(items, url.searchParams.get('cursor'), limit),
+      total: items.length,
+    })
   }),
 
   http.post('*/api/tasks', async ({ request }) => {
     const parsed = zTaskCreateIn.safeParse(await request.json())
     if (!parsed.success) return HttpResponse.json({ detail: '需求单参数不合法' }, { status: 422 })
-    const now = new Date().toISOString()
+    const now = mockCreatedAt()
     const task: MockTask = {
       ...parsed.data,
       deadline: parsed.data.deadline ?? null,
@@ -433,8 +440,8 @@ export const handlers = [
     if (task.status !== 'published' && task.status !== 'confirmed') {
       return HttpResponse.json({ detail: '这张单认领不了' }, { status: 409 })
     }
-    if (!task.assigneeUserIds.includes(mockAuthUser.id)) {
-      task.assigneeUserIds.push(mockAuthUser.id)
+    if (!task.assigneeUserIds.includes(activeUserId())) {
+      task.assigneeUserIds.push(activeUserId())
     }
     Object.assign(task, { status: 'confirmed', updatedAt: new Date().toISOString() })
     return HttpResponse.json({ task })

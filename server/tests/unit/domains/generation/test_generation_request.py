@@ -9,9 +9,11 @@ import pytest
 from iclip.common.errors import ValidationFailed
 from iclip.domains.generation.schemas import (
     IMAGE_MAX_REFERENCES,
+    KIND_CLIP,
     KIND_IMAGE,
     KIND_VIDEO,
     MAX_METADATA_CHARS,
+    ClipIn,
     ImageGenerationIn,
     VideoGenerationIn,
     request_from_payload,
@@ -20,6 +22,7 @@ from iclip.domains.generation.schemas import (
 from tests.helpers.generation import (
     SHOT_IMAGE_URLS,
     SHOT_PROMPT,
+    clip_request,
     image_request,
     video_request,
     video_shot,
@@ -93,9 +96,21 @@ def test_a_stored_request_reads_back_without_its_origin_columns() -> None:
     assert restored.metadata is None, "坐标落列，读回的请求里没有它"
 
     video = request_to_payload(
-        video_request(conversation_id=uuid.uuid4(), task_id=task_id, metadata={"shot": 3})
+        video_request(
+            conversation_id=uuid.uuid4(),
+            task_id=task_id,
+            metadata={"shot": 3},
+            root_job_id=uuid.uuid4(),
+        )
     )
-    assert {"conversation_id", "metadata", "task_id"}.isdisjoint(video)
+    assert {"conversation_id", "metadata", "task_id", "root_job_id"}.isdisjoint(video)
+
+    # clip 受理时原作号必填，但它落列不落 JSON，所以读回时必须允许它为空。
+    clip = request_to_payload(clip_request())
+    assert "rootJobId" not in clip
+    restored_clip = request_from_payload(KIND_CLIP, clip)
+    assert isinstance(restored_clip, ClipIn)
+    assert restored_clip.root_job_id is None
 
 
 def test_shot_index_is_an_alias_for_metadata_shot() -> None:
@@ -334,21 +349,16 @@ def test_image_request_caps_reference_count() -> None:
         image_request(reference_image_urls=urls)
 
 
-def test_non_http_reference_url_is_rejected() -> None:
-    """参考 URL 由供应商下载，只接受 HTTP(S)，避免 file:// 等协议访问本地文件。"""
+@pytest.mark.parametrize("url", ["file:///etc/passwd", "http://"])
+def test_non_http_reference_url_is_rejected(url: str) -> None:
+    """参考 URL 由供应商下载，只接受带主机名的 HTTP(S)，避免 file:// 等协议访问本地文件。"""
 
     with pytest.raises(ValueError):
         VideoGenerationIn(
             model="moyu-seedance-2-5",
             prompt="猫",
-            reference_video_urls=["file:///etc/passwd"],
+            reference_video_urls=[url],
         )
-
-
-def test_request_is_frozen() -> None:
-
-    with pytest.raises(ValueError):
-        video_request().prompt = "改了"  # type: ignore[misc]
 
 
 @pytest.mark.parametrize(

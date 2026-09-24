@@ -5,13 +5,13 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Query, Response
 
-from iclip.domains.conversations.models import Conversation
+from iclip.domains.conversations.models import Conversation, ConversationActivity
 from iclip.domains.conversations.schemas import (
     ConversationAgentOut,
     ConversationAgentsOut,
@@ -42,7 +42,13 @@ from iclip.domains.conversations.service import (
     ListAgents,
     ListState,
 )
-from iclip.domains.identity.public import ActAs, Principal, require_permission
+from iclip.domains.identity.public import (
+    MANAGE_PERMISSION,
+    ActAs,
+    Principal,
+    require_permission,
+)
+from iclip.platform.paging import DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT
 
 
 def create_conversations_router(
@@ -59,12 +65,20 @@ def create_conversations_router(
         activities = await service.activities([item.id for item in items])
         return [conversation_out(item, activities[item.id]) for item in items]
 
+    def _page_out_with(
+        page: ConversationPage, activities: Mapping[uuid.UUID, ConversationActivity]
+    ) -> ConversationPageOut:
+        return ConversationPageOut(
+            items=[conversation_out(item, activities[item.id]) for item in page.items],
+            next_cursor=page.next_cursor,
+        )
+
     async def _page_out(page: ConversationPage) -> ConversationPageOut:
-        return ConversationPageOut(items=await _outs(page.items), next_cursor=page.next_cursor)
+        return _page_out_with(page, await service.activities([item.id for item in page.items]))
 
     @router.get("/agents", response_model=ConversationAgentsOut)
     async def list_agents(
-        _: Annotated[Principal, Depends(require_permission("agent:run"))],
+        _: Annotated[Principal, require_permission("agent:run")],
     ) -> ConversationAgentsOut:
         """读取当前装配的顶层 Agent 名册，按声明顺序返回；热重载后下次请求即见新目录。"""
 
@@ -77,7 +91,7 @@ def create_conversations_router(
     @router.post("", response_model=ConversationEnvelope, status_code=201)
     async def create_conversation(
         body: ConversationIn,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
         response: Response,
     ) -> ConversationEnvelope:
         """开一段对话。带 ``id`` 重发时不新建，答复已有那一段并把状态码降为 200。"""
@@ -99,7 +113,7 @@ def create_conversations_router(
     async def fork_conversation(
         conversation_id: uuid.UUID,
         body: ConversationForkIn,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
     ) -> ConversationEnvelope:
         """从看得见的某段对话的第 ``turn`` 轮分叉出一段自己的对话，源对话不变。
 
@@ -118,7 +132,7 @@ def create_conversations_router(
 
     @router.get("", response_model=SidebarOut)
     async def read_sidebar(
-        principal: Annotated[Principal, Depends(require_permission("agent:read"))],
+        principal: Annotated[Principal, require_permission("agent:read")],
         state: ListState = "all",
     ) -> SidebarOut:
         """侧栏拓扑：我的合集（各带最近几段对话）加上没归类的对话。
@@ -126,29 +140,29 @@ def create_conversations_router(
         一次返回而不是「先列合集再按合集列对话」：侧栏是一屏里的一个整体，分两次查
         会让两半在不同时刻的库状态上拼出来。
 
-        ``state`` 只要在跑的（``running``）或者只要跑完过的（``done``），两个数字按同一个
-        筛选算。
+        ``state`` 四值：``open`` / ``done`` 看属主标没标收尾，``running`` 是此刻在跑，
+        ``all`` 不筛；两个数字按同一个筛选算。
         """
 
-        groups = await service.sidebar(principal, state=state)
+        view = await service.sidebar(principal, state=state)
         return SidebarOut(
             collections=[
                 SidebarCollectionOut(
-                    id=info.id,
-                    name=info.name,
-                    updated_at=info.updated_at,
-                    conversation_count=total,
-                    page=await _page_out(page),
+                    id=group.collection.id,
+                    name=group.collection.name,
+                    updated_at=group.collection.updated_at,
+                    conversation_count=group.total,
+                    page=_page_out_with(group.page, view.activities),
                 )
-                for info, total, page in groups
+                for group in view.groups
             ],
-            ungrouped_count=await service.ungrouped_count(principal, state=state),
-            ungrouped=await _page_out(await service.ungrouped(principal, state=state)),
+            ungrouped_count=view.ungrouped_total,
+            ungrouped=_page_out_with(view.ungrouped, view.activities),
         )
 
     @router.get("/ungrouped", response_model=ConversationPageOut)
     async def list_ungrouped(
-        principal: Annotated[Principal, Depends(require_permission("agent:read"))],
+        principal: Annotated[Principal, require_permission("agent:read")],
         cursor: str | None = None,
         state: ListState = "all",
     ) -> ConversationPageOut:
@@ -159,7 +173,7 @@ def create_conversations_router(
     @router.get("/by-collection/{collection_id}", response_model=ConversationPageOut)
     async def list_collection_conversations(
         collection_id: uuid.UUID,
-        principal: Annotated[Principal, Depends(require_permission("agent:read"))],
+        principal: Annotated[Principal, require_permission("agent:read")],
         cursor: str | None = None,
         state: ListState = "all",
     ) -> ConversationPageOut:
@@ -174,8 +188,8 @@ def create_conversations_router(
 
     @router.get("/search", response_model=ConversationsPageOut)
     async def search_conversations(
-        principal: Annotated[Principal, Depends(require_permission("agent:read"))],
-        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+        principal: Annotated[Principal, require_permission("agent:read")],
+        limit: Annotated[int, Query(ge=1, le=MAX_LIST_LIMIT)] = DEFAULT_LIST_LIMIT,
         q: Annotated[str | None, Query(max_length=200)] = None,
     ) -> ConversationsPageOut:
         """按标题搜自己的对话，最近建的排前面。筛选在库里做，搜得到全部历史。"""
@@ -185,26 +199,25 @@ def create_conversations_router(
 
     @router.get("/audit", response_model=ConversationsAuditOut)
     async def audit_conversations(
-        principal: Annotated[Principal, Depends(require_permission("agent:read"))],
+        _: Annotated[Principal, require_permission("agent:read", MANAGE_PERMISSION)],
         owner_user_id: Annotated[uuid.UUID | None, Query(alias="ownerUserId")] = None,
         task_id: Annotated[uuid.UUID | None, Query(alias="taskId")] = None,
         since: datetime | None = None,
         until: datetime | None = None,
         state: ListState = "all",
         deleted: DeletedFilter = "live",
-        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+        limit: Annotated[int, Query(ge=1, le=MAX_LIST_LIMIT)] = DEFAULT_LIST_LIMIT,
         cursor: str | None = None,
     ) -> ConversationsAuditOut:
         """治理者查全平台的对话：按人、按单、按时间段、按状态、按删没删筛，最近建的排前面。
 
-        没有 ``users:manage`` 就 403。``since`` / ``until`` 作用在建立时刻上，与排序同一列——
-        同页报表按各指标自己的事件时刻分期，两边不是同一批对话（ADR-0030）；
-        ``state`` 的三值与侧栏同一口径；``deleted`` 缺省只看活着的，``deleted`` 只看属主删掉的，
+        ``since`` / ``until`` 作用在建立时刻上，与排序同一列——
+        同页报表按各指标自己的事件时刻分期，两边不是同一批对话；
+        ``state`` 的四值与侧栏同一口径；``deleted`` 缺省只看活着的，``deleted`` 只看属主删掉的，
         ``all`` 都看。``total`` 与 ``runningTotal`` 是真总数，不随翻页变。
         """
 
         page = await service.audit(
-            principal,
             owner_user_id=owner_user_id,
             task_id=task_id,
             since=since,
@@ -224,7 +237,7 @@ def create_conversations_router(
     @router.get("/by-task/{task_id}", response_model=ConversationsPageOut)
     async def list_task_attempts(
         task_id: uuid.UUID,
-        principal: Annotated[Principal, Depends(require_permission("agent:read"))],
+        principal: Annotated[Principal, require_permission("agent:read")],
     ) -> ConversationsPageOut:
         """列出自己在这张需求单下的尝试，最后一次排在最前。
 
@@ -239,7 +252,7 @@ def create_conversations_router(
     @router.get("/{conversation_id}/workspace/files", response_model=ConversationFilesOut)
     async def list_conversation_files(
         conversation_id: uuid.UUID,
-        principal: Annotated[Principal, Depends(require_permission("agent:read"))],
+        principal: Annotated[Principal, require_permission("agent:read")],
     ) -> ConversationFilesOut:
         found = await service.files(principal, conversation_id)
         return ConversationFilesOut(
@@ -258,7 +271,7 @@ def create_conversations_router(
     async def read_conversation_file(
         conversation_id: uuid.UUID,
         path: Annotated[str, Query(min_length=1)],
-        principal: Annotated[Principal, Depends(require_permission("agent:read"))],
+        principal: Annotated[Principal, require_permission("agent:read")],
     ) -> ConversationFileEnvelope:
         """路径放在查询串里而不是路径段里：文件路径自己就带 ``/``。"""
 
@@ -273,7 +286,7 @@ def create_conversations_router(
     async def write_conversation_file(
         conversation_id: uuid.UUID,
         body: ConversationFileWriteIn,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
     ) -> ConversationFileEnvelope:
         """整份覆盖一个工作区文件。路径在体里，与读那一侧的查询串是同一个字符串。
 
@@ -297,7 +310,7 @@ def create_conversations_router(
     async def rename_conversation(
         conversation_id: uuid.UUID,
         body: ConversationRename,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
     ) -> ConversationEnvelope:
         conversation = await service.rename(principal, conversation_id, title=body.title)
         return ConversationEnvelope(conversation=await _out(conversation))
@@ -306,7 +319,7 @@ def create_conversations_router(
     async def set_conversation_collection(
         conversation_id: uuid.UUID,
         body: ConversationCollectionIn,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
     ) -> ConversationEnvelope:
         conversation = await service.set_collection(
             principal, conversation_id, collection_id=body.collection_id
@@ -317,7 +330,7 @@ def create_conversations_router(
     async def set_conversation_task(
         conversation_id: uuid.UUID,
         body: ConversationTaskIn,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
     ) -> ConversationEnvelope:
         conversation = await service.set_task(principal, conversation_id, task_id=body.task_id)
         return ConversationEnvelope(conversation=await _out(conversation))
@@ -326,9 +339,9 @@ def create_conversations_router(
     async def set_conversation_completion(
         conversation_id: uuid.UUID,
         body: ConversationCompletionIn,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
     ) -> ConversationEnvelope:
-        """属主标记这段对话收尾了，或取消标记。机器不会自己标（ADR-0031）。"""
+        """属主标记这段对话收尾了，或取消标记。机器不会自己标。"""
 
         conversation = await service.set_completed(
             principal, conversation_id, completed=body.completed
@@ -338,7 +351,7 @@ def create_conversations_router(
     @router.delete("/{conversation_id}", status_code=204)
     async def delete_conversation(
         conversation_id: uuid.UUID,
-        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, require_permission("agent:run")],
     ) -> Response:
         await service.delete(principal, conversation_id)
         return Response(status_code=204)

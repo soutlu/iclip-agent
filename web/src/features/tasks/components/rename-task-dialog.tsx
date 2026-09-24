@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { ApiError } from '@/shared/api/client'
+import { errorMessageOf } from '@/shared/api/client'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
 import {
@@ -12,6 +12,7 @@ import {
 } from '@/shared/ui/dialog'
 import { Input } from '@/shared/ui/field'
 import { toast } from '@/shared/ui/toast'
+import { MAX_TITLE_CHARS } from '../task-limits'
 import { getTask, saveTask, tasksQueryKeys, type Task } from '../tasks.api'
 
 type RenameTaskDialogProps = {
@@ -52,7 +53,7 @@ function RenameForm({ onOpenChange, task }: { onOpenChange: (open: boolean) => v
       })
     },
     onError: (error) => {
-      toast.error(error instanceof ApiError ? error.message : '重命名失败，请重试')
+      toast.error(errorMessageOf(error, '重命名失败，请重试'))
     },
     onSuccess: () => {
       toast.success('已保存')
@@ -62,7 +63,7 @@ function RenameForm({ onOpenChange, task }: { onOpenChange: (open: boolean) => v
   })
 
   const trimmed = name.trim()
-  const atLimit = name.length >= 200
+  const atLimit = name.length >= MAX_TITLE_CHARS
   const submit = () => {
     if (trimmed && trimmed !== task.title) {
       renameMutation.mutate(trimmed)
@@ -79,7 +80,7 @@ function RenameForm({ onOpenChange, task }: { onOpenChange: (open: boolean) => v
           <Input
             aria-label="新的需求单名称"
             className="h-(--control-height-sm) rounded-sm border-border"
-            maxLength={200}
+            maxLength={MAX_TITLE_CHARS}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') submit()
@@ -93,7 +94,7 @@ function RenameForm({ onOpenChange, task }: { onOpenChange: (open: boolean) => v
               atLimit ? 'text-error' : 'text-on-surface-variant',
             )}
           >
-            {name.length}/200
+            {name.length}/{MAX_TITLE_CHARS}
           </span>
         </div>
       </DialogBody>

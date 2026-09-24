@@ -1,6 +1,7 @@
 /** 标题来自 transcript 基线与推送；侧栏拓扑仅包含各列表首页，无法覆盖全部历史对话。 */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { errorMessageOf } from '@/shared/api/client'
 import { useUser, useUsersDirectory } from '@/shared/auth'
 import { useConversationReadOnly } from '@/shared/transcript/use-conversation-read-only'
 import { useSessionTitles } from '@/shared/transcript/use-session-titles'
@@ -205,7 +206,7 @@ export function ConversationRoute({
 
   const act = (work: Promise<void>) => {
     void work.catch((error: unknown) => {
-      toast.error(error instanceof Error ? error.message : '操作失败')
+      toast.error(errorMessageOf(error, '操作失败'))
     })
   }
 

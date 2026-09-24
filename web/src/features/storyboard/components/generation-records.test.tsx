@@ -5,30 +5,29 @@ import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { makeGenerationJob } from '@/testing/generation-job'
 import type { GenerationJob } from '../storyboard.api'
 import { GenerationRecords } from './generation-records'
 
-const job = (spec: Partial<GenerationJob> & { id: string }): GenerationJob => ({
-  createdAt: '2026-09-01T10:00:00Z',
-  errorMessage: null,
-  kind: 'video',
-  outputUrl: null,
-  metadata: { shot: 2 },
-  request: {},
-  status: 'completed',
-  taskId: null,
-  clipStage: null,
-  durationMs: null,
-  watermarkOutputUrl: null,
-  ...spec,
-})
+const job = (spec: Partial<GenerationJob> & { id: string }): GenerationJob =>
+  makeGenerationJob({ createdAt: '2026-09-01T10:00:00Z', metadata: { shot: 2 }, ...spec })
 
+/** 含这段文字的那张记录卡。 */
+const cardWith = (text: string): HTMLElement => {
+  const card = screen
+    .getAllByRole('article')
+    .find((item) => within(item).queryByText(text) !== null)
+  if (card === undefined) throw new Error(`没有含「${text}」的记录卡`)
+  return card
+}
+
+// 与接口一样新的在前。
 const jobs: GenerationJob[] = [
   job({
-    createdAt: new Date(2026, 8, 1, 10, 4).toISOString(),
-    id: 'a',
-    outputUrl: 'take-1.mp4',
-    request: { prompt: '第一版：走向镜头。', model: 'wan3.0-video' },
+    createdAt: new Date(2026, 8, 1, 12, 20).toISOString(),
+    id: 'c',
+    request: { prompt: '第三版：脚步放慢。', model: 'moyu-seedance-2-5' },
+    status: 'submitted',
   }),
   job({
     createdAt: new Date(2026, 8, 1, 11, 40).toISOString(),
@@ -39,10 +38,10 @@ const jobs: GenerationJob[] = [
     status: 'failed',
   }),
   job({
-    createdAt: new Date(2026, 8, 1, 12, 20).toISOString(),
-    id: 'c',
-    request: { prompt: '第三版：脚步放慢。', model: 'moyu-seedance-2-5' },
-    status: 'submitted',
+    createdAt: new Date(2026, 8, 1, 10, 4).toISOString(),
+    id: 'a',
+    outputUrl: 'take-1.mp4',
+    request: { prompt: '第一版：走向镜头。', model: 'wan3.0-video' },
   }),
   job({
     id: 'other-shot',
@@ -73,15 +72,6 @@ const renderRecords = async () => {
 
 beforeEach(() => {
   vi.stubGlobal('scrollTo', () => {})
-  // 下载菜单是 Radix 弹层，定位时要量尺寸；jsdom 没有 ResizeObserver。
-  vi.stubGlobal(
-    'ResizeObserver',
-    class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    },
-  )
 })
 
 afterEach(() => {
@@ -91,7 +81,7 @@ afterEach(() => {
 })
 
 describe('GenerationRecords', () => {
-  it('只列本组视频，排除图片和其它组，按时间倒序', async () => {
+  it('只列本组视频，排除图片和其它组，保持接口给的新旧顺序', async () => {
     await renderRecords()
 
     expect(screen.getByRole('heading', { name: '当前镜头组 · 视频' })).toBeVisible()
@@ -126,7 +116,7 @@ describe('GenerationRecords', () => {
   it('只有完成且有结果的记录提供下载，折叠后仍可下载', async () => {
     await renderRecords()
     expect(screen.getAllByRole('button', { name: '下载视频' })).toHaveLength(1)
-    const card = screen.getByText('第一版：走向镜头。').closest('article') as HTMLElement
+    const card = cardWith('第一版：走向镜头。')
     await userEvent.click(within(card).getByRole('button', { name: '收起这条记录' }))
     expect(within(card).getByRole('button', { name: '下载视频' })).toBeEnabled()
   })
@@ -277,7 +267,7 @@ describe('GenerationRecords', () => {
 
   it('折叠箭头收起之后隐藏运行中的描述', async () => {
     await renderRecords()
-    const card = screen.getByText('第三版：脚步放慢。').closest('article') as HTMLElement
+    const card = cardWith('第三版：脚步放慢。')
 
     await userEvent.click(within(card).getByRole('button', { name: '收起这条记录' }))
 
@@ -302,7 +292,7 @@ describe('GenerationRecords', () => {
 
   it('收起已完成记录隐藏描述与编辑按钮，视频预览和播放入口仍保留', async () => {
     await renderRecords()
-    const card = screen.getByText('第一版：走向镜头。').closest('article') as HTMLElement
+    const card = cardWith('第一版：走向镜头。')
 
     await userEvent.click(within(card).getByRole('button', { name: '收起这条记录' }))
 
@@ -311,14 +301,14 @@ describe('GenerationRecords', () => {
     expect(within(card).queryByRole('button', { name: '编辑生成' })).not.toBeInTheDocument()
     const play = within(card).getByRole('button', { name: '播放视频' })
     expect(play).toBeVisible()
-    expect(document.querySelector('video')).toBeNull()
+    expect(screen.queryByLabelText('生成的视频', { selector: 'video' })).toBeNull()
 
     await userEvent.click(play)
     const dialog = await screen.findByRole('dialog', { name: '生成的视频' })
     expect(within(dialog).getByLabelText('生成的视频')).toHaveAttribute('src', 'take-1.mp4')
     await userEvent.keyboard('{Escape}')
     expect(screen.queryByRole('dialog', { name: '生成的视频' })).not.toBeInTheDocument()
-    expect(document.querySelector('video')).toBeNull()
+    expect(screen.queryByLabelText('生成的视频', { selector: 'video' })).toBeNull()
     await waitFor(() => expect(play).toHaveFocus())
 
     await userEvent.click(within(card).getByRole('button', { name: '展开这条记录' }))
@@ -345,8 +335,8 @@ describe('GenerationRecords', () => {
         />,
       )
       const play = screen.getByRole('button', { name: '播放视频' })
-      expect(document.querySelector('video')).toBeNull()
-      const poster = play.querySelector('img')
+      expect(screen.queryByLabelText('生成的视频', { selector: 'video' })).toBeNull()
+      const poster = within(play).queryByRole('img', { name: '生成的视频封面' })
       if (hasPoster) {
         expect(poster).toHaveAttribute(
           'src',
@@ -365,12 +355,12 @@ describe('GenerationRecords', () => {
       expect(video).toHaveAttribute('src', url)
       expect(video).toHaveAttribute('controls')
       expect(video).toHaveAttribute('autoplay')
-      expect(document.querySelectorAll('video')).toHaveLength(1)
+      expect(screen.getAllByLabelText('生成的视频', { selector: 'video' })).toHaveLength(1)
 
       await userEvent.click(within(dialog).getByRole('button', { name: '关闭' }))
 
       expect(screen.queryByRole('dialog', { name: '生成的视频' })).not.toBeInTheDocument()
-      expect(document.querySelector('video')).toBeNull()
+      expect(screen.queryByLabelText('生成的视频', { selector: 'video' })).toBeNull()
       await waitFor(() => expect(play).toHaveFocus())
     },
   )

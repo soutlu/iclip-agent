@@ -1,6 +1,8 @@
 /** 审计报表的 mock：从内存对话推出一套自洽的明细，再按合同 §12 的口径汇总成 summary 与异常。
 
-单测与 dev:mock 共用；数字按对话下标确定地生成，同一组对话每次都算出同样的结果。 */
+单测与 dev:mock 共用；数字按对话下标确定地生成，同一组对话每次都算出同样的结果。
+
+这里的聚合只是让演示数据自洽，不是后端口径的参考实现：测试要断言数字就用 `server.use` 喂自己的 fixture，不拿它算出来的值当预期值。 */
 
 import { http, HttpResponse } from 'msw'
 import type { z } from 'zod'
@@ -12,6 +14,7 @@ import type {
 } from '@/shared/api/generated/zod.gen'
 import { mockAuthUser, mockGovernor } from './auth-user'
 import { mockConversations, type MockConversation } from './conversations'
+import { pageBy, type SortKey } from './paging'
 
 type Metrics = z.output<typeof zMetricsOut>
 type Spread = z.output<typeof zSpreadOut>
@@ -64,10 +67,13 @@ const usageOf = (
   }
 }
 
-/** 一段对话的明细：镜数、每镜次数、周期都由下标定，第三段起每三段有一镜反复重试。 */
+/** 一段对话的明细：镜数、每镜次数、周期都由下标定，第三段起每三段有一镜反复重试。
+ *
+ * 交付时刻锚在建立时刻上：`updatedAt` 会随改名、换归属、标收尾和删除刷新，拿它当锚点，报表位置和
+ * 时间窗归属就会跟着这些操作挪。 */
 const reportOf = (conversation: MockConversation, index: number): Report => {
   const shotCount = 2 + (index % 3)
-  const deliveredAt = new Date(conversation.updatedAt)
+  const deliveredAt = new Date(conversation.createdAt)
   const cycleSeconds = (1.5 + (index % 5) * 0.8) * 3600
   const shots = Array.from({ length: shotCount }, (_, shotIndex) => {
     const attempts = shotIndex === 1 && index % 3 === 2 ? 3 : 1 + ((index + shotIndex) % 2)
@@ -291,17 +297,9 @@ const distributionOf = (reports: Report[]) => {
     .map(([attempts, shots]) => ({ attempts, shots }))
 }
 
-const page = <T>(items: T[], query: URLSearchParams, key: (item: T) => string) => {
-  const cursor = query.get('cursor')
-  const limit = Number(query.get('limit') ?? 20)
-  const start = cursor === null ? 0 : items.findIndex((item) => key(item) === cursor) + 1
-  const slice = items.slice(start, start + limit)
-  const last = slice.at(-1)
-  return {
-    items: slice,
-    nextCursor: slice.length === limit && last !== undefined ? key(last) : null,
-  }
-}
+/** 两张明细表都按各自的时刻倒序翻页，翻页规则同合同 §6 审计列表。 */
+const page = <T>(items: readonly T[], query: URLSearchParams, keyOf: (item: T) => SortKey) =>
+  pageBy(items, keyOf, query.get('cursor'), Number(query.get('limit') ?? 20))
 
 export const auditHandlers = [
   http.get('*/api/audit/summary', ({ request }) => {
@@ -327,7 +325,14 @@ export const auditHandlers = [
         if (!byPeriod.has(start)) byPeriod.set(start, [])
       }
     }
+    const countByKind = new Map<string, number>()
+    for (const anomaly of anomaliesFor(reports)) {
+      countByKind.set(anomaly.kind, (countByKind.get(anomaly.kind) ?? 0) + 1)
+    }
     return HttpResponse.json({
+      anomalyCounts: [...countByKind.entries()]
+        .sort(([kindA, countA], [kindB, countB]) => countB - countA || kindA.localeCompare(kindB))
+        .map(([kind, count]) => ({ count, kind })),
       attemptDistribution: distributionOf(reports),
       overall: aggregate(reports),
       series:
@@ -350,7 +355,7 @@ export const auditHandlers = [
   http.get('*/api/audit/conversations', ({ request }) => {
     const query = new URL(request.url).searchParams
     return HttpResponse.json(
-      page(reportsFor(query), query, (r) => `${r.deliveredAt}|${r.conversationId}`),
+      page(reportsFor(query), query, (r) => [r.deliveredAt, r.conversationId]),
     )
   }),
 
@@ -361,7 +366,7 @@ export const auditHandlers = [
       (item) => kinds.length === 0 || kinds.includes(item.kind),
     )
     return HttpResponse.json(
-      page(items, query, (a) => `${a.at}|${a.kind}:${a.conversationId ?? ''}:${a.shot ?? ''}`),
+      page(items, query, (a) => [a.at, `${a.kind}:${a.conversationId ?? ''}:${a.shot ?? ''}`]),
     )
   }),
 ]

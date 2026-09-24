@@ -2,13 +2,13 @@
 
 import { Line, LineChart, ReferenceDot, XAxis, YAxis } from 'recharts'
 import { cn } from '@/shared/lib/utils'
+import { CHART_SERIES } from '../chart-colors'
 
 type SparklineProps = {
   values: readonly (number | null)[]
   className?: string
 }
 
-const SERIES = 'var(--color-chart-1)'
 const WIDTH = 96
 const HEIGHT = 28
 const MARGIN = { top: 3, right: 3, bottom: 3, left: 3 }
@@ -35,13 +35,13 @@ export function Sparkline({ values, className }: SparklineProps) {
           dataKey="value"
           dot={false}
           isAnimationActive={false}
-          stroke={SERIES}
+          stroke={CHART_SERIES}
           strokeLinecap="round"
           strokeWidth={2}
           type="monotone"
         />
         {last === undefined || last.value === null ? null : (
-          <ReferenceDot fill={SERIES} r={2.5} stroke="none" x={last.index} y={last.value} />
+          <ReferenceDot fill={CHART_SERIES} r={2.5} stroke="none" x={last.index} y={last.value} />
         )}
       </LineChart>
     </span>

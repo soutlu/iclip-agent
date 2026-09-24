@@ -177,8 +177,39 @@
         "title": "AnomaliesOut",
         "type": "object"
       },
+      "AnomalyCountOut": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "retry",
+              "idle",
+              "slow",
+              "stuck",
+              "spend",
+              "task_stuck",
+              "deleted",
+              "no_task",
+              "missing_shot"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "count"
+        ],
+        "title": "AnomalyCountOut",
+        "type": "object"
+      },
       "AnomalyOut": {
         "additionalProperties": false,
+        "description": "一条异常。``ref`` 是「种类:对象」的稳定文本，与 ``at`` 一起构成排序键与游标，不出接口。",
         "properties": {
           "at": {
             "format": "date-time",
@@ -316,7 +347,7 @@
           },
           "permissions": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/Permission"
             },
             "title": "Permissions",
             "type": "array"
@@ -623,7 +654,7 @@
       },
       "AttemptBucketOut": {
         "additionalProperties": false,
-        "description": "出片次数正好是 ``attempts`` 次的镜有多少个。",
+        "description": "出片次数正好是 ``attempts`` 次的镜有多少个。次数按镜上全部出片记录数，不看终态。",
         "properties": {
           "attempts": {
             "title": "Attempts",
@@ -764,6 +795,18 @@
             ],
             "title": "Purpose",
             "type": "string"
+          },
+          "rootJobId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rootjobid"
           },
           "segments": {
             "items": {
@@ -1010,7 +1053,7 @@
       },
       "ConversationAuditOut": {
         "additionalProperties": false,
-        "description": "一段有成片的对话；指标与镜、用量都是这段对话的全量。",
+        "description": "一段有成片的对话；指标与镜、用量都是这段对话的全量，不按时间窗裁。",
         "properties": {
           "conversationId": {
             "format": "uuid",
@@ -1911,6 +1954,11 @@
             "type": "string"
           },
           "kind": {
+            "enum": [
+              "video",
+              "image",
+              "clip"
+            ],
             "title": "Kind",
             "type": "string"
           },
@@ -1942,7 +1990,26 @@
             "title": "Request",
             "type": "object"
           },
+          "rootJobId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rootjobid"
+          },
           "status": {
+            "enum": [
+              "pending",
+              "submitting",
+              "submitted",
+              "completed",
+              "failed"
+            ],
             "title": "Status",
             "type": "string"
           },
@@ -1977,6 +2044,7 @@
           "request",
           "metadata",
           "taskId",
+          "rootJobId",
           "outputUrl",
           "watermarkOutputUrl",
           "errorMessage",
@@ -2133,6 +2201,18 @@
             ],
             "title": "Resolution",
             "type": "string"
+          },
+          "rootJobId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rootjobid"
           },
           "taskId": {
             "anyOf": [
@@ -2434,7 +2514,7 @@
       },
       "MetricsOut": {
         "additionalProperties": false,
-        "description": "一格指标。每一层都是这个形状，见合同 §12。",
+        "description": "一格指标。全体、人、需求单、时段、对话各层都是这个形状，只是维度键不同；见合同 §12。",
         "properties": {
           "attempts": {
             "title": "Attempts",
@@ -2449,6 +2529,7 @@
                 "type": "null"
               }
             ],
+            "readOnly": true,
             "title": "Attemptspershot"
           },
           "completedVideos": {
@@ -2478,6 +2559,8 @@
             "type": "integer"
           },
           "deliveries": {
+            "description": "成片件数：有成片的需求单各一件，加没挂需求单却有成片的对话各一件。",
+            "readOnly": true,
             "title": "Deliveries",
             "type": "integer"
           },
@@ -2490,6 +2573,8 @@
                 "type": "null"
               }
             ],
+            "description": "一次通过率：只出了一条且成了的镜占全部镜的比例。",
+            "readOnly": true,
             "title": "Onetakerate"
           },
           "oneTakeShots": {
@@ -2517,6 +2602,7 @@
                 "type": "null"
               }
             ],
+            "readOnly": true,
             "title": "Tokensperdelivery"
           },
           "upstreamSeconds": {
@@ -2544,22 +2630,22 @@
           }
         },
         "required": [
-          "deliveries",
+          "completedVideos",
           "deliveredTasks",
           "deliveredOrphanConversations",
-          "completedVideos",
           "producers",
           "shots",
           "attempts",
           "oneTakeShots",
-          "attemptsPerShot",
-          "oneTakeRate",
           "runs",
           "deliveredConversations",
           "cycleSeconds",
           "videoSeconds",
           "upstreamSeconds",
           "usage",
+          "deliveries",
+          "attemptsPerShot",
+          "oneTakeRate",
           "tokensPerDelivery"
         ],
         "title": "MetricsOut",
@@ -2753,6 +2839,24 @@
         ],
         "title": "PeriodMetricsOut",
         "type": "object"
+      },
+      "Permission": {
+        "enum": [
+          "collections:read",
+          "collections:write",
+          "tasks:read",
+          "tasks:write",
+          "inspirations:read",
+          "uploads:write",
+          "generation:read",
+          "generation:submit",
+          "users:manage",
+          "users:act_as",
+          "api_keys:issue",
+          "agent:read",
+          "agent:run"
+        ],
+        "type": "string"
       },
       "Prompt": {
         "additionalProperties": false,
@@ -3135,7 +3239,7 @@
       },
       "SpreadOut": {
         "additionalProperties": false,
-        "description": "时长分布，单位秒。",
+        "description": "一组时长样本的分布，单位秒。",
         "properties": {
           "avg": {
             "title": "Avg",
@@ -3377,6 +3481,13 @@
       "SummaryOut": {
         "additionalProperties": false,
         "properties": {
+          "anomalyCounts": {
+            "items": {
+              "$ref": "#/components/schemas/AnomalyCountOut"
+            },
+            "title": "Anomalycounts",
+            "type": "array"
+          },
           "attemptDistribution": {
             "items": {
               "$ref": "#/components/schemas/AttemptBucketOut"
@@ -3421,7 +3532,8 @@
           "users",
           "tasks",
           "series",
-          "attemptDistribution"
+          "attemptDistribution",
+          "anomalyCounts"
         ],
         "title": "SummaryOut",
         "type": "object"
@@ -3712,6 +3824,12 @@
             "type": "integer"
           },
           "status": {
+            "enum": [
+              "draft",
+              "published",
+              "confirmed",
+              "withdrawn"
+            ],
             "title": "Status",
             "type": "string"
           },
@@ -4068,6 +4186,7 @@
       },
       "TasksPageOut": {
         "additionalProperties": false,
+        "description": "一页需求单。``nextCursor`` 为空即没有更多了；``total`` 是当前筛选下一共几张，不随翻页变。",
         "properties": {
           "items": {
             "items": {
@@ -4075,10 +4194,27 @@
             },
             "title": "Items",
             "type": "array"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextcursor"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
           }
         },
         "required": [
-          "items"
+          "items",
+          "nextCursor",
+          "total"
         ],
         "title": "TasksPageOut",
         "type": "object"
@@ -5292,6 +5428,8 @@
                 "type": "null"
               }
             ],
+            "description": "缓存读取 ÷（新输入 + 缓存读取 + 缓存写入）；没有输入时为空。",
+            "readOnly": true,
             "title": "Cachehitrate"
           },
           "cacheReadTokens": {
@@ -5315,6 +5453,7 @@
             "type": "integer"
           },
           "totalTokens": {
+            "readOnly": true,
             "title": "Totaltokens",
             "type": "integer"
           }
@@ -5550,7 +5689,7 @@
             "anyOf": [
               {
                 "items": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/Permission"
                 },
                 "type": "array"
               },
@@ -5818,6 +5957,18 @@
               }
             ],
             "title": "Resolution"
+          },
+          "root_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Root Job Id"
           },
           "seconds": {
             "anyOf": [
@@ -6161,7 +6312,11 @@
       }
     },
     "securitySchemes": {
-      "APIKeyCookie": {
+      "BearerToken": {
+        "scheme": "bearer",
+        "type": "http"
+      },
+      "SessionCookie": {
         "in": "cookie",
         "name": "iclip_session",
         "type": "apiKey"
@@ -6189,6 +6344,14 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "BearerToken": []
+          }
+        ],
         "summary": "List Keys"
       },
       "post": {
@@ -6225,6 +6388,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "api_keys:issue"
+            ]
+          },
+          {
+            "BearerToken": [
+              "api_keys:issue"
+            ]
+          }
+        ],
         "summary": "Create Key"
       }
     },
@@ -6258,12 +6433,20 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "BearerToken": []
+          }
+        ],
         "summary": "Revoke Key"
       }
     },
     "/audit/anomalies": {
       "get": {
-        "description": "异常按发生时刻倒序。``kind`` 可重复给，不给就全部种类。\n\n阈值参数只管数得出来的那几种；``slow`` 与 ``spend`` 的门槛按当前筛选范围现算 P90 / P95，\n范围小时门槛会抖。",
+        "description": "异常按发生时刻倒序。``kind`` 可重复给，不给就全部种类。\n\n九种异常的判定、阈值参数管哪几种、``slow`` 与 ``spend`` 的门槛按筛选范围现算，见合同 §12。",
         "operationId": "anomalies_audit_anomalies_get",
         "parameters": [
           {
@@ -6459,6 +6642,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "users:manage"
+            ]
+          },
+          {
+            "BearerToken": [
+              "users:manage"
+            ]
+          }
+        ],
         "summary": "Anomalies",
         "tags": [
           "audit"
@@ -6467,7 +6662,7 @@
     },
     "/audit/conversations": {
       "get": {
-        "description": "有成片的对话，最后成片晚的排前面；时间窗作用在最后成片时刻上。\n\n每行的指标、镜明细与按模型用量都是这段对话的全量。属主删掉的对话照列，``deletedAt`` 非空。",
+        "description": "有成片的对话，最后成片晚的排前面；每行的指标、镜明细与按模型用量都是这段对话的全量。\n\n时间窗与翻页规则见合同 §12。",
         "operationId": "conversations_audit_conversations_get",
         "parameters": [
           {
@@ -6589,6 +6784,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "users:manage"
+            ]
+          },
+          {
+            "BearerToken": [
+              "users:manage"
+            ]
+          }
+        ],
         "summary": "Conversations",
         "tags": [
           "audit"
@@ -6597,7 +6804,7 @@
     },
     "/audit/summary": {
       "get": {
-        "description": "全体一格、每人一行、每单一行；给 ``bucket`` 再多一条按 ``timezone`` 切的时段序列。\n\n``attemptDistribution`` 是全体的出片次数分布，次数按镜上的出片记录数分档、不封顶，\n锚点与每镜次数一样看该镜首次出片时刻；按人、按需求单的行上没有这份数据。\n\n``since`` / ``until`` 作用在各指标自己的锚点上：成片与视频耗时看完成时刻，每镜次数看\n该镜首次出片时刻，交付周期看最后成片时刻，模型用量整段对话按最后记账时刻归期。",
+        "description": "全体一格、每人一行、每单一行；给 ``bucket`` 再多一条按 ``timezone`` 切的时段序列。\n\n各指标的定义、时间窗落在哪个时刻上、``attemptDistribution`` 只给全体一档，见合同 §12。",
         "operationId": "summary_audit_summary_get",
         "parameters": [
           {
@@ -6723,6 +6930,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "users:manage"
+            ]
+          },
+          {
+            "BearerToken": [
+              "users:manage"
+            ]
+          }
+        ],
         "summary": "Summary",
         "tags": [
           "audit"
@@ -6813,7 +7032,7 @@
         },
         "security": [
           {
-            "APIKeyCookie": []
+            "SessionCookie": []
           }
         ],
         "summary": "Auth:Cookie.Logout"
@@ -7003,6 +7222,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "collections:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "collections:read"
+            ]
+          }
+        ],
         "summary": "List Collections",
         "tags": [
           "collections"
@@ -7042,6 +7273,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "collections:write"
+            ]
+          },
+          {
+            "BearerToken": [
+              "collections:write"
+            ]
+          }
+        ],
         "summary": "Create Collection",
         "tags": [
           "collections"
@@ -7078,6 +7321,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "collections:write"
+            ]
+          },
+          {
+            "BearerToken": [
+              "collections:write"
+            ]
+          }
+        ],
         "summary": "Delete Collection",
         "tags": [
           "collections"
@@ -7119,6 +7374,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "collections:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "collections:read"
+            ]
+          }
+        ],
         "summary": "Read Collection",
         "tags": [
           "collections"
@@ -7170,6 +7437,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "collections:write"
+            ]
+          },
+          {
+            "BearerToken": [
+              "collections:write"
+            ]
+          }
+        ],
         "summary": "Rename Collection",
         "tags": [
           "collections"
@@ -7178,7 +7457,7 @@
     },
     "/conversations": {
       "get": {
-        "description": "侧栏拓扑：我的合集（各带最近几段对话）加上没归类的对话。\n\n一次返回而不是「先列合集再按合集列对话」：侧栏是一屏里的一个整体，分两次查\n会让两半在不同时刻的库状态上拼出来。\n\n``state`` 只要在跑的（``running``）或者只要跑完过的（``done``），两个数字按同一个\n筛选算。",
+        "description": "侧栏拓扑：我的合集（各带最近几段对话）加上没归类的对话。\n\n一次返回而不是「先列合集再按合集列对话」：侧栏是一屏里的一个整体，分两次查\n会让两半在不同时刻的库状态上拼出来。\n\n``state`` 四值：``open`` / ``done`` 看属主标没标收尾，``running`` 是此刻在跑，\n``all`` 不筛；两个数字按同一个筛选算。",
         "operationId": "read_sidebar_conversations_get",
         "parameters": [
           {
@@ -7220,6 +7499,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:read"
+            ]
+          }
+        ],
         "summary": "Read Sidebar",
         "tags": [
           "conversations"
@@ -7260,6 +7551,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:run"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:run"
+            ]
+          }
+        ],
         "summary": "Create Conversation",
         "tags": [
           "conversations"
@@ -7282,6 +7585,18 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:run"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:run"
+            ]
+          }
+        ],
         "summary": "List Agents",
         "tags": [
           "conversations"
@@ -7290,7 +7605,7 @@
     },
     "/conversations/audit": {
       "get": {
-        "description": "治理者查全平台的对话：按人、按单、按时间段、按状态、按删没删筛，最近建的排前面。\n\n没有 ``users:manage`` 就 403。``since`` / ``until`` 作用在建立时刻上，与排序同一列——\n同页报表按各指标自己的事件时刻分期，两边不是同一批对话（ADR-0030）；\n``state`` 的三值与侧栏同一口径；``deleted`` 缺省只看活着的，``deleted`` 只看属主删掉的，\n``all`` 都看。``total`` 与 ``runningTotal`` 是真总数，不随翻页变。",
+        "description": "治理者查全平台的对话：按人、按单、按时间段、按状态、按删没删筛，最近建的排前面。\n\n``since`` / ``until`` 作用在建立时刻上，与排序同一列——\n同页报表按各指标自己的事件时刻分期，两边不是同一批对话；\n``state`` 的四值与侧栏同一口径；``deleted`` 缺省只看活着的，``deleted`` 只看属主删掉的，\n``all`` 都看。``total`` 与 ``runningTotal`` 是真总数，不随翻页变。",
         "operationId": "audit_conversations_conversations_audit_get",
         "parameters": [
           {
@@ -7443,6 +7758,20 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:read",
+              "users:manage"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:read",
+              "users:manage"
+            ]
+          }
+        ],
         "summary": "Audit Conversations",
         "tags": [
           "conversations"
@@ -7519,6 +7848,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:read"
+            ]
+          }
+        ],
         "summary": "List Collection Conversations",
         "tags": [
           "conversations"
@@ -7563,6 +7904,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:read"
+            ]
+          }
+        ],
         "summary": "List Task Attempts",
         "tags": [
           "conversations"
@@ -7626,6 +7979,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:read"
+            ]
+          }
+        ],
         "summary": "Search Conversations",
         "tags": [
           "conversations"
@@ -7692,6 +8057,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:read"
+            ]
+          }
+        ],
         "summary": "List Ungrouped",
         "tags": [
           "conversations"
@@ -7728,6 +8105,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:run"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:run"
+            ]
+          }
+        ],
         "summary": "Delete Conversation",
         "tags": [
           "conversations"
@@ -7779,6 +8168,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:run"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:run"
+            ]
+          }
+        ],
         "summary": "Rename Conversation",
         "tags": [
           "conversations"
@@ -7832,6 +8233,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:run"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:run"
+            ]
+          }
+        ],
         "summary": "Set Conversation Collection",
         "tags": [
           "conversations"
@@ -7840,7 +8253,7 @@
     },
     "/conversations/{conversation_id}/completion": {
       "put": {
-        "description": "属主标记这段对话收尾了，或取消标记。机器不会自己标（ADR-0031）。",
+        "description": "属主标记这段对话收尾了，或取消标记。机器不会自己标。",
         "operationId": "set_conversation_completion_conversations__conversation_id__completion_put",
         "parameters": [
           {
@@ -7886,6 +8299,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:run"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:run"
+            ]
+          }
+        ],
         "summary": "Set Conversation Completion",
         "tags": [
           "conversations"
@@ -7943,6 +8368,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:run"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:run"
+            ]
+          }
+        ],
         "summary": "Approve",
         "tags": [
           "transcript",
@@ -7987,6 +8424,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:run"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:run"
+            ]
+          }
+        ],
         "summary": "Queue View",
         "tags": [
           "transcript",
@@ -8040,6 +8489,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:run"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:run"
+            ]
+          }
+        ],
         "summary": "Submit",
         "tags": [
           "transcript",
@@ -8088,6 +8549,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:run"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:run"
+            ]
+          }
+        ],
         "summary": "Abort",
         "tags": [
           "transcript",
@@ -8136,6 +8609,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:run"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:run"
+            ]
+          }
+        ],
         "summary": "Steer",
         "tags": [
           "transcript",
@@ -8181,6 +8666,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:read"
+            ]
+          }
+        ],
         "summary": "Run Status",
         "tags": [
           "transcript",
@@ -8235,6 +8732,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:run"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:run"
+            ]
+          }
+        ],
         "summary": "Set Conversation Task",
         "tags": [
           "conversations"
@@ -8334,6 +8843,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:run"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:run"
+            ]
+          }
+        ],
         "summary": "Page",
         "tags": [
           "transcript",
@@ -8400,6 +8921,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:run"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:run"
+            ]
+          }
+        ],
         "summary": "Catchup",
         "tags": [
           "transcript",
@@ -8472,6 +9005,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:run"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:run"
+            ]
+          }
+        ],
         "summary": "Regenerate",
         "tags": [
           "transcript",
@@ -8527,6 +9072,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:read"
+            ]
+          }
+        ],
         "summary": "Read Conversation File",
         "tags": [
           "conversations"
@@ -8579,6 +9136,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:run"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:run"
+            ]
+          }
+        ],
         "summary": "Write Conversation File",
         "tags": [
           "conversations"
@@ -8622,6 +9191,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:read"
+            ]
+          }
+        ],
         "summary": "List Conversation Files",
         "tags": [
           "conversations"
@@ -8659,6 +9240,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:run"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:run"
+            ]
+          }
+        ],
         "summary": "Abort Conversation",
         "tags": [
           "transcript"
@@ -8713,6 +9306,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "agent:run"
+            ]
+          },
+          {
+            "BearerToken": [
+              "agent:run"
+            ]
+          }
+        ],
         "summary": "Fork Conversation",
         "tags": [
           "conversations"
@@ -8721,7 +9326,7 @@
     },
     "/generations": {
       "get": {
-        "description": "给了 ``conversationId`` / ``taskId`` 就只列那段对话、那张需求单下面的记录，可见性口径不变。\n\n``metadata`` 在查询串里是一段 JSON 对象，按包含匹配筛（分镜页拿它按镜头组、按帧查）。",
+        "description": "给了 ``conversationId`` / ``taskId`` / ``rootJobId`` 就只列那段对话、那张需求单、那条出片\n名下的记录，可见性口径不变。\n\n``metadata`` 在查询串里是一段 JSON 对象，按包含匹配筛（分镜页拿它按镜头组、按帧查）。",
         "operationId": "list_generations_generations_get",
         "parameters": [
           {
@@ -8778,8 +9383,8 @@
               "anyOf": [
                 {
                   "enum": [
-                    "image",
                     "video",
+                    "image",
                     "clip"
                   ],
                   "type": "string"
@@ -8792,7 +9397,26 @@
             }
           },
           {
-            "description": "JSON 对象；只列坐标包含这些键值的记录，服务端不解释键的含义",
+            "description": "只列这条出片名下的衍生记录（视频编辑链）",
+            "in": "query",
+            "name": "rootJobId",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "只列这条出片名下的衍生记录（视频编辑链）",
+              "title": "Rootjobid"
+            }
+          },
+          {
+            "description": "JSON 对象；只列坐标包含这些键值的记录，服务端只认其中的 shot",
             "in": "query",
             "name": "metadata",
             "required": false,
@@ -8805,7 +9429,7 @@
                   "type": "null"
                 }
               ],
-              "description": "JSON 对象；只列坐标包含这些键值的记录，服务端不解释键的含义",
+              "description": "JSON 对象；只列坐标包含这些键值的记录，服务端只认其中的 shot",
               "title": "Metadata"
             }
           },
@@ -8849,12 +9473,24 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "generation:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "generation:read"
+            ]
+          }
+        ],
         "summary": "List Generations"
       }
     },
     "/generations/clips": {
       "post": {
-        "description": "提交一次本地视频加工：按 ``segments`` 的顺序裁出各段拼成一条，产物存进本系统的桶。\n\n``purpose=reference`` 是编辑时切给模型看的参考片段，只能在一条完整视频上裁一段、\n不重编码；``purpose=master`` 是拼出来的成片，一律重编码对齐参数。不经外部服务，\n不计费，也没有 ``userName``。",
+        "description": "提交一次本地视频加工：按 ``segments`` 的顺序裁出各段拼成一条，产物存进本系统的桶。\n\n``purpose=reference`` 是编辑时切给模型看的参考片段，只能在一条完整视频上裁一段、\n不重编码；``purpose=master`` 是拼出来的成片，一律重编码对齐参数。不经外部服务，\n不计费，也没有 ``userName``。``rootJobId`` 必填：产物是最初那条出片的衍生记录。",
         "operationId": "submit_clip_generations_clips_post",
         "requestBody": {
           "content": {
@@ -8888,6 +9524,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "generation:submit"
+            ]
+          },
+          {
+            "BearerToken": [
+              "generation:submit"
+            ]
+          }
+        ],
         "summary": "Submit Clip"
       }
     },
@@ -8927,6 +9575,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "generation:submit"
+            ]
+          },
+          {
+            "BearerToken": [
+              "generation:submit"
+            ]
+          }
+        ],
         "summary": "Submit Image"
       }
     },
@@ -8946,12 +9606,24 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "generation:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "generation:read"
+            ]
+          }
+        ],
         "summary": "List Image Models"
       }
     },
     "/generations/video": {
       "post": {
-        "description": "提交一次视频生成。请求体照上游异步接口，外加 conversation_id / task_id / metadata。\n\n正文可以直接给 ``prompt``，也可以给结构化的 ``shot`` 由服务端拼成 ``prompt``；记录里\n两者都存，``shot`` 不发上游。``user_name``：API key 调用方必填、照收；浏览器会话可\n省略，填登录用户名。",
+        "description": "提交一次视频生成。请求体照上游异步接口，外加 conversation_id / task_id / metadata /\nroot_job_id。\n\n正文可以直接给 ``prompt``，也可以给结构化的 ``shot`` 由服务端拼成 ``prompt``；记录里\n两者都存，``shot`` 不发上游。``user_name``：API key 调用方必填、照收；浏览器会话可\n省略，填登录用户名。``root_job_id`` 只有视频编辑的结果才填：最初那条出片的 id，必须是\n同一段对话里的独立记录。",
         "operationId": "submit_video_generations_video_post",
         "requestBody": {
           "content": {
@@ -8985,6 +9657,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "generation:submit"
+            ]
+          },
+          {
+            "BearerToken": [
+              "generation:submit"
+            ]
+          }
+        ],
         "summary": "Submit Video"
       }
     },
@@ -9004,6 +9688,18 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "generation:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "generation:read"
+            ]
+          }
+        ],
         "summary": "List Video Models"
       }
     },
@@ -9045,6 +9741,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "generation:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "generation:read"
+            ]
+          }
+        ],
         "summary": "Get Video Task"
       }
     },
@@ -9085,6 +9793,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "generation:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "generation:read"
+            ]
+          }
+        ],
         "summary": "Get Generation"
       }
     },
@@ -9143,6 +9863,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "inspirations:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "inspirations:read"
+            ]
+          }
+        ],
         "summary": "Search Videos",
         "tags": [
           "inspirations"
@@ -9151,6 +9883,7 @@
     },
     "/tasks": {
       "get": {
+        "description": "按建立时间倒序翻页。``ids`` 可重复给，按 id 集合批量读取，一次最多 100 个。",
         "operationId": "list_tasks_tasks_get",
         "parameters": [
           {
@@ -9177,6 +9910,26 @@
           },
           {
             "in": "query",
+            "name": "ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ids"
+            }
+          },
+          {
+            "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
@@ -9185,6 +9938,22 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
             }
           },
           {
@@ -9227,6 +9996,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "tasks:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "tasks:read"
+            ]
+          }
+        ],
         "summary": "List Tasks",
         "tags": [
           "tasks"
@@ -9267,6 +10048,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "tasks:write"
+            ]
+          },
+          {
+            "BearerToken": [
+              "tasks:write"
+            ]
+          }
+        ],
         "summary": "Create Task",
         "tags": [
           "tasks"
@@ -9303,6 +10096,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "tasks:write"
+            ]
+          },
+          {
+            "BearerToken": [
+              "tasks:write"
+            ]
+          }
+        ],
         "summary": "Delete Task",
         "tags": [
           "tasks"
@@ -9344,6 +10149,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "tasks:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "tasks:read"
+            ]
+          }
+        ],
         "summary": "Get Task",
         "tags": [
           "tasks"
@@ -9395,6 +10212,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "tasks:write"
+            ]
+          },
+          {
+            "BearerToken": [
+              "tasks:write"
+            ]
+          }
+        ],
         "summary": "Save Task",
         "tags": [
           "tasks"
@@ -9438,6 +10267,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "tasks:write"
+            ]
+          },
+          {
+            "BearerToken": [
+              "tasks:write"
+            ]
+          }
+        ],
         "summary": "Confirm Task",
         "tags": [
           "tasks"
@@ -9481,6 +10322,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "tasks:write"
+            ]
+          },
+          {
+            "BearerToken": [
+              "tasks:write"
+            ]
+          }
+        ],
         "summary": "Publish Task",
         "tags": [
           "tasks"
@@ -9524,6 +10377,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "tasks:write"
+            ]
+          },
+          {
+            "BearerToken": [
+              "tasks:write"
+            ]
+          }
+        ],
         "summary": "Withdraw Task",
         "tags": [
           "tasks"
@@ -9566,6 +10431,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "uploads:write"
+            ]
+          },
+          {
+            "BearerToken": [
+              "uploads:write"
+            ]
+          }
+        ],
         "summary": "Sign Upload",
         "tags": [
           "uploads"
@@ -9610,6 +10487,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "uploads:write"
+            ]
+          },
+          {
+            "BearerToken": [
+              "uploads:write"
+            ]
+          }
+        ],
         "summary": "Confirm Upload",
         "tags": [
           "uploads"
@@ -9666,6 +10555,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "users:manage"
+            ]
+          },
+          {
+            "BearerToken": [
+              "users:manage"
+            ]
+          }
+        ],
         "summary": "List Users"
       }
     },
@@ -9684,6 +10585,14 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "BearerToken": []
+          }
+        ],
         "summary": "Me"
       }
     },
@@ -9737,6 +10646,18 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "SessionCookie": [
+              "users:manage"
+            ]
+          },
+          {
+            "BearerToken": [
+              "users:manage"
+            ]
+          }
+        ],
         "summary": "Patch User"
       }
     }

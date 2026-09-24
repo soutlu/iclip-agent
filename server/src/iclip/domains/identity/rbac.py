@@ -6,8 +6,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Literal, get_args
 
-PERMISSIONS: tuple[str, ...] = (
+# 用 type 语句而不是普通别名：只有它会在合同里成为具名组件 ``Permission``，前端才能引用。
+type Permission = Literal[
     "collections:read",
     "collections:write",
     "tasks:read",
@@ -16,13 +18,21 @@ PERMISSIONS: tuple[str, ...] = (
     "uploads:write",
     "generation:read",
     "generation:submit",
-    "analytics:read",
     "users:manage",
     "users:act_as",
     "api_keys:issue",
     "agent:read",
     "agent:run",
-)
+]
+"""权限词汇。请求体里授予权限的字段按它校验；响应里的权限集是字符串，词表变动不打坏旧客户端。"""
+
+PERMISSIONS: tuple[str, ...] = get_args(Permission.__value__)
+
+MANAGE_PERMISSION: Permission = "users:manage"
+"""治理者：读取范围扩到所有人的记录，并管理用户与全部 API key；能否写别人的记录由各资源自己定。"""
+
+ACT_AS_PERMISSION: Permission = "users:act_as"
+"""钥匙可以替 ``user_name`` 那个人提交。能替任何人写，也就能读任何人的记录。"""
 
 _VIEWER = frozenset(
     {
@@ -34,9 +44,8 @@ _VIEWER = frozenset(
     }
 )
 _EDITOR = frozenset(PERMISSIONS) - {
-    "analytics:read",
-    "users:manage",
-    "users:act_as",
+    MANAGE_PERMISSION,
+    ACT_AS_PERMISSION,
     "api_keys:issue",
 }
 _ROOT = frozenset(PERMISSIONS)
@@ -68,10 +77,13 @@ def is_known_role(role: str) -> bool:
 
 
 __all__ = [
+    "ACT_AS_PERMISSION",
+    "MANAGE_PERMISSION",
     "PERMISSIONS",
     "ROLES",
     "ROLE_PERMISSIONS",
     "ROOT_ROLE",
+    "Permission",
     "effective_permissions",
     "is_known_role",
 ]

@@ -160,3 +160,83 @@ export const gini = (buckets: readonly AttemptBucket[]): number | null => {
   }
   return Math.max(0, 1 - 2 * area)
 }
+
+/** 累计通过曲线上画的一档：折尾后的档位、刻度与悬停文字。 */
+export type AttemptCurvePoint = {
+  key: string
+  label: string
+  tooltipLabel: string
+  value: number
+}
+
+export type AttemptChartModel = {
+  /** 累计通过曲线的点，末档是「cap 次以上」。 */
+  passPoints: AttemptCurvePoint[]
+  /** 上一期按下标对齐的累计值；没有上一期为 undefined。 */
+  beforePass: (number | null)[] | undefined
+  /** 每一档的悬停说明，按 ``passPoints`` 的 key 查。 */
+  notes: Map<string, string>
+  passSummary: string | undefined
+  lorenz: LorenzPoint[]
+  rows: DistributionRow[]
+  topShare: number | null
+  beforeTopShare: number | null
+  concentration: number | null
+}
+
+/**
+ * 总览「出片次数分析」一段要画的全部东西。
+ *
+ * 折尾只为画图，本期与上期折到同一档位才能按下标对齐；集中度、分档表与洛伦兹曲线一律吃未折叠的原始分布。
+ */
+export const attemptChartModel = (
+  distribution: readonly AttemptBucket[],
+  before: readonly AttemptBucket[],
+  cap = 5,
+): AttemptChartModel => {
+  const pass = cumulativePass(foldTail(distribution, cap))
+  const passPoints = pass.map((point) => {
+    // 折尾后的末档装着「cap 次及以上」，标签与悬停都照这个说，不能写成「以内完成」。
+    const tail = point.attempts === cap
+    const label = tail ? `${cap} 次以上` : `${point.attempts} 次`
+    return {
+      key: String(point.attempts),
+      label,
+      tooltipLabel: tail ? label : `${label}以内完成`,
+      value: point.cumulative,
+    }
+  })
+  const beforeAt = new Map(
+    cumulativePass(foldTail(before, cap)).map((point) => [point.attempts, point.cumulative]),
+  )
+  const beforePass =
+    before.length === 0
+      ? undefined
+      : passPoints.map((point) => beforeAt.get(Number(point.key)) ?? null)
+  // 末档一定收在 100%，「尚有 N 镜未完成」在那里恒为 0，不写。
+  const notes = new Map(
+    pass.map((point, index) => [
+      String(point.attempts),
+      index === pass.length - 1
+        ? `本档 ${point.shots} 镜`
+        : `本档 ${point.shots} 镜 · 尚有 ${point.entering - point.shots} 镜未完成`,
+    ]),
+  )
+  const passSummary =
+    pass.length < 2
+      ? undefined
+      : `一次完成 ${Math.round((pass[0]?.cumulative ?? 0) * 100)}% · 两次以内 ${Math.round(
+          (pass[1]?.cumulative ?? 0) * 100,
+        )}%`
+  return {
+    passPoints,
+    beforePass,
+    notes,
+    passSummary,
+    lorenz: lorenzPoints(distribution),
+    rows: distributionRows(distribution, cap),
+    topShare: topShareOfAttempts(distribution),
+    beforeTopShare: topShareOfAttempts(before),
+    concentration: gini(distribution),
+  }
+}

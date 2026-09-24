@@ -2,6 +2,8 @@
 
 部分唯一索引保证每段对话最多一条 running/awaiting 消息，跨 worker 共享幂等与排队状态。
 租约使用数据库时钟，写入以持有者和 attempt 校验，防止旧运行覆盖续跑结果。
+finished_at 由 finish、abort、abort_queued、settle_steered 写调用方传入的 now；
+fail_exhausted 是后台批量清扫，没有调用方时钟可用，写数据库时钟。
 steered/awaiting 对外映射为 running；awaiting 占用会话但不持有租约。
 agent_jobs.run_id 记录最近运行，agent_job_runs 保存全部映射，供 transcript 合并轮次。
 """
@@ -13,7 +15,7 @@ import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Final, Literal, NamedTuple, cast
+from typing import Final, NamedTuple, cast
 
 from pydantic import TypeAdapter
 from sqlalchemy import (
@@ -41,13 +43,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from iclip.common.errors import Conflict, NotFound
+from iclip.harness.job_status import JobStatus
 from iclip.harness.transcript.activity import ActivityState, activity_of
 from iclip.harness.transcript.from_messages import SteeredPrompt
 from iclip.platform.transcript.ops import Prompt, PromptContent
 
 DB_SCHEMA: Final = "agent_runtime"
-
-JobStatus = Literal["running", "awaiting", "queued", "steered", "completed", "failed", "aborted"]
 
 _ACTIVE: Final = ("running", "awaiting")
 """占用会话的状态，包含等待审批的运行。"""
@@ -301,7 +302,7 @@ class JobQueue:
         async with self._engine.connect() as conn:
             return {run_id: prompt_id for run_id, prompt_id in (await conn.execute(stmt)).all()}
 
-    async def prompt_status_of_runs(self, conversation_id: str) -> dict[str, str]:
+    async def prompt_status_of_runs(self, conversation_id: str) -> dict[str, JobStatus]:
         """返回各 run 所属消息的当前状态，供 transcript 判定开放调用的审批或终止状态。"""
 
         stmt = (
@@ -312,7 +313,10 @@ class JobQueue:
             .where(agent_jobs_table.c.conversation_id == conversation_id)
         )
         async with self._engine.connect() as conn:
-            return {run_id: status for run_id, status in (await conn.execute(stmt)).all()}
+            return {
+                run_id: cast("JobStatus", status)
+                for run_id, status in (await conn.execute(stmt)).all()
+            }
 
     async def steered_prompts(self, conversation_id: str) -> tuple[SteeredPrompt, ...]:
         """本会话插过话的消息，按插话先后；退回队列的行插话时间已清空，自然不在其中。"""
@@ -812,7 +816,6 @@ __all__ = [
     "JobQueue",
     "JobQueueView",
     "JobRow",
-    "JobStatus",
     "Submission",
     "agent_job_runs_table",
     "agent_jobs_table",

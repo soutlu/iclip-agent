@@ -3,6 +3,7 @@
  * 只有几个点、没有时间轴，用不上 TrendChart 那套；这里手写 SVG，颜色同样走 token。 */
 
 import { useId } from 'react'
+import { CHART_GRID, CHART_SERIES } from '../chart-colors'
 import { EMPTY } from '../format'
 import type { DistributionRow, LorenzPoint } from '../attempt-distribution'
 
@@ -21,8 +22,6 @@ type ConcentrationChartProps = {
 
 const SIZE = 240
 const PAD = 18
-const SERIES = 'var(--color-chart-1)'
-const GRID = 'var(--color-border)'
 const LABEL = 'var(--color-on-surface-muted)'
 
 const px = (share: number) => PAD + share * SIZE
@@ -70,14 +69,14 @@ export function ConcentrationChart({
               <rect
                 fill="none"
                 height={SIZE}
-                stroke={GRID}
+                stroke={CHART_GRID}
                 strokeWidth={1}
                 width={SIZE}
                 x={px(0)}
                 y={py(1)}
               />
               <line
-                stroke={GRID}
+                stroke={CHART_GRID}
                 strokeDasharray="5 4"
                 strokeWidth={1.5}
                 x1={px(0)}
@@ -86,11 +85,11 @@ export function ConcentrationChart({
                 y2={py(1)}
               />
               {/* 曲线末点就是 (100%, 100%)，直接闭合回原点走的正是那条虚线。 */}
-              <path d={`M ${path} Z`} fill={SERIES} fillOpacity={0.12} />
+              <path d={`M ${path} Z`} fill={CHART_SERIES} fillOpacity={0.12} />
               <path
                 d={`M ${path}`}
                 fill="none"
-                stroke={SERIES}
+                stroke={CHART_SERIES}
                 strokeLinejoin="round"
                 strokeWidth={2}
               />
@@ -98,7 +97,7 @@ export function ConcentrationChart({
                 <circle
                   cx={px(point.shotShare)}
                   cy={py(point.attemptShare)}
-                  fill={SERIES}
+                  fill={CHART_SERIES}
                   key={point.shotShare}
                   r={3.5}
                 />

@@ -9,10 +9,8 @@ from typing import Literal
 from iclip.common.errors import PermissionDenied
 from iclip.domains.collections.models import Collection
 from iclip.domains.collections.repository import CollectionRepository
-from iclip.domains.collections.schemas import MAX_LIST_LIMIT
-from iclip.domains.identity.public import Principal
-
-MANAGE_PERMISSION = "users:manage"
+from iclip.domains.identity.public import MANAGE_PERMISSION, Principal, visible_owner
+from iclip.platform.paging import MAX_LIST_LIMIT
 
 Scope = Literal["me", "all"]
 
@@ -46,8 +44,7 @@ class CollectionService:
     async def get(self, principal: Principal, collection_id: uuid.UUID) -> Collection:
         """读取合集；非属主且无治理权限时返回 404。"""
 
-        owner = None if principal.has(MANAGE_PERMISSION) else principal.user_id
-        return await self._repo.get(collection_id, owner=owner)
+        return await self._repo.get(collection_id, owner=visible_owner(principal))
 
     async def list_recent(
         self, principal: Principal, *, scope: Scope = "me", limit: int = 20, offset: int = 0
@@ -65,13 +62,11 @@ class CollectionService:
     ) -> Collection:
         """仅属主或治理者可改名；其他主体返回 404，避免泄露合集存在性。"""
 
-        owner = None if principal.has(MANAGE_PERMISSION) else principal.user_id
-        return await self._repo.rename(collection_id, owner=owner, name=name)
+        return await self._repo.rename(collection_id, owner=visible_owner(principal), name=name)
 
     async def delete(self, principal: Principal, collection_id: uuid.UUID) -> None:
 
-        owner = None if principal.has(MANAGE_PERMISSION) else principal.user_id
-        await self._repo.delete(collection_id, owner=owner)
+        await self._repo.delete(collection_id, owner=visible_owner(principal))
 
 
-__all__ = ["MANAGE_PERMISSION", "CollectionService", "Scope"]
+__all__ = ["CollectionService", "Scope"]

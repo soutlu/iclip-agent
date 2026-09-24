@@ -1,23 +1,36 @@
-"""图像 provider 共用的三段：提交一次生成、读出结果地址、把结果转存成自家公开对象。
+"""网关图片 provider：各家图片模型挂在同一个网关上，同步出图后把结果转存成自家公开对象。
 
-各家图像 provider 之间只有「打哪个地址、payload 怎么拼」不一样，这三段一模一样，
-所以错误码与是否可重试的判定也只在这里定一次。"""
+提交、读结果地址、转存三段各家一模一样，错误码与是否可重试的判定只在这里定一次；每家只在
+``GatewayImageModel`` 里给出名字、能力声明、超时和它专有的那几个 payload 键。无参考图打文生图，
+有参考图打图像编辑；不支持轮询。生成接口没有幂等键，不自动重试或切换渠道，避免重复计费或
+改变调用方选择的价格。"""
 
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Final
 from urllib.parse import urlsplit
 
 import httpx
 
-from iclip.domains.generation.provider import ProviderError
+from iclip.common.urls import is_http_url
+from iclip.domains.generation.models import GenerationJob
+from iclip.domains.generation.provider import (
+    ImageModelSpec,
+    ProviderError,
+    ProviderProgress,
+    ProviderSubmission,
+    request_of,
+    user_name_of,
+)
 from iclip.domains.generation.schemas import ImageGenerationIn
+from iclip.platform.media.ffmpeg import MAX_IMAGE_BYTES
 from iclip.platform.object_store.layout import MEDIA_PATHS
-from iclip.platform.object_store.oss import ObjectStoreUnavailable, PublicObjectStore
+from iclip.platform.object_store.store import ObjectStoreUnavailable, PublicObjectStore
 
 _DOWNLOAD_TIMEOUT_SECONDS: Final = 60.0
-_MAX_IMAGE_BYTES: Final = 64 * 1024 * 1024
 
 TASK_SOURCE: Final = "iclip_agent"
 """网关按它认调用方，取值须在它的来源白名单里。"""
@@ -38,6 +51,106 @@ _SUFFIX_BY_MIME: Final = {
 }
 _DEFAULT_MIME: Final = "image/png"
 
+ImageFields = Callable[[ImageGenerationIn], dict[str, Any]]
+"""把领域请求翻成这家专有的 payload 键；翻不了（受理层本该拦下）就抛 ``ProviderError``。"""
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayImageModel:
+    """一家网关图片模型与别家不同的全部东西。"""
+
+    name: str
+    """落库的 provider 名，也是它那条队列的名字。"""
+
+    spec: ImageModelSpec
+
+    timeout_seconds: float
+    """一次同步出图最多等多久。"""
+
+    fields: ImageFields
+
+    snapshot_keys: tuple[str, ...]
+    """专有键里要记进 provider 快照的那几个。"""
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayImageSettings:
+    """由组合根从环境变量与运行配置拼好后传入的运行值。"""
+
+    api_base: str
+    """这家在网关上的地址，两条任务路由拼在它后面。"""
+
+    env: str
+    """网关要求的调用环境。它按 task_source 与这一项一起判这次调用合不合法。"""
+
+
+class GatewayImageProvider:
+    """``GenerationProvider`` 的网关图片实现，一家模型一个实例。"""
+
+    def __init__(
+        self,
+        model: GatewayImageModel,
+        settings: GatewayImageSettings,
+        *,
+        object_store: PublicObjectStore,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+
+        self._model = model
+        self._settings = settings
+        self._object_store = object_store
+        self._transport = transport
+
+    @property
+    def name(self) -> str:
+        return self._model.name
+
+    async def submit(self, job: GenerationJob) -> ProviderSubmission:
+        request = request_of(job, ImageGenerationIn, provider=self.name)
+        fields = self._model.fields(request)
+        references = list(request.reference_image_urls)
+        payload: dict[str, Any] = {
+            "data_id": str(job.id),
+            "user_name": user_name_of(request),
+            "prompt": request.prompt,
+            "task_source": TASK_SOURCE,
+            "env": self._settings.env,
+            **fields,
+        }
+        if references:
+            payload["input_str_list"] = references
+        body = await _post_generation(
+            task_url(self._settings.api_base, editing=bool(references)),
+            payload,
+            timeout=self._model.timeout_seconds,
+            transport=self._transport,
+        )
+        source_url = _read_output_url(body)
+        output_url = await _store_result(
+            job_id=job.id,
+            source_url=source_url,
+            object_store=self._object_store,
+            transport=self._transport,
+        )
+        return ProviderSubmission(
+            # 网关不返回任务 id，使用请求 data_id 对账。
+            provider_task_id=str(job.id),
+            provider_status="succeeded",
+            raw={
+                **{key: fields[key] for key in self._model.snapshot_keys},
+                "sourceUrl": source_url,
+                "response": body,
+            },
+            output_url=output_url,
+        )
+
+    async def poll(self, job: GenerationJob) -> ProviderProgress:
+        raise ProviderError(
+            "图像生成是同步的，没有轮询阶段",
+            code="PROVIDER_POLL_UNSUPPORTED",
+            retryable=False,
+        )
+
 
 def task_url(api_base: str, *, editing: bool) -> str:
     """拼出这次要打的地址。每个模型在网关上都是两条路由：文生图与图像编辑各一条。"""
@@ -46,19 +159,7 @@ def task_url(api_base: str, *, editing: bool) -> str:
     return f"{api_base.rstrip('/')}/{task}"
 
 
-def user_name_of(request: ImageGenerationIn) -> str:
-    """网关按它落表对账。受理层保证填好了；为空说明装配串了，不给付费接口送一个没名字的请求。"""
-
-    if request.user_name is None:
-        raise ProviderError(
-            "图像请求没有 user_name",
-            code="PROVIDER_USER_NAME_MISSING",
-            retryable=False,
-        )
-    return request.user_name
-
-
-async def post_generation(
+async def _post_generation(
     url: str,
     payload: dict[str, Any],
     *,
@@ -111,7 +212,7 @@ async def post_generation(
     return body
 
 
-def read_output_url(body: dict[str, Any]) -> str:
+def _read_output_url(body: dict[str, Any]) -> str:
     """从响应里取可下载的结果 URL；优先签名地址。"""
 
     if body.get("success") is False:
@@ -124,7 +225,7 @@ def read_output_url(body: dict[str, Any]) -> str:
         )
     for key in ("output_sign_str", "output_str"):
         value = body.get(key)
-        if isinstance(value, str) and value.startswith(("http://", "https://")):
+        if isinstance(value, str) and is_http_url(value):
             return value
     raise ProviderError(
         "图像 provider 的响应里没有结果 URL",
@@ -133,7 +234,7 @@ def read_output_url(body: dict[str, Any]) -> str:
     )
 
 
-async def store_result(
+async def _store_result(
     *,
     job_id: uuid.UUID,
     source_url: str,
@@ -177,9 +278,9 @@ async def _download(url: str, *, transport: httpx.AsyncBaseTransport | None) -> 
             size = 0
             async for chunk in response.aiter_bytes():
                 size += len(chunk)
-                if size > _MAX_IMAGE_BYTES:
+                if size > MAX_IMAGE_BYTES:
                     raise ProviderError(
-                        f"结果图超过 {_MAX_IMAGE_BYTES} 字节上限",
+                        f"结果图超过 {MAX_IMAGE_BYTES} 字节上限",
                         code="OUTPUT_TOO_LARGE",
                         retryable=False,
                     )
@@ -215,9 +316,9 @@ def _normalize_mime(content_type: str, url: str) -> str:
 
 __all__ = [
     "TASK_SOURCE",
-    "post_generation",
-    "read_output_url",
-    "store_result",
+    "GatewayImageModel",
+    "GatewayImageProvider",
+    "GatewayImageSettings",
+    "ImageFields",
     "task_url",
-    "user_name_of",
 ]

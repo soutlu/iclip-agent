@@ -1,29 +1,15 @@
-import { useState } from 'react'
-import { copyText } from '@/shared/lib/clipboard'
 import { IconButton } from '@/shared/ui/button'
-import { toast } from '@/shared/ui/toast'
-
-const COPY_FEEDBACK_MS = 1400
+import { useCopyFeedback } from '@/shared/ui/copy-feedback'
 
 export function CopyButton({ label = '复制', text }: { text: string; label?: string }) {
-  const [copied, setCopied] = useState(false)
-
-  const copy = async () => {
-    try {
-      await copyText(text)
-      setCopied(true)
-      setTimeout(() => setCopied(false), COPY_FEEDBACK_MS)
-    } catch {
-      toast.error('复制失败')
-    }
-  }
+  const { copied, copy } = useCopyFeedback()
 
   return (
     <IconButton
       className="text-chat-muted-text"
       label={label}
       name={copied ? 'check' : 'copy'}
-      onClick={() => void copy()}
+      onClick={() => void copy(text)}
       size="xs"
       title={copied ? '已复制' : '复制'}
       variant="standard"

@@ -17,15 +17,15 @@ from iclip.domains.generation.repository import GenerationRepository
 from iclip.domains.generation.schemas import (
     KIND_VIDEO,
     ClipIn,
+    GenerationKind,
     GenerationRequest,
     ImageGenerationIn,
     VideoGenerationIn,
 )
-from iclip.domains.identity.public import ACT_AS_PERMISSION, Principal
+from iclip.domains.identity.public import Principal, visible_owner_incl_act_as
+from iclip.platform.paging import check_limit
 
 _logger = structlog.stdlib.get_logger(__name__)
-
-MAX_LIST_LIMIT = 100
 
 ClearCompletion = Callable[[uuid.UUID, uuid.UUID], Awaitable[None]]
 """按 (对话 id, 属主) 取消那段对话的收尾标记；实现由组合根注入，本域不认识对话表。"""
@@ -87,17 +87,43 @@ class GenerationService:
         if request.model not in self._video_allowed_models:
             raise ValidationFailed(f"视频生成仅支持模型 {'、'.join(self._video_allowed_models)}")
         _require_user_name(request.user_name)
+        await self._check_root(principal, request)
         return await self._accept(principal, request, provider=self._video_provider_name)
 
     async def submit_clip(self, principal: Principal, request: ClipIn) -> GenerationJob:
-        """受理一次本地视频加工。不经外部服务、不计费，除了请求自身没有别的门槛。"""
+        """受理一次本地视频加工。不经外部服务、不计费，门槛只有原作号要给且对得上。"""
 
+        if request.root_job_id is None:
+            raise ValidationFailed("rootJobId 必填：本地加工的产物一律是某条出片的衍生记录")
+        await self._check_root(principal, request)
         return await self._accept(principal, request, provider=self._clip_provider_name)
+
+    async def _check_root(self, principal: Principal, request: GenerationRequest) -> None:
+        """原作号必须指向同一段对话里的一条独立记录，链才只有一层。
+
+        先按主体可见范围读：生成记录的 ``conversation_id`` 只是标签、不按对话验属主，直接按
+        id 查会让人把衍生记录挂到别人的出片上。三种不满足给同一句，不区分不存在与不可见。"""
+
+        if request.root_job_id is None:
+            return
+        try:
+            root = await self._repo.get(
+                request.root_job_id, owner=visible_owner_incl_act_as(principal)
+            )
+        except NotFound:
+            root = None
+        if (
+            root is None
+            or root.conversation_id != request.conversation_id
+            or root.root_job_id is not None
+        ):
+            raise ValidationFailed("原作号不是这段对话里的一条独立记录")
 
     async def submit_image(self, principal: Principal, request: ImageGenerationIn) -> GenerationJob:
         """受理一次图片生成。选定哪家、哪个渠道在这里定死，队列等待期间的配置变化不影响它。"""
 
         _require_user_name(request.user_name)
+        await self._check_root(principal, request)
         settled, model = self._settle_image_model(request)
         return await self._accept(principal, settled, provider=model)
 
@@ -116,6 +142,7 @@ class GenerationService:
             conversation_id=request.conversation_id,
             metadata=request.metadata,
             task_id=request.task_id,
+            root_job_id=request.root_job_id,
             kind=request.kind,
             provider=provider,
             request=request,
@@ -147,7 +174,7 @@ class GenerationService:
         return created
 
     async def _note_conversation_active(self, job: GenerationJob) -> None:
-        """出片提交就是又在这段对话里开工了，收尾标记不该留着（ADR-0031）。
+        """出片提交就是又在这段对话里开工了，收尾标记不该留着。
 
         归档标签指向的对话不校验，对话域按属主自己判；这一步失败只记日志——受理已经成立，
         不能因为一个标记回滚。"""
@@ -158,7 +185,10 @@ class GenerationService:
             await self._clear_completion(job.conversation_id, job.owner_user_id)
         except Exception:
             _logger.warning(
-                "取消对话收尾标记失败", job_id=job.id, conversation_id=job.conversation_id
+                "取消对话收尾标记失败",
+                job_id=job.id,
+                conversation_id=job.conversation_id,
+                exc_info=True,
             )
 
     def _settle_image_model(self, request: ImageGenerationIn) -> tuple[ImageGenerationIn, str]:
@@ -202,7 +232,7 @@ class GenerationService:
     async def get(self, principal: Principal, job_id: uuid.UUID) -> GenerationJob:
         """读取可见生成记录，不可见时返回 NotFound。"""
 
-        return await self._repo.get(job_id, owner=_owner_scope(principal))
+        return await self._repo.get(job_id, owner=visible_owner_incl_act_as(principal))
 
     async def get_video(self, principal: Principal, job_id: uuid.UUID) -> GenerationJob:
         """视频任务查询只认视频记录：拿图片的 id 来查与不存在同样是 404。"""
@@ -213,7 +243,7 @@ class GenerationService:
         return job
 
     async def in_flight_by_conversation(
-        self, conversation_ids: Sequence[uuid.UUID], *, kind: str
+        self, conversation_ids: Sequence[uuid.UUID], *, kind: GenerationKind
     ) -> Mapping[uuid.UUID, InFlightPhase]:
         """给对话侧栏用：这些对话下还没跑完的某类任务各到哪一步。可见性由对话那边判过，这里不再按属主筛。"""
 
@@ -225,22 +255,23 @@ class GenerationService:
         *,
         limit: int = 20,
         conversation_id: uuid.UUID | None = None,
-        kind: str | None = None,
+        kind: GenerationKind | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
+        root_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
         """按时间倒序返回可见记录；归属筛选只收窄，不扩大属主可见范围。"""
 
-        if not 1 <= limit <= MAX_LIST_LIMIT:
-            raise ValidationFailed(f"limit 必须在 1 到 {MAX_LIST_LIMIT} 之间")
+        check_limit(limit)
         return await self._repo.list_for_owner(
-            owner=_owner_scope(principal),
+            owner=visible_owner_incl_act_as(principal),
             limit=limit,
             conversation_id=conversation_id,
             kind=kind,
             metadata=metadata,
             task_id=task_id,
+            root_job_id=root_job_id,
             before=before,
         )
 
@@ -252,14 +283,4 @@ def _require_user_name(user_name: str | None) -> None:
         raise ValidationFailed("user_name 必填")
 
 
-def _owner_scope(principal: Principal) -> uuid.UUID | None:
-    """治理者（``users:manage``）与替人办事的钥匙（``users:act_as``）看全部，其余人只看自己的。"""
-
-    if principal.has("users:manage"):
-        return None
-    if principal.kind == "api_key" and principal.has(ACT_AS_PERMISSION):
-        return None
-    return principal.user_id
-
-
-__all__ = ["MAX_LIST_LIMIT", "GenerationService"]
+__all__ = ["GenerationService"]

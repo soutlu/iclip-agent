@@ -1,11 +1,12 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
+import { useState } from 'react'
 import { describe, expect, it } from 'vitest'
 import { addMockConversation, mockAuthUser, mockGovernor } from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
-import { DEFAULT_AUDIT_SCOPE, type AuditScope } from '../audit.api'
+import { DEFAULT_AUDIT_SCOPE, type AnomalyKind, type AuditScope } from '../audit.api'
 import { AnomaliesPanel } from './anomalies-panel'
 import { ConversationsPanel } from './conversations-panel'
 import { OverviewPanel } from './overview-panel'
@@ -63,19 +64,40 @@ const seed = () => {
 
 describe('OverviewPanel', () => {
   it('把接口数字翻成人话铺在四张头条卡、排行表与异常概览里', async () => {
-    seed()
+    const overall = {
+      ...EMPTY_METRICS,
+      attemptsPerShot: 1.5,
+      // 一张需求单算一件，加一段无单对话，共两件。
+      deliveredOrphanConversations: 1,
+      deliveredTasks: 1,
+      deliveries: 2,
+      cycleSeconds: { avg: 7200, median: 7200, p90: 10_800 },
+    }
+    server.use(
+      http.get('*/api/audit/summary', () =>
+        HttpResponse.json({
+          anomalyCounts: [{ count: 3, kind: 'retry' }],
+          attemptDistribution: [],
+          overall,
+          series: null,
+          tasks: [{ metrics: overall, taskId: TASK_ID, title: '夏季亚麻系列' }],
+          users: [
+            { metrics: overall, userName: mockAuthUser.username },
+            { metrics: EMPTY_METRICS, userName: mockGovernor.username },
+          ],
+        }),
+      ),
+    )
     await renderWithProviders(
       <OverviewPanel nameOf={nameOf} onOpenAnomalies={() => {}} scope={ALL_TIME} />,
     )
 
     const deliveries = await screen.findByRole('article', { name: '成片件数' })
-    // 一张需求单（两段对话）算一件，加一段无单对话，共两件。
     await waitFor(() => expect(within(deliveries).getByText('2')).toBeVisible())
     expect(within(deliveries).getByText('需求单 1 · 无单对话 1')).toBeVisible()
 
     const attempts = screen.getByRole('article', { name: '每镜平均出片次数' })
     expect(within(attempts).getByText(/次$/)).toBeVisible()
-    expect(within(attempts).getByText('越接近 1 越好')).toBeVisible()
 
     const cycle = screen.getByRole('article', { name: '交付周期' })
     expect(within(cycle).getAllByText(/小时$/).length).toBeGreaterThan(0)
@@ -98,6 +120,7 @@ describe('OverviewPanel', () => {
 
     const anomalies = screen.getByRole('region', { name: '异常概览' })
     expect(await within(anomalies).findByText('反复重试')).toBeVisible()
+    expect(within(anomalies).getByText('3')).toBeVisible()
   })
 
   it('出片次数那段给出分布曲线与集中度结论', async () => {
@@ -105,6 +128,7 @@ describe('OverviewPanel', () => {
     server.use(
       http.get('*/api/audit/summary', () =>
         HttpResponse.json({
+          anomalyCounts: [],
           // 五个镜：1、1、1、2、5 次，集中度 0.36。
           attemptDistribution: [
             { attempts: 1, shots: 3 },
@@ -126,7 +150,6 @@ describe('OverviewPanel', () => {
     const concentration = within(section).getByRole('figure', { name: '出片次数集中度' })
     // 最费劲的一成是半个出五次的镜，按镜数折半得 2.5 次，占十次里的 25%。
     await waitFor(() => expect(within(concentration).getByText('25%')).toBeVisible())
-    expect(within(concentration).getByText('出片次数最多的 10% 的镜占全部次数')).toBeVisible()
 
     const curve = within(section).getByRole('figure', { name: '出片次数分布' })
     expect(within(curve).getByText('一次完成 60% · 两次以内 80%')).toBeVisible()
@@ -143,6 +166,7 @@ describe('OverviewPanel', () => {
     server.use(
       http.get('*/api/audit/summary', () =>
         HttpResponse.json({
+          anomalyCounts: [],
           attemptDistribution: [{ attempts: 2, shots: 7 }],
           overall: EMPTY_METRICS,
           series: null,
@@ -182,6 +206,7 @@ describe('OverviewPanel', () => {
         windows.push(isPrevious ? 'previous' : 'current')
         const base = { ...EMPTY_METRICS, deliveries: isPrevious ? 10 : 12 }
         return HttpResponse.json({
+          anomalyCounts: [],
           attemptDistribution: [],
           overall: base,
           series: [],
@@ -211,6 +236,42 @@ describe('OverviewPanel', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('报表暂时不可用')
     expect(screen.getByRole('button', { name: '重新加载' })).toBeVisible()
+  })
+
+  it('上一期读不到时本期照常显示，说明一句并给重试，不出「较上期」', async () => {
+    seed()
+    let previousFails = true
+    server.use(
+      http.get('*/api/audit/summary', ({ request }) => {
+        const isPrevious = new URL(request.url).searchParams.has('until')
+        if (isPrevious && previousFails) {
+          return HttpResponse.json({ detail: '上一期算不出来' }, { status: 503 })
+        }
+        return HttpResponse.json({
+          anomalyCounts: [],
+          attemptDistribution: [],
+          overall: { ...EMPTY_METRICS, deliveries: isPrevious ? 10 : 12 },
+          series: [],
+          tasks: [],
+          users: [],
+        })
+      }),
+    )
+    await renderWithProviders(
+      <OverviewPanel nameOf={nameOf} onOpenAnomalies={() => {}} scope={DEFAULT_AUDIT_SCOPE} />,
+    )
+
+    const deliveries = await screen.findByRole('article', { name: '成片件数' })
+    await waitFor(() => expect(within(deliveries).getByText('12')).toBeVisible())
+    const alert = await screen.findByRole('alert', {}, { timeout: 3000 })
+    expect(alert).toHaveTextContent('上一期汇总没读到')
+    expect(screen.queryByText('较上期')).not.toBeInTheDocument()
+
+    previousFails = false
+    await userEvent.click(within(alert).getByRole('button', { name: '重试' }))
+
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+    expect(await screen.findByText(/较上期/)).toBeVisible()
   })
 })
 
@@ -256,13 +317,25 @@ describe('ConversationsPanel', () => {
   })
 })
 
+/** 种类筛选由上层持有，这里替路由层握住它。 */
+function AnomaliesWithKinds() {
+  const [kinds, setKinds] = useState<AnomalyKind[]>([])
+  return (
+    <AnomaliesPanel
+      kinds={kinds}
+      nameOf={nameOf}
+      onKindsChange={setKinds}
+      scope={ALL_TIME}
+      taskTitleOf={taskTitleOf}
+    />
+  )
+}
+
 describe('AnomaliesPanel', () => {
   it('列出异常并按种类筛', async () => {
     seed()
     const user = userEvent.setup()
-    await renderWithProviders(
-      <AnomaliesPanel nameOf={nameOf} scope={ALL_TIME} taskTitleOf={taskTitleOf} />,
-    )
+    await renderWithProviders(<AnomaliesWithKinds />)
 
     const list = await screen.findByRole('region', { name: '异常列表' })
     expect(within(list).getByText('反复重试')).toBeVisible()

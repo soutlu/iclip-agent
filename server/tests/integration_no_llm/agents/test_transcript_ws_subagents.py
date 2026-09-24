@@ -9,6 +9,7 @@ import asyncio
 import threading
 import uuid
 from collections.abc import AsyncIterator, Iterator
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -20,9 +21,10 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from starlette.testclient import TestClient
 
 from iclip.config import ResolvedAgent, ResolvedSubAgent
+from tests.helpers.agents import declared_agent, spec_path
+from tests.helpers.app import TEST_MODEL_NAME
 from tests.helpers.runtime import delegates
 from tests.helpers.ws import AGENT_ID, drain_turn, open_conversation, sign_in, subscribe, until
-from tests.integration_no_llm.conftest import TEST_MODEL_NAME
 
 WRITER = "shot-writer"
 WRITER_MODEL = "writer-model"
@@ -56,40 +58,20 @@ def _open_gate() -> Iterator[None]:
     yield
 
 
-def _spec(root: Path, name: str) -> Path:
-    folder = root / name
-    folder.mkdir(parents=True, exist_ok=True)
-    path = folder / "agent.yaml"
-    path.write_text("", encoding="utf-8")
-    return path
-
-
 @pytest.fixture
 def agent_declarations(tmp_path: Path) -> tuple[ResolvedAgent, ...]:
-    return (
-        ResolvedAgent(
-            agent_id=AGENT_ID,
-            name=AGENT_ID,
-            spec=_spec(tmp_path, AGENT_ID),
-            instructions=None,
-            model=TEST_MODEL_NAME,
-            skills=None,
-            capabilities=(),
-            subagents=(
-                ResolvedSubAgent(
-                    name=WRITER,
-                    spec=_spec(tmp_path, WRITER),
-                    instructions=None,
-                    model=WRITER_MODEL,
-                    skills=None,
-                    capabilities=(),
-                    timeout_seconds=None,
-                    max_calls=None,
-                    on_failure=None,
-                ),
-            ),
-        ),
+    writer = ResolvedSubAgent(
+        name=WRITER,
+        spec=spec_path(tmp_path, WRITER),
+        instructions=None,
+        model=WRITER_MODEL,
+        skills=None,
+        capabilities=(),
+        timeout_seconds=None,
+        max_calls=None,
+        on_failure=None,
     )
+    return (replace(declared_agent(tmp_path, AGENT_ID), subagents=(writer,)),)
 
 
 @pytest.fixture

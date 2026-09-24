@@ -1,5 +1,5 @@
-import { Tooltip } from 'radix-ui'
 import { cn } from '@/shared/lib/utils'
+import { TooltipContent, TooltipRoot, TooltipTrigger } from '@/shared/ui/tooltip'
 
 const RING_PATH = 100
 const KILO = 1000
@@ -42,51 +42,43 @@ export function ContextUsageIndicator({ max, used }: ContextUsageIndicatorProps)
         : 'text-primary'
 
   return (
-    <Tooltip.Provider delayDuration={300}>
-      <Tooltip.Root>
-        <Tooltip.Trigger asChild>
-          <button
-            aria-label={label}
-            className="flex size-8 shrink-0 cursor-default items-center justify-center rounded-full text-chat-muted-text ui-focus transition-colors ui-motion-s select-none hover:bg-hover"
-            type="button"
-          >
-            <svg aria-hidden className="size-4" viewBox="0 0 20 20">
-              <circle
-                className="text-chat-hairline"
-                cx="10"
-                cy="10"
-                fill="none"
-                r="7.5"
-                stroke="currentColor"
-                strokeWidth="2"
-              />
-              <circle
-                className={cn('transition-[stroke-dashoffset] ui-motion-m', arcColor)}
-                cx="10"
-                cy="10"
-                fill="none"
-                pathLength={RING_PATH}
-                r="7.5"
-                stroke="currentColor"
-                strokeDasharray={RING_PATH}
-                strokeDashoffset={RING_PATH - arc}
-                strokeLinecap="round"
-                strokeWidth="2"
-                transform="rotate(-90 10 10)"
-              />
-            </svg>
-          </button>
-        </Tooltip.Trigger>
-        <Tooltip.Portal>
-          <Tooltip.Content
-            className="layer-popup rounded-xs bg-inverse-surface px-2 py-1 text-label whitespace-nowrap text-inverse-on-surface shadow-[var(--shadow-2)] data-[state=closed]:animate-out data-[state=closed]:duration-(--dur-s) data-[state=closed]:ease-(--ease-accel) data-[state=closed]:fade-out data-[state=delayed-open]:animate-in data-[state=delayed-open]:duration-(--dur-m) data-[state=delayed-open]:ease-(--ease-decel) data-[state=delayed-open]:fade-in"
-            side="top"
-            sideOffset={8}
-          >
-            {label}
-          </Tooltip.Content>
-        </Tooltip.Portal>
-      </Tooltip.Root>
-    </Tooltip.Provider>
+    <TooltipRoot>
+      <TooltipTrigger asChild>
+        <button
+          aria-label={label}
+          className="flex size-8 shrink-0 cursor-default items-center justify-center rounded-full text-chat-muted-text ui-focus transition-colors ui-motion-s select-none hover:bg-hover"
+          type="button"
+        >
+          <svg aria-hidden className="size-4" viewBox="0 0 20 20">
+            <circle
+              className="text-chat-hairline"
+              cx="10"
+              cy="10"
+              fill="none"
+              r="7.5"
+              stroke="currentColor"
+              strokeWidth="2"
+            />
+            <circle
+              className={cn('transition-[stroke-dashoffset] ui-motion-m', arcColor)}
+              cx="10"
+              cy="10"
+              fill="none"
+              pathLength={RING_PATH}
+              r="7.5"
+              stroke="currentColor"
+              strokeDasharray={RING_PATH}
+              strokeDashoffset={RING_PATH - arc}
+              strokeLinecap="round"
+              strokeWidth="2"
+              transform="rotate(-90 10 10)"
+            />
+          </svg>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="whitespace-nowrap" side="top" sideOffset={8}>
+        {label}
+      </TooltipContent>
+    </TooltipRoot>
   )
 }

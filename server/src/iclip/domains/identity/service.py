@@ -19,8 +19,9 @@ from iclip.common.errors import (
 )
 from iclip.domains.identity.commands import CreateApiKey, UpdateUser
 from iclip.domains.identity.models import ApiKeyRecord, Principal, UserAccount
-from iclip.domains.identity.rbac import PERMISSIONS, effective_permissions, is_known_role
+from iclip.domains.identity.rbac import MANAGE_PERMISSION, effective_permissions, is_known_role
 from iclip.domains.identity.repository import ApiKeyRepository, UserRepository
+from iclip.domains.identity.visibility import visible_owner
 
 API_KEY_TOKEN_PREFIX = "iclip_sk_"
 _TOKEN_PREFIX_DISPLAY_LENGTH = 16
@@ -114,20 +115,15 @@ class IdentityService:
     async def issue_api_key(
         self, principal: Principal, command: CreateApiKey
     ) -> tuple[ApiKeyRecord, str]:
-        """签发 key；明文只在返回值出现一次。"""
+        """签发 key；明文只在返回值出现一次。``api_keys:issue`` 由路由声明，这里管 key 不能签 key。"""
 
         if principal.kind != "user":
             raise PermissionDenied("API key 不能签发新的 API key")
-        if not principal.has("api_keys:issue"):
-            raise PermissionDenied("需要 api_keys:issue 权限")
         name = command.name.strip()
         if not name or len(name) > _MAX_KEY_NAME_LENGTH:
             raise ValidationFailed(f"key 名称必须非空且不超过 {_MAX_KEY_NAME_LENGTH} 字符")
         if not command.permissions:
             raise ValidationFailed("key 至少授予一项权限")
-        unknown = command.permissions - set(PERMISSIONS)
-        if unknown:
-            raise ValidationFailed(f"未知权限: {', '.join(sorted(unknown))}")
         if not command.permissions <= principal.permissions:
             raise PermissionDenied("key 权限不能超出属主当前权限")
         if command.expires_at is not None and command.expires_at <= _now():
@@ -149,22 +145,19 @@ class IdentityService:
         return record, token
 
     async def list_api_keys(self, principal: Principal) -> tuple[ApiKeyRecord, ...]:
-        owner = None if principal.has("users:manage") else principal.user_id
-        return await self._api_keys.list_for_owner(owner)
+        return await self._api_keys.list_for_owner(visible_owner(principal))
 
     async def revoke_api_key(self, principal: Principal, key_id: uuid.UUID) -> None:
         record = await self._api_keys.get(key_id)
         if record is None:
             raise NotFound("API key 不存在")
-        if record.owner_user_id != principal.user_id and not principal.has("users:manage"):
+        if record.owner_user_id != principal.user_id and not principal.has(MANAGE_PERMISSION):
             raise NotFound("API key 不存在")
         await self._api_keys.revoke(key_id, _now())
 
     async def list_users_page(
-        self, principal: Principal, *, page: int, page_size: int
+        self, *, page: int, page_size: int
     ) -> tuple[tuple[UserAccount, ...], int]:
-        if not principal.has("users:manage"):
-            raise PermissionDenied("需要 users:manage 权限")
         if page < 1 or page_size < 1 or page_size > 200:
             raise ValidationFailed("分页参数无效")
         return await self._users.list_page(offset=(page - 1) * page_size, limit=page_size)
@@ -172,16 +165,12 @@ class IdentityService:
     async def update_user(
         self, principal: Principal, user_id: uuid.UUID, patch: UpdateUser
     ) -> UserAccount:
-        if not principal.has("users:manage"):
-            raise PermissionDenied("需要 users:manage 权限")
+        """改他人的角色、直接授权与启用状态；``users:manage`` 由路由声明，这里管不能改自己。"""
+
         if patch.roles is not None:
             unknown_roles = {role for role in patch.roles if not is_known_role(role)}
             if unknown_roles:
                 raise ValidationFailed(f"未知角色: {', '.join(sorted(unknown_roles))}")
-        if patch.direct_permissions is not None:
-            unknown = patch.direct_permissions - set(PERMISSIONS)
-            if unknown:
-                raise ValidationFailed(f"未知权限: {', '.join(sorted(unknown))}")
         if user_id == principal.user_id:
             if patch.roles is not None or patch.direct_permissions is not None:
                 raise SelfManagementForbidden("不能修改自己的授权")

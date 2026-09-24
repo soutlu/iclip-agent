@@ -7,7 +7,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from procrastinate.jobs import Job as QueuedJob
-from procrastinate.testing import InMemoryConnector
 
 from iclip.domains.generation.models import (
     STATUS_COMPLETED,
@@ -24,49 +23,20 @@ from iclip.domains.generation.provider import (
 from iclip.domains.generation.queue import (
     QUEUE_POLL,
     GenerationQueue,
-    GenerationQueueSettings,
-    ProviderLane,
     StillRunning,
     submit_queue,
 )
 from tests.helpers.generation import (
     FAKE_IMAGE_PROVIDER,
     FAKE_VIDEO_PROVIDER,
+    QUEUE_SETTINGS,
     InMemoryGenerationRepository,
     ScriptedProvider,
+    build_queue,
     image_request,
     make_job,
     video_request,
 )
-
-SETTINGS = GenerationQueueSettings(
-    poll_interval_seconds=5, error_retry_seconds=30, job_timeout_seconds=3600
-)
-
-
-def build_queue(
-    repo: InMemoryGenerationRepository,
-    *,
-    video: ScriptedProvider | None = None,
-    image: ScriptedProvider | None = None,
-    lanes: tuple[ProviderLane, ...] | None = None,
-) -> tuple[GenerationQueue, InMemoryConnector]:
-    """两家替身各占一条 lane，名字与 make_job 落到 provider 列上的值一致。"""
-
-    if lanes is None:
-        video_double = video or ScriptedProvider()
-        video_double.provider_name = FAKE_VIDEO_PROVIDER
-        image_double = image or ScriptedProvider()
-        image_double.provider_name = FAKE_IMAGE_PROVIDER
-        lanes = (ProviderLane(video_double, 1), ProviderLane(image_double, 1))
-    connector = InMemoryConnector()
-    queue = GenerationQueue(
-        repo,
-        lanes=lanes,
-        connector=connector,
-        settings=SETTINGS,
-    )
-    return queue, connector
 
 
 async def test_async_submit_moves_job_to_waiting_for_result() -> None:
@@ -228,7 +198,7 @@ async def test_running_job_asks_again_at_a_fixed_interval() -> None:
     assert stored.provider_status == "running", "问到的东西要记下来"
 
     decision = _retry_seconds(queue, StillRunning("还在跑"))
-    assert decision == SETTINGS.poll_interval_seconds
+    assert decision == QUEUE_SETTINGS.poll_interval_seconds
 
 
 async def test_unreachable_provider_waits_longer_than_normal() -> None:
@@ -246,8 +216,8 @@ async def test_unreachable_provider_waits_longer_than_normal() -> None:
 
     assert repo.jobs[job.id].status == STATUS_SUBMITTED, "问不通不改那次生成的结论"
     waited = _retry_seconds(queue, ProviderError("x", code="Y", retryable=True))
-    assert waited > SETTINGS.poll_interval_seconds
-    assert waited == SETTINGS.error_retry_seconds
+    assert waited > QUEUE_SETTINGS.poll_interval_seconds
+    assert waited == QUEUE_SETTINGS.error_retry_seconds
 
 
 async def test_non_retryable_poll_error_is_terminal() -> None:
@@ -269,7 +239,7 @@ async def test_non_retryable_poll_error_is_terminal() -> None:
 async def test_job_stuck_running_forever_eventually_times_out() -> None:
     """固定间隔轮询必须受总时限约束，避免供应商持续 running 导致无限轮询。"""
 
-    stale = datetime.now(UTC) - timedelta(seconds=SETTINGS.job_timeout_seconds + 60)
+    stale = datetime.now(UTC) - timedelta(seconds=QUEUE_SETTINGS.job_timeout_seconds + 60)
     job = make_job(
         video_request(),
         status=STATUS_SUBMITTED,
@@ -440,7 +410,7 @@ async def test_stalled_job_of_a_dead_worker_is_picked_back_up() -> None:
     assert queued is not None and queued.id is not None
     assert connector.jobs[queued.id]["status"] == "doing"
     connector.workers[worker_id] = datetime.now(UTC) - timedelta(
-        seconds=SETTINGS.stalled_worker_timeout_seconds + 60
+        seconds=QUEUE_SETTINGS.stalled_worker_timeout_seconds + 60
     )
 
     assert await queue.heal_stalled() == 1

@@ -9,7 +9,8 @@ import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-SHOT_TIMECODE_SHAPE = "**[MM:SS.mmm-MM:SS.mmm]**"
+from iclip.capabilities.video_document import SHOT_TIMECODE_SHAPE
+
 FRAME_INTERVAL_MS = 1000
 CELL_ID_SHAPE = "S<镜头号>-<序号>"
 

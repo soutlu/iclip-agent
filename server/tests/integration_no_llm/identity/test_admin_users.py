@@ -5,11 +5,8 @@ from __future__ import annotations
 import httpx
 from fastapi import FastAPI
 
-from tests.integration_no_llm.conftest import (
-    make_client,
-    register_and_login,
-    set_roles_in_db,
-)
+from tests.helpers.app import make_client
+from tests.helpers.auth import register_and_login, set_roles_in_db
 
 
 async def test_users_page_requires_manage_permission(
@@ -63,12 +60,12 @@ async def test_root_updates_roles_grants_and_self_protection(
         assert promoted.json()["user"]["roles"] == ["editor"]
 
         granted = await root.patch(
-            f"/users/{other_id}", json={"directPermissions": ["analytics:read"]}
+            f"/users/{other_id}", json={"directPermissions": ["api_keys:issue"]}
         )
         assert granted.status_code == 200
         user = granted.json()["user"]
-        assert user["directPermissions"] == ["analytics:read"]
-        assert "analytics:read" in user["permissions"]
+        assert user["directPermissions"] == ["api_keys:issue"]
+        assert "api_keys:issue" in user["permissions"]
 
         assert (
             await root.patch(f"/users/{root_id}", json={"roles": ["viewer"]})

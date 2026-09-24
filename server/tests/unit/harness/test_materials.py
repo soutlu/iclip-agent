@@ -62,10 +62,14 @@ async def test_wrong_kind_is_refused(ledger: FakeMaterialLedger) -> None:
         await check(ledger, VIDEO)
 
 
-@pytest.mark.parametrize("url", ["ref.mp4", "file:///etc/passwd", "ftp://host/a.mp4"])
+@pytest.mark.parametrize(
+    "url", ["ref.mp4", "file:///etc/passwd", "ftp://host/a.mp4", "https:///a.mp4"]
+)
 def test_require_http_refuses_other_schemes(url: str) -> None:
-    with pytest.raises(ModelRetry, match="http"):
+    with pytest.raises(ModelRetry, match="http") as failure:
         require_http(url, what="视频地址")
+
+    assert url not in str(failure.value)
 
 
 async def test_a_batch_passes_when_every_address_is_recorded(ledger: FakeMaterialLedger) -> None:

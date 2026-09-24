@@ -11,14 +11,10 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from iclip.app.bootstrap import build_app
+from tests.helpers.app import make_client, make_runtime_config
+from tests.helpers.auth import register_and_login, set_roles_in_db
 from tests.helpers.generation import MemoryObjectStore
-from tests.helpers.pg import IDENTITY_TABLES, truncate_clean
-from tests.integration_no_llm.conftest import (
-    make_client,
-    make_runtime_config,
-    register_and_login,
-    set_roles_in_db,
-)
+from tests.helpers.pg import reset_database
 
 OSS_ENVS = {
     "OSS_BUCKET": "iclip-test",
@@ -47,7 +43,7 @@ async def uploads_app(
         monkeypatch.setenv(name, value)
     engine = create_async_engine(migrated_pg)
     async with engine.begin() as conn:
-        await truncate_clean(conn, IDENTITY_TABLES, cascade=True)
+        await reset_database(conn)
     try:
         yield build_app(make_runtime_config(), engine=engine, object_store=bucket)
     finally:

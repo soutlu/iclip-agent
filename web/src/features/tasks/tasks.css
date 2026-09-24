@@ -1,11 +1,28 @@
-/* 按容器宽度计算 2–4 列，以适应侧栏折叠；修改 gap 时同步调整等分公式中的间隙总宽。 */
+/* 卡片不随宽屏拉伸；窄屏允许缩至容器宽度。 */
 .grid-task-cards {
   display: grid;
-  gap: 16px;
-  grid-template-columns: repeat(
-    auto-fill,
-    minmax(min(max(288px, calc((100% - 48px) / 4)), calc((100% - 16px) / 2)), 1fr)
-  );
+  gap: 24px 16px;
+  grid-template-columns: repeat(auto-fill, minmax(0, min(100%, 196px)));
+  align-items: start;
+}
+
+/* 封面与盖在它上面的参考条覆盖层同用这个高度，参考条按底边对齐，不另算偏移。 */
+.task-card-media {
+  height: 180px;
+}
+
+.task-card-reference-image {
+  height: 28px;
+  width: auto;
+  max-width: none;
+}
+
+.task-card-reference-strip {
+  scrollbar-width: none;
+}
+
+.task-card-reference-strip::-webkit-scrollbar {
+  display: none;
 }
 
 /* TaskHero 使用 ph-* 钩子与 .dark 共用一份 SVG；色板外的插画原色在此声明。 */
@@ -70,8 +87,8 @@
 
 /* 固定首尾，仅表单正文滚动；三列规格与参考图遵循需求单设计稿。 */
 .task-form-dialog {
-  max-width: 720px;
-  max-height: calc(100dvh - 24px);
+  max-width: 760px;
+  max-height: calc(100dvh - 40px);
   color-scheme: light;
 }
 
@@ -79,29 +96,173 @@
   color-scheme: dark;
 }
 
+.task-detail-layout,
+.task-detail-main,
+.task-related-panel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+/* 两个面板各自滚动，需求表单与关联视频共用同一弹窗焦点范围；表面由下面两个面板各自承载（DialogSurface 收 bare）。 */
+.task-detail-dialog {
+  width: calc(100% - 32px);
+  max-width: 1240px;
+  height: calc(100dvh - 40px);
+}
+
+.task-detail-layout-expanded {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 440px);
+  gap: 16px;
+}
+
+.task-detail-layout-expanded .task-detail-main,
+.task-related-panel {
+  overflow: hidden;
+  border-radius: var(--radius-2xl);
+  background-color: var(--color-surface-container-lowest);
+  box-shadow: var(--shadow-3);
+}
+
+.task-detail-layout-expanded .task-detail-main,
+.task-related-panel {
+  align-self: start;
+  max-height: 100%;
+}
+
+.task-related-body {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* 单列时共用外层滚动，避免手机出现两块嵌套的狭窄滚动区。 */
+@media (max-width: 1023px) {
+  .task-detail-dialog {
+    max-width: 760px;
+    overflow: hidden;
+    border-radius: var(--radius-2xl);
+    background-color: var(--color-surface-container-lowest);
+    box-shadow: var(--shadow-3);
+  }
+
+  .task-detail-layout-expanded {
+    display: flex;
+    overflow-y: auto;
+    gap: 0;
+  }
+
+  .task-detail-layout-expanded .task-detail-main,
+  .task-related-panel {
+    flex: none;
+    align-self: stretch;
+    max-height: none;
+    overflow: visible;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .task-detail-layout-expanded .task-detail-main {
+    display: contents;
+  }
+
+  .task-detail-layout-expanded .task-detail-main > header {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-panel);
+    background-color: var(--color-surface-container-lowest);
+  }
+
+  .task-detail-layout-expanded .task-detail-main > form {
+    flex: none;
+  }
+
+  .task-related-panel {
+    border-top: 1px solid var(--color-border);
+  }
+
+  .task-related-body {
+    overflow: visible;
+  }
+}
+
+@media (max-width: 599px) {
+  .task-detail-dialog {
+    width: 100%;
+    height: 92dvh;
+    max-height: 92dvh;
+    border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
+  }
+}
+
+/* 表单用轻背景分隔控件，冻结值保留可读对比；焦点沿用共享字段规范。 */
+.task-form-dialog .task-form-control:disabled {
+  color: var(--color-on-surface-variant);
+  background-color: transparent;
+  border-color: var(--color-border);
+  opacity: 1;
+}
+
+.task-form-dialog .task-form-control:not(:disabled):hover {
+  border-color: var(--color-outline-variant);
+}
+
+.task-form-dialog .task-form-control:focus-within {
+  border-color: var(--color-primary);
+  background-color: var(--color-surface-container-lowest);
+}
+
+.task-form-dialog .task-video-preview {
+  background-color: var(--color-surface-container-low);
+  border-color: transparent;
+}
+
 .task-form-basics {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
-  gap: 20px;
+  gap: 12px 16px;
 }
 
 .task-form-specs,
 .task-form-references {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
+  gap: 12px 16px;
 }
 
 .task-form-product {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
+  gap: 12px 16px;
 }
 
 .task-form-product-attributes {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+/* 视频按自身比例收边，创作要求并排；小屏回到单列。 */
+.task-form-story {
+  display: grid;
+  grid-template-columns: minmax(0, 160px) minmax(0, 1fr);
   gap: 20px;
+}
+
+.task-form-story .task-video-preview {
+  width: fit-content;
+  max-width: 100%;
+  height: auto;
+}
+
+.task-form-story .task-video-preview video {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 192px;
 }
 
 @media (max-width: 599px) {
@@ -111,6 +272,7 @@
     gap: 16px;
   }
 
+  .task-form-story,
   .task-form-basics,
   .task-form-product,
   .task-form-product-attributes {

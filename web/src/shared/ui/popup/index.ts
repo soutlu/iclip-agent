@@ -1,2 +1,7 @@
-export { PopupAnchor, PopupContent, PopupRoot, PopupSurface, PopupTrigger } from './popup-content'
-export { usePopupAnchor } from './use-popup-anchor'
+export {
+  POPUP_SURFACE_CLASS,
+  PopupAnchor,
+  PopupRoot,
+  PopupSurface,
+  PopupTrigger,
+} from './popup-content'

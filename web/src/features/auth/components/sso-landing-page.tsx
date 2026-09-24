@@ -2,12 +2,13 @@ import { useNavigate } from '@tanstack/react-router'
 import { useEffect, useRef } from 'react'
 import { ApiError } from '@/shared/api/client'
 import { consumeSsoNextPath, sanitizeCueAuthNextPath, useCompleteSsoLogin } from '@/shared/auth'
+import type { SsoErrorCode } from '../sso-error'
 
 type SsoLandingPageProps = {
   jwt?: string | undefined
 }
 
-const ssoErrorCodeFromError = (error: unknown) => {
+const ssoErrorCodeFromError = (error: unknown): SsoErrorCode => {
   if (error instanceof ApiError && error.status === 401) {
     return 'invalid'
   }
@@ -33,8 +34,11 @@ export function SsoLandingPage({ jwt }: SsoLandingPageProps) {
     startedRef.current = true
 
     // 失败回首页并传递错误码，由应用壳显示登录弹窗。
+    const fail = (code: SsoErrorCode) =>
+      void navigate({ replace: true, search: { ssoError: code }, to: '/' })
+
     if (!jwt) {
-      void navigate({ replace: true, search: { ssoError: 'missing' }, to: '/' })
+      fail('missing')
       return
     }
 
@@ -42,13 +46,7 @@ export function SsoLandingPage({ jwt }: SsoLandingPageProps) {
       .then(() => {
         void navigate({ replace: true, to: sanitizeCueAuthNextPath(consumeSsoNextPath()) })
       })
-      .catch((error: unknown) => {
-        void navigate({
-          replace: true,
-          search: { ssoError: ssoErrorCodeFromError(error) },
-          to: '/',
-        })
-      })
+      .catch((error: unknown) => fail(ssoErrorCodeFromError(error)))
   }, [completeSsoLogin, jwt, navigate])
 
   return (

@@ -29,7 +29,7 @@
 ## 2. 合同与实现边界
 
 - 领域术语与不变量以 [docs/CONTEXT.md](docs/CONTEXT.md) 为准，两端共用。
-- 对外端点、字段、状态码由后端定义，以 [contract/openapi.json](contract/openapi.json) 为准；它表达不了的约定写在 [contract/conventions.md](contract/conventions.md)。
+- 对外端点、字段、状态码与端点权限由后端定义，以 [contract/openapi.json](contract/openapi.json) 为准，端点权限只在路由上声明、不在文档里手抄；它表达不了的约定写在 [contract/conventions.md](contract/conventions.md)。
 - 修改端点的顺序：后端实现 → `make contract` → 在 `web/` 执行 `pnpm contract:generate`。前端消费生成类型与 zod，不手写端点 schema。
 - 全局视觉与 token 以 [design-system.html](design-system.html) 为准。token 先改规范，再同步运行时 CSS，通过 `pnpm lint:design`；验收截图放 `.artifacts/design-qa/`。
 - 不通过忽略类型错误、关闭 lint 或放宽检查配置消除失败；先修正实现。
@@ -87,8 +87,8 @@ git fetch --tags
 
 ## 4. 文档维护
 
-- 普通文档只写现行事实和可执行规则，不写过程、进度或历史解释；ADR 保留决策与取舍，被替代的决策标明后继。
+- 文档只写现行事实和可执行规则，不写过程、进度或历史解释。
 - 一处事实只有一个权威来源，其余链接过去；文档归属见 [README.md](README.md#文档地图)。
 - 不复述类型、配置、检查工具已完整表达的细节；保留职责、入口、工具无法判断的约束与操作步骤。
-- 发现文档与实现不一致时，结合合同和已接受 ADR 判断；实现偏差不能自动变成新规范。
+- 发现文档与实现不一致时，结合合同与 CONTEXT 判断；实现偏差不能自动变成新规范。
 - 更新文档后核对命令、路径、链接，并运行 `make docs-check`。

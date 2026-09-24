@@ -1,17 +1,20 @@
 /** 异常列表：按种类筛，一条一行，说清是谁、哪段对话、越了哪条线。 */
 
 import { Link } from '@tanstack/react-router'
-import { useState } from 'react'
+import { errorMessageOf } from '@/shared/api/client'
 import { Icon } from '@/shared/icons'
 import { formatDateTime } from '@/shared/lib/date-time'
 import { cn } from '@/shared/lib/utils'
-import { Button } from '@/shared/ui/button'
 import { ChipGroup, FilterChip } from '@/shared/ui/chip'
+import { ListEmpty, ListError, ListPending, LoadMoreFooter } from '@/shared/ui/list-state'
 import { ANOMALY_KINDS, ANOMALY_META, type AnomalyTone } from '../anomaly-kinds'
 import { useAuditAnomalies, type Anomaly, type AnomalyKind, type AuditScope } from '../audit.api'
 
 type AnomaliesPanelProps = {
   scope: AuditScope
+  /** 选中的异常种类，空即全部；由上层持有，好让它按同一份列表去取需求单标题。 */
+  kinds: AnomalyKind[]
+  onKindsChange: (kinds: AnomalyKind[]) => void
   nameOf: (userName: string) => string | undefined
   taskTitleOf: (taskId: string) => string | undefined
 }
@@ -24,9 +27,14 @@ const TONE_DOT: Record<AnomalyTone, string> = {
 
 const isKind = (value: string): value is AnomalyKind => value in ANOMALY_META
 
-export function AnomaliesPanel({ scope, nameOf, taskTitleOf }: AnomaliesPanelProps) {
-  const [kinds, setKinds] = useState<AnomalyKind[]>([])
-  const query = useAuditAnomalies(scope, kinds.length === 0 ? null : kinds)
+export function AnomaliesPanel({
+  scope,
+  kinds,
+  onKindsChange,
+  nameOf,
+  taskTitleOf,
+}: AnomaliesPanelProps) {
+  const query = useAuditAnomalies(scope, kinds)
   const rows = query.data?.pages.flatMap((page) => page.items) ?? []
 
   return (
@@ -34,7 +42,7 @@ export function AnomaliesPanel({ scope, nameOf, taskTitleOf }: AnomaliesPanelPro
       <ChipGroup
         aria-label="异常种类"
         className="flex-wrap gap-1"
-        onValueChange={(values: string[]) => setKinds(values.filter(isKind))}
+        onValueChange={(values: string[]) => onKindsChange(values.filter(isKind))}
         type="multiple"
         value={kinds}
       >
@@ -54,30 +62,14 @@ export function AnomaliesPanel({ scope, nameOf, taskTitleOf }: AnomaliesPanelPro
       </p>
 
       {query.isPending ? (
-        <p
-          className="flex items-center justify-center gap-2 py-16 text-body text-on-surface-variant"
-          role="status"
-        >
-          <Icon className="animate-spin" decorative name="loading" size="sm" />
-          正在读取异常
-        </p>
+        <ListPending label="正在读取异常" />
       ) : query.isError ? (
-        <div className="flex flex-col items-center gap-3 py-16" role="alert">
-          <p className="text-body text-error">{query.error.message}</p>
-          <Button
-            leadingIcon="refresh"
-            onClick={() => void query.refetch()}
-            size="md"
-            variant="outlined"
-          >
-            重新加载
-          </Button>
-        </div>
+        <ListError
+          message={errorMessageOf(query.error, '读取异常列表失败')}
+          onRetry={() => void query.refetch()}
+        />
       ) : rows.length === 0 ? (
-        <p className="flex items-center justify-center gap-2 py-16 text-body text-on-surface-variant">
-          <Icon className="text-primary" decorative name="success" size="sm" />
-          这个范围里没有异常
-        </p>
+        <ListEmpty icon="success">这个范围里没有异常</ListEmpty>
       ) : (
         <section
           aria-label="异常列表"
@@ -94,17 +86,11 @@ export function AnomaliesPanel({ scope, nameOf, taskTitleOf }: AnomaliesPanelPro
             ))}
           </ul>
           {query.hasNextPage ? (
-            <footer className="flex justify-center px-3 py-4">
-              <Button
-                disabled={query.isFetchingNextPage}
-                leadingIcon="expand"
-                onClick={() => void query.fetchNextPage()}
-                size="md"
-                variant="ghost"
-              >
-                {query.isFetchingNextPage ? '正在读取…' : '显示更多异常'}
-              </Button>
-            </footer>
+            <LoadMoreFooter
+              isFetching={query.isFetchingNextPage}
+              label="显示更多异常"
+              onMore={() => void query.fetchNextPage()}
+            />
           ) : null}
         </section>
       )}

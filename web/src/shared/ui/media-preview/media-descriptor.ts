@@ -2,7 +2,7 @@
 
 import type { IconName } from '@/shared/icons'
 
-export type MediaKind = 'file' | 'image' | 'video'
+type MediaKind = 'file' | 'image' | 'video'
 
 export type MediaUploadState =
   | { readonly status: 'error'; readonly message: string }

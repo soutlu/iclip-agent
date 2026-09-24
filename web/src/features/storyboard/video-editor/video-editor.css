@@ -38,13 +38,6 @@
   font-size: var(--text-body);
   scrollbar-width: thin;
 }
-.video-editor-text-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  cursor: pointer;
-}
 .video-editor-workspace {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(340px, 1fr);

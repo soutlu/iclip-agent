@@ -12,7 +12,7 @@ import { WorkbenchRegistryProvider, WorkbenchSelectionProvider } from '@/shared/
 import { addMockCollection, addMockConversation, mockAuthUser } from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
 import { FakeSocket, SERVER_HELLO } from '@/testing/ws'
-import { refreshSessionUser } from './session'
+import { probeSsoLoginEnabled, refreshSessionUser } from './session'
 
 const accountA = { ...mockAuthUser, username: 'account-a', displayName: '账号甲' }
 const accountB = {
@@ -191,7 +191,14 @@ describe('已确认身份变化时的业务缓存', () => {
 
     await logout(user)
 
-    await waitFor(() => expect(screen.getByRole('menuitem', { name: '退出登录' })).toBeEnabled())
+    await waitFor(() =>
+      expect(screen.getByRole('menuitem', { name: '退出登录' })).not.toHaveAttribute(
+        'aria-disabled',
+        'true',
+      ),
+    )
+    // 菜单是模态的，开着时页面其余部分对辅助技术隐藏；关上再看页面。
+    await user.keyboard('{Escape}')
     expect(screen.getByRole('button', { name: '用户菜单' })).toHaveAttribute('title', '账号甲')
     expect(screen.getByRole('link', { name: '账号甲的对话' })).toBeVisible()
     expect(accounts.sidebarReads).toEqual([accountA.id])
@@ -213,5 +220,22 @@ describe('已确认身份变化时的业务缓存', () => {
 
     expect(screen.getByRole('link', { name: '账号乙的对话' })).toBeVisible()
     expect(screen.queryByRole('link', { name: '账号甲的对话' })).not.toBeInTheDocument()
+  })
+})
+
+describe('probeSsoLoginEnabled', () => {
+  it('授权端点 404 表示 SSO 关闭', async () => {
+    server.use(http.get('*/api/auth/sso/authorize', () => new HttpResponse(null, { status: 404 })))
+
+    await expect(probeSsoLoginEnabled()).resolves.toBe(false)
+  })
+
+  it.each([
+    { name: '服务端 500', respond: () => new HttpResponse(null, { status: 500 }), status: 500 },
+    { name: '网络异常', respond: () => HttpResponse.error(), status: 0 },
+  ])('$name 不当成关闭，原样抛出交给查询重试', async ({ respond, status }) => {
+    server.use(http.get('*/api/auth/sso/authorize', respond))
+
+    await expect(probeSsoLoginEnabled()).rejects.toMatchObject({ name: 'ApiError', status })
   })
 })

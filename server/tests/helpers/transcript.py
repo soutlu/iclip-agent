@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic_ai_harness.step_persistence import ContinuableSnapshot, InMemoryStepStore
 
+from iclip.harness.job_status import JobStatus
 from iclip.harness.transcript.from_messages import SteeredPrompt
 from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.service import TranscriptService
@@ -55,7 +56,7 @@ class NoPromptRuns:
     async def prompt_of_runs(self, conversation_id: str) -> dict[str, str]:
         return {}
 
-    async def prompt_status_of_runs(self, conversation_id: str) -> dict[str, str]:
+    async def prompt_status_of_runs(self, conversation_id: str) -> dict[str, JobStatus]:
         return {}
 
     async def steered_prompts(self, conversation_id: str) -> tuple[SteeredPrompt, ...]:

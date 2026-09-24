@@ -3,7 +3,12 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import type { z } from 'zod'
 import { apiFetch } from '@/shared/api/client'
-import { zAnomaliesOut, zAuditConversationsOut, zSummaryOut } from '@/shared/api/generated/zod.gen'
+import {
+  zAnomaliesOut,
+  zAuditConversationsOut,
+  zSummaryOut,
+  type zSummaryAuditSummaryGetQuery,
+} from '@/shared/api/generated/zod.gen'
 import { dateRangeBounds, type DateRange } from '@/shared/lib/date-range'
 
 export type Summary = z.output<typeof zSummaryOut>
@@ -14,7 +19,7 @@ export type ConversationReport = ConversationReportsPage['items'][number]
 export type AnomaliesPage = z.output<typeof zAnomaliesOut>
 export type Anomaly = AnomaliesPage['items'][number]
 export type AnomalyKind = Anomaly['kind']
-export type Bucket = 'day' | 'week' | 'month'
+export type Bucket = NonNullable<z.output<typeof zSummaryAuditSummaryGetQuery>['bucket']>
 
 /** 三个标签页共用的筛选：时间范围、人（上游归属用的用户名）与需求单。 */
 export interface AuditScope extends DateRange {
@@ -159,16 +164,18 @@ export const useAuditConversationReports = (scope: AuditScope) =>
     queryKey: auditQueryKeys.conversations(scope),
   })
 
-/** kinds 为 null 即全部种类。 */
-export const useAuditAnomalies = (scope: AuditScope, kinds: readonly AnomalyKind[] | null) =>
-  useInfiniteQuery({
+/** kinds 为空即全部种类；路由层与面板用同一组 kinds 调用时共享同一份缓存。 */
+export const useAuditAnomalies = (scope: AuditScope, kinds: readonly AnomalyKind[]) => {
+  const filter = kinds.length === 0 ? null : kinds
+  return useInfiniteQuery({
     queryFn: ({ pageParam, signal }) =>
       apiFetch(
-        `/audit/anomalies?${anomaliesSearchParams(scope, kinds, pageParam).toString()}`,
+        `/audit/anomalies?${anomaliesSearchParams(scope, filter, pageParam).toString()}`,
         zAnomaliesOut,
         { fallbackErrorMessage: '读取异常列表失败', signal },
       ),
     initialPageParam: null as string | null,
     getNextPageParam: (last: AnomaliesPage) => last.nextCursor,
-    queryKey: auditQueryKeys.anomalies(scope, kinds),
+    queryKey: auditQueryKeys.anomalies(scope, filter),
   })
+}

@@ -10,8 +10,13 @@ type ShotStripProps = {
 }
 
 const MAX_DOTS = 6
+/**
+ * 单镜出片超过几次算重试过多；与后端异常判定 `Thresholds.retry_over` 的默认值同义
+ * （server/src/iclip/domains/audit/models.py），判定同为出片次数大于它。
+ */
+const DEFAULT_RETRY_OVER = 2
 
-export function ShotStrip({ shots, retryOver = 2 }: ShotStripProps) {
+export function ShotStrip({ shots, retryOver = DEFAULT_RETRY_OVER }: ShotStripProps) {
   if (shots.length === 0) {
     return <p className="text-body-sm text-on-surface-variant">这段对话没有带镜号的出片</p>
   }

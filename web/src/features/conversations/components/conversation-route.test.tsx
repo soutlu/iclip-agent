@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
 import { addMockConversation } from '@/testing/mocks/conversations'
-import { addMockUser, mockAuthUser } from '@/testing/mocks/handlers'
+import { addMockUser, loginAs, mockAuthUser } from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
 import { mockTranscriptPage } from '@/testing/mocks/transcript'
 import { pasteTextIntoComposer } from '@/testing/editor'
@@ -840,13 +840,7 @@ describe('ConversationRoute', () => {
 
   it('治理者看别人的对话是只读：页头标属主，没有输入框、修改与重新生成，审批和队列只展示', async () => {
     const other = addMockUser('小王')
-    server.use(
-      http.get('*/api/users/me', () =>
-        HttpResponse.json({
-          user: { ...mockAuthUser, permissions: [...mockAuthUser.permissions, 'users:manage'] },
-        }),
-      ),
-    )
+    loginAs(mockAuthUser, { permissions: [...mockAuthUser.permissions, 'users:manage'] })
     let decided = false
     server.use(
       http.post('*/api/conversations/c1/interactions/:interactionId', () => {
@@ -878,13 +872,7 @@ describe('ConversationRoute', () => {
 
   it('分叉不写源对话，所以只读地看着别人的也分得动；点一下把这一轮交给后端并跳到副本', async () => {
     const other = addMockUser('小王')
-    server.use(
-      http.get('*/api/users/me', () =>
-        HttpResponse.json({
-          user: { ...mockAuthUser, permissions: [...mockAuthUser.permissions, 'users:manage'] },
-        }),
-      ),
-    )
+    loginAs(mockAuthUser, { permissions: [...mockAuthUser.permissions, 'users:manage'] })
     let asked: { turn: number } | null = null
     let calls = 0
     // 合同上这几个 id 都是 UUID；副本的 id 由服务端铸，测试里铸一个当它的答复。
@@ -946,13 +934,7 @@ describe('ConversationRoute', () => {
 
   it('治理者看已删的对话也是只读，页头与说明都标出已删除；自己删的主语写「自己」', async () => {
     const other = addMockUser('小王')
-    server.use(
-      http.get('*/api/users/me', () =>
-        HttpResponse.json({
-          user: { ...mockAuthUser, permissions: [...mockAuthUser.permissions, 'users:manage'] },
-        }),
-      ),
-    )
+    loginAs(mockAuthUser, { permissions: [...mockAuthUser.permissions, 'users:manage'] })
     serveApprovalPage(other.id, '2026-09-04T00:00:00Z')
     const first = await renderConversation()
 

@@ -1,5 +1,6 @@
 /** 镜头组可选择的内容；内容身份独立于它引用的图片。 */
 import { z } from 'zod'
+import { UserFacingError } from '@/shared/api/client'
 import { MAX_REFERENCE_IMAGES } from './shots'
 import {
   extractImageIndexes,
@@ -31,6 +32,9 @@ export const decodeContentId = (id: string): ShotContentRef | undefined => {
 export const shotContentIdSchema = z
   .string()
   .refine((id) => decodeContentId(id) !== undefined, '内容 id 不合法')
+
+/** 路由查询参数里盖在分镜页上的那一层：全部镜头组、完整提示词或生成记录。 */
+export const readerSheetSchema = z.enum(['all', 'prompt', 'records'])
 
 export type ShotContent = {
   id: string
@@ -74,13 +78,30 @@ export const shotContents = (shot: Shot): [ShotContent, ...ShotContent[]] => {
   return contents
 }
 
+/** 查询参数指的内容与帧：内容指不到落回首项，帧不属于该内容落回它的首帧，内容没有帧时为 undefined。 */
+export const resolveShotSelection = (
+  contents: readonly [ShotContent, ...ShotContent[]],
+  wanted: { content: string | undefined; frame: number | undefined },
+): { content: ShotContent; frame: number | undefined } => {
+  const content = contents.find((item) => item.id === wanted.content) ?? contents[0]
+  const frame =
+    wanted.frame !== undefined && content.frameNumbers.includes(wanted.frame)
+      ? wanted.frame
+      : content.frameNumbers[0]
+  return { content, frame }
+}
+
+/** 导航、选区与可访问名里的短名：镜头按序号叫「镜头 N」，全局设定与未引用用标题。 */
+export const contentLabel = (content: ShotContent): string =>
+  content.timelineIndex === undefined ? content.title : `镜头 ${content.timelineIndex + 1}`
+
 export const updateContentPrompt = (shot: Shot, id: string, text: string): Shot => {
   const content = shotContents(shot).find((item) => item.id === id)
   if (content?.kind === 'global')
     return { ...shot, prompt: { ...shot.prompt, global_settings: text } }
   if (content?.timelineIndex !== undefined)
     return updateTimelinePrompt(shot, content.timelineIndex, text)
-  throw new Error('请先选择全局设定或镜头')
+  throw new UserFacingError('请先选择全局设定或镜头')
 }
 
 /** 在指定正文插入图片引用；已有编号保持不变。 */
@@ -91,9 +112,9 @@ export const insertContentReference = (
   insertion?: PromptInsertion,
 ): Shot => {
   const content = shotContents(shot).find((item) => item.id === id)
-  if (content?.prompt === undefined) throw new Error('请先选择全局设定或镜头')
+  if (content?.prompt === undefined) throw new UserFacingError('请先选择全局设定或镜头')
   if (!Number.isInteger(number) || number < 1 || number > shot.image_urls.length)
-    throw new Error('这张图片已不存在，请重新选择')
+    throw new UserFacingError('这张图片已不存在，请重新选择')
   return updateContentPrompt(shot, id, insertReferenceText(content.prompt, number, insertion))
 }
 
@@ -105,8 +126,8 @@ export const appendContentImage = (
   insertion?: PromptInsertion,
 ): Shot => {
   if (shot.image_urls.length >= MAX_REFERENCE_IMAGES)
-    throw new Error(`每组最多使用 ${MAX_REFERENCE_IMAGES} 张参考图`)
-  if (url.trim() === '') throw new Error('图片地址不能为空')
+    throw new UserFacingError(`每组最多使用 ${MAX_REFERENCE_IMAGES} 张参考图`)
+  if (url.trim() === '') throw new UserFacingError('图片地址不能为空')
   const image_urls = [...shot.image_urls, url]
   return insertContentReference({ ...shot, image_urls }, id, image_urls.length, insertion)
 }

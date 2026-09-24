@@ -10,39 +10,19 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
 
 from iclip.config import ResolvedAgent
-from tests.integration_no_llm.agents.waiting import settled
-from tests.integration_no_llm.conftest import (
-    TEST_MODEL_NAME,
-    make_client,
-    new_conversation,
-    register_and_login,
-    set_roles_in_db,
-)
+from tests.helpers.agents import declared_agent
+from tests.helpers.app import make_client, new_conversation, settled
+from tests.helpers.auth import register_and_login, set_roles_in_db
+from tests.helpers.pg import connected
 
 AGENT_ID = "storyboard"
 
 
 @pytest.fixture
 def agent_declarations(tmp_path: Path) -> tuple[ResolvedAgent, ...]:
-    folder = tmp_path / AGENT_ID
-    folder.mkdir(parents=True, exist_ok=True)
-    spec = folder / "agent.yaml"
-    spec.write_text("", encoding="utf-8")
-    return (
-        ResolvedAgent(
-            agent_id=AGENT_ID,
-            name=AGENT_ID,
-            spec=spec,
-            instructions=None,
-            model=TEST_MODEL_NAME,
-            skills=None,
-            capabilities=(),
-            subagents=(),
-        ),
-    )
+    return (declared_agent(tmp_path, AGENT_ID),)
 
 
 async def _sign_in(client: httpx.AsyncClient, pg_url: str) -> str:
@@ -54,20 +34,16 @@ async def _sign_in(client: httpx.AsyncClient, pg_url: str) -> str:
 
 async def _materials(pg_url: str, namespace: str) -> list[tuple[str, str]]:
 
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.connect() as conn:
-            rows = (
-                await conn.execute(
-                    text(
-                        "SELECT url, kind FROM agent_runtime.materials "
-                        "WHERE namespace = :ns ORDER BY url"
-                    ),
-                    {"ns": namespace},
-                )
-            ).all()
-    finally:
-        await engine.dispose()
+    async with connected(pg_url) as conn:
+        rows = (
+            await conn.execute(
+                text(
+                    "SELECT url, kind FROM agent_runtime.materials "
+                    "WHERE namespace = :ns ORDER BY url"
+                ),
+                {"ns": namespace},
+            )
+        ).all()
     return [(row[0], row[1]) for row in rows]
 
 
@@ -256,8 +232,11 @@ async def test_a_text_only_prompt_records_nothing(app: FastAPI, pg_url: str) -> 
     assert await _materials(pg_url, f"{user_id}/{conversation_id}") == []
 
 
-async def test_an_attachment_that_is_not_http_is_refused(app: FastAPI, pg_url: str) -> None:
-    """台账地址会用于工具外呼，仅接受 HTTP(S)。"""
+@pytest.mark.parametrize("url", ["file:///etc/passwd", "https:///a.png"])
+async def test_an_attachment_that_is_not_http_is_refused(
+    app: FastAPI, pg_url: str, url: str
+) -> None:
+    """台账地址会用于工具外呼，仅接受带主机名的 HTTP(S)。"""
 
     async with make_client(app) as client:
         user_id = await _sign_in(client, pg_url)
@@ -266,9 +245,7 @@ async def test_an_attachment_that_is_not_http_is_refused(app: FastAPI, pg_url: s
             f"/conversations/{conversation_id}/prompts",
             json={
                 "prompt_id": "prm_bad",
-                "content": [
-                    {"type": "image", "source": {"kind": "url", "url": "file:///etc/passwd"}}
-                ],
+                "content": [{"type": "image", "source": {"kind": "url", "url": url}}],
             },
         )
 
@@ -344,21 +321,15 @@ async def test_status_answers_an_api_key_holder(app: FastAPI, pg_url: str) -> No
 
 async def _run_of(pg_url: str, prompt_id: str) -> str:
 
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.connect() as conn:
-            return str(
-                (
-                    await conn.execute(
-                        text(
-                            "SELECT run_id FROM agent_runtime.agent_job_runs WHERE prompt_id = :p"
-                        ),
-                        {"p": prompt_id},
-                    )
-                ).scalar_one()
-            )
-    finally:
-        await engine.dispose()
+    async with connected(pg_url) as conn:
+        return str(
+            (
+                await conn.execute(
+                    text("SELECT run_id FROM agent_runtime.agent_job_runs WHERE prompt_id = :p"),
+                    {"p": prompt_id},
+                )
+            ).scalar_one()
+        )
 
 
 async def test_a_run_is_recorded_on_the_conversation(app: FastAPI, pg_url: str) -> None:

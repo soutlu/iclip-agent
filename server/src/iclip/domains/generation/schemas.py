@@ -25,16 +25,29 @@ from pydantic import (
 from pydantic.alias_generators import to_camel
 
 from iclip.common.errors import ValidationFailed
-from iclip.domains.generation.shot_prompt import (
-    format_seconds,
-    format_shot_prompt,
+from iclip.common.generation_vocab import GenerationKind, GenerationStatus
+from iclip.common.shot_rules import (
+    MAX_REFERENCE_IMAGES,
+    first_unavailable_image,
     image_indexes_of,
+    timeline_fault,
 )
+from iclip.common.urls import is_http_url
+from iclip.domains.generation.shot_prompt import format_seconds, format_shot_prompt
 
 if TYPE_CHECKING:  # 只为类型：真导入会和 models.py 成环
     from iclip.domains.generation.models import GenerationJob
 
-GenerationKind = Literal["video", "image", "clip"]
+# 两套词表写在 common（推送帧也要引），这里照原名导出。状态常量放这里而不是 models.py：
+# GenerationOut 运行时要解析状态词，本模块的投影要按它判断，而 models.py 反过来导入本模块。
+STATUS_PENDING: Final = "pending"
+"""已受理，尚未提交给 Provider。"""
+STATUS_SUBMITTING: Final = "submitting"
+"""提交中断时禁止自动重投，避免重复计费；恢复规则见 queue.py。"""
+STATUS_SUBMITTED: Final = "submitted"
+"""Provider 已接受任务，等待结果。"""
+STATUS_COMPLETED: Final = "completed"
+STATUS_FAILED: Final = "failed"
 
 KIND_VIDEO: Final = "video"
 KIND_IMAGE: Final = "image"
@@ -74,9 +87,8 @@ IMAGE_RESOLUTIONS = Literal["1k", "2k", "4k"]
 IMAGE_MAX_REFERENCES: Final = 10
 """图像编辑接口的参考图上限。超了在提交之前就拒，不浪费一次付费调用。"""
 MAX_PROMPT_CHARS: Final = 4000
-MAX_REFERENCE_URLS: Final = 30
-"""每类参考素材最多几个地址。与分镜文件一组镜头的帧图上限（capabilities 的
-``MAX_REFERENCE_IMAGES``）取同一个数：文件里存得下的一组，出片就必须发得出去。"""
+MAX_REFERENCE_URLS: Final = MAX_REFERENCE_IMAGES
+"""每类参考素材最多几个地址，取一组镜头的帧图上限：分镜文件里存得下的一组，出片就必须发得出去。"""
 MAX_MODEL_CHARS: Final = 200
 MAX_USER_NAME_CHARS: Final = 200
 MAX_METADATA_CHARS: Final = 2000
@@ -84,12 +96,15 @@ MAX_METADATA_CHARS: Final = 2000
 MAX_URL_CHARS: Final = 2000
 """服务端要拿去下载的单个地址的长度上限。"""
 
-ORIGIN_FIELDS: Final = frozenset({"conversation_id", "task_id", "metadata", "shot_index"})
+ORIGIN_FIELDS: Final = frozenset(
+    {"conversation_id", "task_id", "metadata", "shot_index", "root_job_id"}
+)
 """归属字段：落表上自己的列，不进 ``request`` JSON。
 
 它们不是发给 provider 的参数，而是「这一行属于谁、为谁出的」：对话与需求单按索引查；
-``metadata`` 是调用方自带的坐标，服务端原样存、按包含匹配筛，不读里面的键；
-``shot_index`` 是 ``metadata.shot`` 的别名，受理时折进 ``metadata``，本身不落任何地方。"""
+``root_job_id`` 说这一行是哪条独立记录的衍生；``metadata`` 是调用方自带的坐标，服务端
+原样存、按包含匹配筛，只认 ``shot`` 一个键；``shot_index`` 是 ``metadata.shot`` 的别名，
+受理时折进 ``metadata``，本身不落任何地方。"""
 
 NOT_FORWARDED_FIELDS: Final = ORIGIN_FIELDS | frozenset({"shot"})
 """发给上游时去掉的字段：归属字段是我们自己的；``shot`` 已经拼成 ``prompt``，上游只认正文。
@@ -122,15 +137,9 @@ MediaUrls = Annotated[list[str], Field(max_length=MAX_REFERENCE_URLS)]
 
 def _http_only(urls: list[str]) -> list[str]:
     for index, url in enumerate(urls):
-        if not _is_http(url):
+        if not is_http_url(url):
             raise ValueError(f"[{index}] 必须是 http:// 或 https:// 地址")
     return urls
-
-
-def _is_http(url: str) -> bool:
-    """服务端会拿去下载的地址只放行 http(s)：放行别的 scheme 等于开一个任意文件读取入口。"""
-
-    return url.startswith(("http://", "https://"))
 
 
 def _bounded_metadata(value: dict[str, Any]) -> dict[str, Any]:
@@ -140,7 +149,8 @@ def _bounded_metadata(value: dict[str, Any]) -> dict[str, Any]:
 
 
 Metadata = Annotated[dict[str, Any], AfterValidator(_bounded_metadata)]
-"""调用方自己的坐标标签，服务端不解释。分镜页写 ``{"shot", "frame"}``，形状归前端定。"""
+"""调用方自己的坐标标签。分镜页写 ``{"shot", "frame"}``，形状归前端定；服务端只认 ``shot``
+一个键（审计按它数镜），其余键不读、不校验。"""
 
 
 def _nonblank(text: str) -> str:
@@ -190,19 +200,21 @@ class VideoShotIn(SnakeModel):
         previous_end = 0.0
         for position, item in enumerate(self.timeline, start=1):
             start, end = item.timestamps
-            if end <= start:
-                raise ValueError(
-                    f"第 {position} 镜的 timestamps 为 [{format_seconds(start)}, "
-                    f"{format_seconds(end)}]，结束必须晚于开始"
-                )
-            if position == 1 and start != 0:
-                raise ValueError(f"第一镜从 {format_seconds(start)} 秒开始，必须从 0 开始")
-            if start < previous_end:
-                raise ValueError(
-                    f"第 {position} 镜从 {format_seconds(start)} 秒开始，"
-                    f"早于上一镜的结束 {format_seconds(previous_end)} 秒"
-                )
-            previous_end = end
+            match timeline_fault(position, start, end, previous_end):
+                case "not_after_start":
+                    raise ValueError(
+                        f"第 {position} 镜的 timestamps 为 [{format_seconds(start)}, "
+                        f"{format_seconds(end)}]，结束必须晚于开始"
+                    )
+                case "first_not_at_zero":
+                    raise ValueError(f"第一镜从 {format_seconds(start)} 秒开始，必须从 0 开始")
+                case "overlaps_previous":
+                    raise ValueError(
+                        f"第 {position} 镜从 {format_seconds(start)} 秒开始，"
+                        f"早于上一镜的结束 {format_seconds(previous_end)} 秒"
+                    )
+                case None:
+                    previous_end = end
         return self
 
 
@@ -214,11 +226,11 @@ def _check_image_references(shot: VideoShotIn, available: int) -> None:
         (f"timeline[{index}].prompt", item.prompt) for index, item in enumerate(shot.timeline)
     ]
     for where, text in texts:
-        for number in image_indexes_of(text):
-            if not 1 <= number <= available:
-                raise ValueError(
-                    f"shot.{where} 引用了 @Image{number}，但 reference_image_urls 只有 {available} 张"
-                )
+        number = first_unavailable_image(text, available)
+        if number is not None:
+            raise ValueError(
+                f"shot.{where} 引用了 @Image{number}，但 reference_image_urls 只有 {available} 张"
+            )
 
 
 class VideoGenerationIn(SnakeModel):
@@ -260,6 +272,9 @@ class VideoGenerationIn(SnakeModel):
 
     下界跟着分镜文件走：那里的 ``shots[].index`` 就是从 1 数的。收下 0 只会落一条读不出
     镜头组的记录——服务端不报错，分镜页永远不显示。"""
+    root_job_id: uuid.UUID | None = None
+    """原作号。视频编辑的结果填最初那条出片的 id，出片本身不填；受理时核对它是同一段对话里
+    的独立记录。"""
 
     _check_urls = field_validator(
         "reference_image_urls", "reference_video_urls", "reference_audio_urls"
@@ -317,6 +332,8 @@ class ImageGenerationIn(CamelModel):
     conversation_id: uuid.UUID | None = None
     task_id: uuid.UUID | None = None
     metadata: Metadata | None = None
+    root_job_id: uuid.UUID | None = None
+    """原作号。分镜页的图片生成与图片编辑都是独立记录，不填；从某条出片上抽出来的图才填它。"""
 
     _check_urls = field_validator("reference_image_urls")(_http_only)
 
@@ -331,7 +348,7 @@ class ClipSegmentIn(CamelModel):
     @field_validator("url")
     @classmethod
     def _downloadable(cls, url: str) -> str:
-        if not _is_http(url):
+        if not is_http_url(url):
             raise ValueError("必须是 http:// 或 https:// 地址")
         return url
 
@@ -357,6 +374,11 @@ class ClipIn(CamelModel):
     conversation_id: uuid.UUID | None = None
     task_id: uuid.UUID | None = None
     metadata: Metadata | None = None
+    root_job_id: uuid.UUID | None = None
+    """原作号，受理时必填：本地加工的产物一律是某条出片的衍生记录，填最初那条出片的 id。
+
+    模型上可空，因为它是归属字段、落自己的列，持久化的 ``request`` JSON 里没有它，读回时
+    还要过这份校验。"""
 
     @model_validator(mode="after")
     def _reference_is_one_cut(self) -> ClipIn:
@@ -401,11 +423,13 @@ class GenerationOut(CamelModel):
     """
 
     id: uuid.UUID
-    kind: str
-    status: str
+    kind: GenerationKind
+    status: GenerationStatus
     request: dict[str, Any]
     metadata: dict[str, Any] | None
     task_id: uuid.UUID | None
+    root_job_id: uuid.UUID | None
+    """原作号；空即独立记录。链查询按它筛（``GET /generations?rootJobId=``）。"""
     output_url: str | None
     watermark_output_url: str | None
     """视频的水印版地址；图片没有这一份，恒为空。"""
@@ -428,6 +452,7 @@ def generation_out(job: GenerationJob) -> GenerationOut:
         request=request_to_payload(job.request),
         metadata=job.metadata,
         task_id=job.task_id,
+        root_job_id=job.root_job_id,
         output_url=job.output_url,
         watermark_output_url=job.watermark_output_url,
         error_message=job.error_message,
@@ -452,7 +477,7 @@ def _clip_stage(job: GenerationJob) -> ClipStage | None:
     只在 submitting 时认：收尾写终态时不带 provider_status，那一列会留着最后上报的阶段词，
     照它读会让一条已失败的记录看着还在上传。"""
 
-    if job.kind != KIND_CLIP or job.status != "submitting":
+    if job.kind != KIND_CLIP or job.status != STATUS_SUBMITTING:
         return None
     return next((stage for stage in CLIP_STAGES if stage == job.provider_status), None)
 
@@ -475,12 +500,12 @@ class VideoTaskError(SnakeModel):
 
 VideoTaskStatus = Literal["queued", "running", "succeeded", "failed"]
 
-_TASK_STATUS: Final[Mapping[str, VideoTaskStatus]] = {
-    "pending": "queued",
-    "submitting": "running",
-    "submitted": "running",
-    "completed": "succeeded",
-    "failed": "failed",
+_TASK_STATUS: Final[Mapping[GenerationStatus, VideoTaskStatus]] = {
+    STATUS_PENDING: "queued",
+    STATUS_SUBMITTING: "running",
+    STATUS_SUBMITTED: "running",
+    STATUS_COMPLETED: "succeeded",
+    STATUS_FAILED: "failed",
 }
 """我们的记录状态到上游状态词。调用方拿现成的上游轮询代码就能用。"""
 
@@ -568,6 +593,11 @@ __all__ = [
     "MAX_USER_NAME_CHARS",
     "NOT_FORWARDED_FIELDS",
     "ORIGIN_FIELDS",
+    "STATUS_COMPLETED",
+    "STATUS_FAILED",
+    "STATUS_PENDING",
+    "STATUS_SUBMITTED",
+    "STATUS_SUBMITTING",
     "ClipIn",
     "ClipPurpose",
     "ClipSegmentIn",
@@ -576,6 +606,7 @@ __all__ = [
     "GenerationKind",
     "GenerationOut",
     "GenerationRequest",
+    "GenerationStatus",
     "GenerationsPageOut",
     "ImageGenerationIn",
     "ImageModelOut",

@@ -16,24 +16,27 @@ from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from iclip.domains.audit.models import (
-    EMPTY_METRICS,
-    Anomaly,
     AnomalyCursor,
     AnomalyKind,
-    AttemptBucket,
     Bucket,
     ConversationCursor,
-    ConversationReport,
-    Metrics,
-    ModelUsage,
-    PeriodMetrics,
     Scope,
-    ShotReport,
-    Spread,
-    TaskMetrics,
     Thresholds,
-    UsageTotals,
-    UserMetrics,
+)
+from iclip.domains.audit.schemas import (
+    EMPTY_METRICS,
+    AnomalyCountOut,
+    AnomalyOut,
+    AttemptBucketOut,
+    ConversationAuditOut,
+    MetricsOut,
+    ModelUsageOut,
+    PeriodMetricsOut,
+    ShotOut,
+    SpreadOut,
+    TaskMetricsOut,
+    UsageOut,
+    UserMetricsOut,
 )
 
 # ---------------------------------------------------------------------------
@@ -43,17 +46,24 @@ from iclip.domains.audit.models import (
 # 分叉出来的副本一律不进报表（``forked_from`` 非空）：它带着源对话拷来的出片记录，
 # 算进去会把原作者的产量重计一遍，副本自己跑的也是试验数据。挡在 videos / person / runs
 # 三个根 CTE 上，其余口径都从它们派生。
+# SQL 里的 'video' / 'completed' / 'submitted' 镜像生成域的 KIND_VIDEO / STATUS_COMPLETED /
+# STATUS_SUBMITTED（报表按表名直接查，不 import 业务模块）；集成测试的种子取自那些
+# 常量，生成域改词这里的用例就红。
 # ---------------------------------------------------------------------------
 
 _VIDEOS: Final = """
 videos AS (
     SELECT g.id, g.conversation_id, g.status, g.created_at, g.submitted_at, g.finished_at,
+           -- 成片：出成了且有完成时刻；各口径只引用这一列。
+           (g.status = 'completed' AND g.finished_at IS NOT NULL) AS delivered,
            (g.metadata->>'shot')::int AS shot,
            g.request->>'user_name' AS user_name,
            c.task_id
     FROM iclip.generation_jobs g
     JOIN iclip.conversations c ON c.id = g.conversation_id
-    WHERE g.kind = 'video' AND jsonb_typeof(g.metadata->'shot') = 'number'
+    -- 出片 = 独立记录（没有原作号）且带数字镜号；视频编辑的衍生记录一律不算。
+    WHERE g.kind = 'video' AND g.root_job_id IS NULL
+      AND jsonb_typeof(g.metadata->'shot') = 'number'
       AND c.forked_from IS NULL
 )"""
 
@@ -79,7 +89,7 @@ shots AS (
            count(*) AS attempts,
            min(v.created_at) AS first_at,
            max(v.created_at) AS last_at,
-           count(*) = 1 AND bool_and(v.status = 'completed') AS one_take,
+           count(*) = 1 AND bool_and(v.delivered) AS one_take,
            (array_agg(v.user_name ORDER BY v.created_at, v.id))[1] AS user_name
     FROM videos v
     GROUP BY v.conversation_id, v.shot, v.task_id
@@ -105,7 +115,7 @@ cycles AS (
     FROM (
         SELECT v.conversation_id, max(v.finished_at) AS delivered_at
         FROM videos v
-        WHERE v.status = 'completed' AND v.finished_at IS NOT NULL
+        WHERE v.delivered
         GROUP BY v.conversation_id
     ) d
     JOIN person p ON p.conversation_id = d.conversation_id
@@ -162,7 +172,7 @@ completed AS (
            {_spread("extract(epoch FROM v.finished_at - v.created_at)", "video")},
            {_spread("extract(epoch FROM v.finished_at - v.submitted_at)", "upstream")}
     FROM videos v
-    WHERE v.status = 'completed' AND v.finished_at IS NOT NULL
+    WHERE v.delivered
     {_WINDOW.format(anchor="v.finished_at")}
     {_FILTERS.format(t="v")}
     GROUP BY 1
@@ -334,7 +344,7 @@ _ANOMALY_COLUMNS: Final = (
     "kind, at, ref, value, threshold, conversation_id, task_id, user_name, shot, generation_id"
 )
 
-_ANOMALIES: Final = text(f"""
+_ANOMALY_CTES: Final = f"""
 WITH {_VIDEOS}, {_PERSON}, {_SHOTS}, {_CYCLES}, {_USAGE},
 windowed_cycles AS (
     SELECT y.* FROM cycles y
@@ -432,7 +442,7 @@ task_stuck AS (
 deleted AS (
     SELECT 'deleted', p.deleted_at, 'deleted:' || p.conversation_id,
            (SELECT count(*) FROM videos v
-            WHERE v.conversation_id = p.conversation_id AND v.status = 'completed')::float8,
+            WHERE v.conversation_id = p.conversation_id AND v.delivered)::float8,
            NULL::float8,
            p.conversation_id, p.task_id, p.user_name, NULL::int, NULL::uuid
     FROM person p
@@ -443,7 +453,7 @@ deleted AS (
 no_task AS (
     SELECT 'no_task', y.delivered_at, 'no_task:' || y.conversation_id,
            (SELECT count(*) FROM videos v
-            WHERE v.conversation_id = y.conversation_id AND v.status = 'completed')::float8,
+            WHERE v.conversation_id = y.conversation_id AND v.delivered)::float8,
            NULL::float8,
            y.conversation_id, NULL::uuid, y.user_name, NULL::int, NULL::uuid
     FROM windowed_cycles y
@@ -456,8 +466,8 @@ missing_shot AS (
     FROM iclip.generation_jobs g
     LEFT JOIN iclip.conversations c ON c.id = g.conversation_id
     WHERE g.kind = 'video' AND jsonb_typeof(g.metadata->'shot') IS DISTINCT FROM 'number'
-      -- 视频编辑的结果按 ADR-0020 §5 只带编辑链坐标、不带镜头组，不算缺坐标。
-      AND NOT COALESCE(jsonb_exists(g.metadata, 'rootJob'), false)
+      -- 只有独立记录才谈漏标；衍生记录本来就不带镜号。
+      AND g.root_job_id IS NULL
       -- 挂在副本下的记录不算异常；没挂对话的孤儿记录照旧要算，所以放过 c 整行为空的。
       AND c.forked_from IS NULL
     {_WINDOW.format(anchor="g.created_at")}
@@ -472,6 +482,10 @@ everything ({_ANOMALY_COLUMNS}) AS (
     UNION ALL SELECT * FROM task_stuck UNION ALL SELECT * FROM deleted
     UNION ALL SELECT * FROM no_task UNION ALL SELECT * FROM missing_shot
 )
+"""
+
+_ANOMALIES: Final = text(f"""
+{_ANOMALY_CTES}
 SELECT {_ANOMALY_COLUMNS}
 FROM everything
 WHERE (CAST(:kinds AS text[]) IS NULL OR kind = ANY(CAST(:kinds AS text[])))
@@ -479,6 +493,15 @@ WHERE (CAST(:kinds AS text[]) IS NULL OR kind = ANY(CAST(:kinds AS text[])))
        OR (at, ref) < (CAST(:after_at AS timestamptz), CAST(:after_ref AS text)))
 ORDER BY at DESC, ref DESC
 LIMIT :limit
+""")
+
+# 同一套判定，只数每种各有几条；种类筛选与翻页不参与。
+_ANOMALY_COUNTS: Final = text(f"""
+{_ANOMALY_CTES}
+SELECT kind, count(*) AS count
+FROM everything
+GROUP BY kind
+ORDER BY count DESC, kind
 """)
 
 
@@ -506,15 +529,15 @@ def _int(value: Any) -> int:
     return 0 if value is None else int(value)
 
 
-def _spread_of(row: RowMapping, prefix: str) -> Spread | None:
+def _spread_of(row: RowMapping, prefix: str) -> SpreadOut | None:
     avg, median, p90 = (_float(row[f"{prefix}_{name}"]) for name in ("avg", "median", "p90"))
     if avg is None or median is None or p90 is None:
         return None
-    return Spread(avg=avg, median=median, p90=p90)
+    return SpreadOut(avg=avg, median=median, p90=p90)
 
 
-def _usage_of(row: RowMapping) -> UsageTotals:
-    return UsageTotals(
+def _usage_of(row: RowMapping) -> UsageOut:
+    return UsageOut(
         requests=_int(row["requests"]),
         input_tokens=_int(row["input_tokens"]),
         cache_read_tokens=_int(row["cache_read_tokens"]),
@@ -523,8 +546,8 @@ def _usage_of(row: RowMapping) -> UsageTotals:
     )
 
 
-def _metrics_of(row: RowMapping) -> Metrics:
-    return Metrics(
+def _metrics_of(row: RowMapping) -> MetricsOut:
+    return MetricsOut(
         completed_videos=_int(row["completed_videos"]),
         delivered_tasks=_int(row["delivered_tasks"]),
         delivered_orphan_conversations=_int(row["delivered_orphan_conversations"]),
@@ -541,7 +564,7 @@ def _metrics_of(row: RowMapping) -> Metrics:
     )
 
 
-def _rank(metrics: Metrics) -> tuple[int, int, int]:
+def _rank(metrics: MetricsOut) -> tuple[int, int, int]:
     """人与需求单的排序：成片件数多的在前，再看成片视频条数，最后看运行次数。"""
 
     return (-metrics.deliveries, -metrics.completed_videos, -metrics.runs)
@@ -562,16 +585,16 @@ class PgAuditReports:
         async with self._engine.connect() as fresh:
             return (await fresh.execute(statement, params)).mappings().all()
 
-    async def overall(self, scope: Scope) -> Metrics:
+    async def overall(self, scope: Scope) -> MetricsOut:
         rows = await self._metrics("overall", _scope_params(scope))
         return _metrics_of(rows[0]) if rows else EMPTY_METRICS
 
-    async def by_user(self, scope: Scope) -> Sequence[UserMetrics]:
+    async def by_user(self, scope: Scope) -> Sequence[UserMetricsOut]:
         rows = await self._metrics("user", _scope_params(scope))
-        found = [UserMetrics(user_name=str(row["k"]), metrics=_metrics_of(row)) for row in rows]
+        found = [UserMetricsOut(user_name=str(row["k"]), metrics=_metrics_of(row)) for row in rows]
         return sorted(found, key=lambda item: (_rank(item.metrics), item.user_name))
 
-    async def by_task(self, scope: Scope) -> Sequence[TaskMetrics]:
+    async def by_task(self, scope: Scope) -> Sequence[TaskMetricsOut]:
         async with self._engine.connect() as conn:
             rows = await self._metrics("task", _scope_params(scope), conn=conn)
             ids = [row["k"] for row in rows]
@@ -584,28 +607,31 @@ class PgAuditReports:
                 else {}
             )
         found = [
-            TaskMetrics(task_id=row["k"], title=titles.get(row["k"], ""), metrics=_metrics_of(row))
+            TaskMetricsOut(
+                task_id=row["k"], title=titles.get(row["k"], ""), metrics=_metrics_of(row)
+            )
             for row in rows
         ]
         return sorted(found, key=lambda item: (_rank(item.metrics), str(item.task_id)))
 
     async def by_period(
         self, scope: Scope, *, bucket: Bucket, timezone: str
-    ) -> Sequence[PeriodMetrics]:
+    ) -> Sequence[PeriodMetricsOut]:
         params = {**_scope_params(scope), "bucket": bucket, "timezone": timezone}
         rows = await self._metrics("period", params)
-        return [PeriodMetrics(period_start=row["k"], metrics=_metrics_of(row)) for row in rows]
+        return [PeriodMetricsOut(period_start=row["k"], metrics=_metrics_of(row)) for row in rows]
 
-    async def attempt_distribution(self, scope: Scope) -> Sequence[AttemptBucket]:
+    async def attempt_distribution(self, scope: Scope) -> Sequence[AttemptBucketOut]:
         async with self._engine.connect() as conn:
             rows = (await conn.execute(_ATTEMPTS, _scope_params(scope))).mappings().all()
         return [
-            AttemptBucket(attempts=_int(row["attempts"]), shots=_int(row["shots"])) for row in rows
+            AttemptBucketOut(attempts=_int(row["attempts"]), shots=_int(row["shots"]))
+            for row in rows
         ]
 
     async def conversations(
         self, scope: Scope, *, limit: int, after: ConversationCursor | None
-    ) -> Sequence[ConversationReport]:
+    ) -> Sequence[ConversationAuditOut]:
         params = {
             **_scope_params(scope),
             "after_at": after.delivered_at if after else None,
@@ -625,10 +651,10 @@ class PgAuditReports:
             usage_rows = (await conn.execute(_USAGE_OF, {"ids": ids})).mappings().all()
 
         metrics = {row["k"]: _metrics_of(row) for row in metric_rows}
-        shots: dict[uuid.UUID, list[ShotReport]] = {}
+        shots: dict[uuid.UUID, list[ShotOut]] = {}
         for row in shot_rows:
             shots.setdefault(row["conversation_id"], []).append(
-                ShotReport(
+                ShotOut(
                     shot=int(row["shot"]),
                     attempts=int(row["attempts"]),
                     one_take=bool(row["one_take"]),
@@ -636,13 +662,13 @@ class PgAuditReports:
                     last_at=row["last_at"],
                 )
             )
-        usage: dict[uuid.UUID, list[ModelUsage]] = {}
+        usage: dict[uuid.UUID, list[ModelUsageOut]] = {}
         for row in usage_rows:
             usage.setdefault(row["conversation_id"], []).append(
-                ModelUsage(model_name=row["model_name"], usage=_usage_of(row))
+                ModelUsageOut(model_name=row["model_name"], usage=_usage_of(row))
             )
         return [
-            ConversationReport(
+            ConversationAuditOut(
                 conversation_id=head["conversation_id"],
                 title=head["title"],
                 owner_user_id=head["owner_user_id"],
@@ -652,8 +678,8 @@ class PgAuditReports:
                 started_at=head["started_at"],
                 delivered_at=head["delivered_at"],
                 metrics=metrics.get(head["conversation_id"], EMPTY_METRICS),
-                shots=tuple(shots.get(head["conversation_id"], ())),
-                usage=tuple(usage.get(head["conversation_id"], ())),
+                shots=shots.get(head["conversation_id"], []),
+                usage=usage.get(head["conversation_id"], []),
             )
             for head in heads
         ]
@@ -666,13 +692,10 @@ class PgAuditReports:
         kinds: Sequence[AnomalyKind] | None,
         limit: int,
         after: AnomalyCursor | None,
-    ) -> Sequence[Anomaly]:
+    ) -> Sequence[AnomalyOut]:
         params = {
             **_scope_params(scope),
-            "retry_over": thresholds.retry_over,
-            "idle_hours": thresholds.idle_hours,
-            "stuck_hours": thresholds.stuck_hours,
-            "task_conversations": thresholds.task_conversations,
+            **_threshold_params(thresholds),
             "kinds": list(kinds) if kinds is not None else None,
             "after_at": after.at if after else None,
             "after_ref": after.ref if after else None,
@@ -681,7 +704,7 @@ class PgAuditReports:
         async with self._engine.connect() as conn:
             rows = (await conn.execute(_ANOMALIES, params)).mappings().all()
         return [
-            Anomaly(
+            AnomalyOut(
                 kind=row["kind"],
                 at=row["at"],
                 ref=row["ref"],
@@ -695,6 +718,23 @@ class PgAuditReports:
             )
             for row in rows
         ]
+
+    async def anomaly_counts(
+        self, scope: Scope, thresholds: Thresholds
+    ) -> Sequence[AnomalyCountOut]:
+        params = {**_scope_params(scope), **_threshold_params(thresholds)}
+        async with self._engine.connect() as conn:
+            rows = (await conn.execute(_ANOMALY_COUNTS, params)).mappings().all()
+        return [AnomalyCountOut(kind=row["kind"], count=_int(row["count"])) for row in rows]
+
+
+def _threshold_params(thresholds: Thresholds) -> dict[str, int]:
+    return {
+        "retry_over": thresholds.retry_over,
+        "idle_hours": thresholds.idle_hours,
+        "stuck_hours": thresholds.stuck_hours,
+        "task_conversations": thresholds.task_conversations,
+    }
 
 
 __all__ = ["PgAuditReports"]

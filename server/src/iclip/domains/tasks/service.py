@@ -6,29 +6,47 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from iclip.common.errors import Conflict, PermissionDenied, ValidationFailed
-from iclip.domains.identity.public import Principal
+from iclip.domains.identity.public import MANAGE_PERMISSION, Principal
 from iclip.domains.tasks.models import (
-    STATUS_CONFIRMED,
+    ACTIVE_STATUSES,
     STATUS_DRAFT,
-    STATUS_PUBLISHED,
     STATUS_WITHDRAWN,
     Task,
+    TaskCursor,
     TaskStatus,
 )
 from iclip.domains.tasks.repository import TaskRepository
 from iclip.domains.tasks.schemas import (
-    MAX_LIST_LIMIT,
     TaskCreateIn,
     TaskIn,
     TaskInputs,
 )
-
-MANAGE_PERMISSION = "users:manage"
+from iclip.platform.paging import MAX_LIST_LIMIT, check_limit, decode_cursor, encode_cursor
 
 _CONFLICT_RACED = "这张需求单刚被别人改过，请重新读一次再试"
+
+
+@dataclass(frozen=True, slots=True)
+class TaskPage:
+    """一页需求单，外加当前筛选下不随翻页变的总数。``next_cursor`` 为空即没有更多了。"""
+
+    items: tuple[Task, ...]
+    next_cursor: str | None
+    total: int
+
+
+def _after(cursor: str | None) -> TaskCursor | None:
+    """把游标还原成仓库的排序键；``None`` 即从头取。"""
+
+    if cursor is None:
+        return None
+    parsed = decode_cursor(cursor)
+    return TaskCursor(created_at=parsed.at, task_id=parsed.uuid_key())
 
 
 class TaskService:
@@ -64,12 +82,27 @@ class TaskService:
         *,
         status: TaskStatus | None = None,
         assignee_user_id: uuid.UUID | None = None,
+        ids: Sequence[uuid.UUID] | None = None,
         limit: int = 20,
-    ) -> tuple[Task, ...]:
-        if not 1 <= limit <= MAX_LIST_LIMIT:
-            raise ValidationFailed(f"limit 必须在 1 到 {MAX_LIST_LIMIT} 之间")
-        return await self._repo.list_recent(
-            status=status, assignee_user_id=assignee_user_id, limit=limit
+        cursor: str | None = None,
+    ) -> TaskPage:
+        """按建立时间倒序翻页；``ids`` 是按 id 集合批量读取，一次最多一页。"""
+
+        check_limit(limit)
+        if ids is not None and len(ids) > MAX_LIST_LIMIT:
+            raise ValidationFailed(f"ids 一次最多 {MAX_LIST_LIMIT} 个")
+        found = await self._repo.list_recent(
+            status=status,
+            assignee_user_id=assignee_user_id,
+            ids=ids,
+            limit=limit,
+            after=_after(cursor),
+        )
+        last = found[-1] if len(found) == limit else None
+        return TaskPage(
+            items=found,
+            next_cursor=None if last is None else encode_cursor(last.created_at, last.id),
+            total=await self._repo.count(status=status, assignee_user_id=assignee_user_id, ids=ids),
         )
 
     async def update(self, principal: Principal, task_id: uuid.UUID, body: TaskIn) -> Task:
@@ -117,7 +150,7 @@ class TaskService:
         """幂等认领需求单，支持多人认领；撤回后保留认领记录。"""
 
         task = await self._repo.get(task_id)
-        if task.status not in (STATUS_PUBLISHED, STATUS_CONFIRMED):
+        if task.status not in ACTIVE_STATUSES:
             raise Conflict(f"只有已下发或已确认的需求单能认领，这张是 {task.status}")
         confirmed = await self._repo.confirm(task_id, user_id=principal.user_id)
         if confirmed is None:
@@ -133,7 +166,7 @@ class TaskService:
         """将 published 或 confirmed 转为 withdrawn 终态。"""
 
         task = await self._repo.get(task_id)
-        if task.status not in (STATUS_PUBLISHED, STATUS_CONFIRMED):
+        if task.status not in ACTIVE_STATUSES:
             raise Conflict(f"只有已下发或已确认的需求单能撤回，这张是 {task.status}")
         withdrawn = await self._repo.set_status(
             task_id, expect=task.status, status=STATUS_WITHDRAWN
@@ -192,4 +225,4 @@ def _says_what_to_make(inputs: TaskInputs) -> bool:
     )
 
 
-__all__ = ["MANAGE_PERMISSION", "TaskService"]
+__all__ = ["TaskPage", "TaskService"]

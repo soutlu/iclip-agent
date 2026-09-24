@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from iclip.platform.object_store.oss import StoredObject
+from iclip.platform.object_store.store import StoredObject
 
 
 class FakeBucket:

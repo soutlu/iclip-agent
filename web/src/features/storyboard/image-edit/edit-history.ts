@@ -17,16 +17,14 @@ export const CURRENT_KEY = 'current'
 
 type Seed = { url: string; job: GenerationJob | null; createdAt: string }
 
-const newestFirst = (left: { createdAt: string }, right: { createdAt: string }) =>
-  right.createdAt.localeCompare(left.createdAt)
-
 /** 这一帧出现过的所有图：当前帧固定在头一个，其余按时间倒序。
  *
  * 图有两个来源：任务的产出，以及任务记下的底图——底图未必还在分镜里，它可能是上一轮没
  * 落盘的结果，也可能已被后来的编辑覆盖，只有这样才找得回来。同一张图两处都出现时留下
  * 产出它的那条任务；底图只说明这张图那时已经存在，说不出它从哪来。
  *
- * `jobs` 按这一格筛过即可，这里不再认坐标。 */
+ * `jobs` 按这一格筛过即可，这里不再认坐标；顺序照服务端给的（新的在前），同一张图有几条
+ * 任务都产出过时留最前那条。 */
 export function frameImageEntries(
   jobs: readonly GenerationJob[],
   currentUrl: string,
@@ -43,7 +41,7 @@ export function frameImageEntries(
     else if (seen.job === null && createdAt < seen.createdAt) seeds.set(url, { ...seen, createdAt })
   }
 
-  for (const job of [...jobs].sort(newestFirst)) {
+  for (const job of jobs) {
     const phase = phaseOfStatus(job.status)
     if (phase === 'queued' || phase === 'running')
       running.push({ kind: 'pending', key: job.id, job })

@@ -1,22 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { makeGenerationJob } from '@/testing/generation-job'
 import type { GenerationJob } from '../storyboard.api'
 import { entryBaseUrl, frameImageEntries } from './edit-history'
 
 const CURRENT = 'https://cdn.test/current.png'
 
-const job = (over: Partial<GenerationJob> & { id: string; createdAt: string }): GenerationJob => ({
-  kind: 'image',
-  status: 'completed',
-  errorMessage: null,
-  outputUrl: null,
-  metadata: { shot: 1, frame: 1 },
-  request: {},
-  taskId: null,
-  clipStage: null,
-  durationMs: null,
-  watermarkOutputUrl: null,
-  ...over,
-})
+const job = (over: Partial<GenerationJob> & { id: string; createdAt: string }): GenerationJob =>
+  makeGenerationJob({ kind: 'image', metadata: { shot: 1, frame: 1 }, ...over })
 
 function at(entries: ReturnType<typeof frameImageEntries>, position: number) {
   const entry = entries[position]
@@ -92,11 +82,30 @@ describe('frameImageEntries', () => {
     expect(entries.map((entry) => entry.key)).toEqual(['current', 'second', 'first'])
   })
 
+  it('同一张图有两条任务都产出过时，留列表里最前那条（接口新的在前）', () => {
+    const entries = frameImageEntries(
+      [
+        job({
+          id: 'rerun',
+          createdAt: '2026-09-13T03:00:00Z',
+          outputUrl: 'https://cdn.test/same.png',
+        }),
+        job({
+          id: 'first',
+          createdAt: '2026-09-13T02:00:00Z',
+          outputUrl: 'https://cdn.test/same.png',
+        }),
+      ],
+      CURRENT,
+    )
+    expect(entries.map((entry) => entry.key)).toEqual(['current', 'rerun'])
+  })
+
   it.each([
     ['pending', 'pending'],
     ['submitted', 'pending'],
     ['failed', 'failed'],
-  ])('没有产出的任务照样占一格：%s', (status, kind) => {
+  ] as const)('没有产出的任务照样占一格：%s', (status, kind) => {
     const entries = frameImageEntries(
       [job({ id: 'live', createdAt: '2026-09-13T04:00:00Z', status })],
       CURRENT,

@@ -2,7 +2,7 @@
 
 import { http, HttpResponse, ws } from 'msw'
 import { mockConversationOwner } from './conversations'
-import { SHOTS_MOCK_PATH, touchMockShots } from './workspace'
+import { SHOTS_MOCK_PATH, touchMockShots, watchMockGenerations } from './workspace'
 
 const HISTORY_TURNS = 2
 
@@ -58,9 +58,11 @@ export const MOCK_CHILD_REPLY = 'S3-1 特写：鞋头压过水面；S3-2 中景�
 export const MOCK_HISTORY_CHILD = 't2-child'
 export const MOCK_HISTORY_DELEGATE_CALL = 'call_t2_delegate'
 
+const HISTORY_CHILD = { done: true, text: MOCK_CHILD_REPLY }
+
 /** 子代理流的进度：文本用整块替换，页与推送才对得上。 */
 const children = new Map<string, { text: string; done: boolean }>([
-  [MOCK_HISTORY_CHILD, { done: true, text: MOCK_CHILD_REPLY }],
+  [MOCK_HISTORY_CHILD, HISTORY_CHILD],
 ])
 
 type PromptContent =
@@ -88,6 +90,26 @@ export const markMockJustFinished = (conversation: { id: string; lastRunId: stri
 
 /** 重复相同决定返回 204，不同决定返回 409，与后端一致。 */
 const decisions = new Map<string, boolean>()
+
+/**
+ * 单测每例清理：取消未发的批次，清掉运行、队列、批次日志与审批记录，子代理回到只有历史那一个。
+ * 连接里的定时器不在此列：单测用 FakeSocket，不经过 ws.link。
+ */
+export const resetMockTranscript = () => {
+  for (const handles of timers.values()) for (const handle of handles) clearTimeout(handle)
+  timers.clear()
+  connections.clear()
+  turns = HISTORY_TURNS
+  seqOf.clear()
+  logOf.clear()
+  children.clear()
+  children.set(MOCK_HISTORY_CHILD, HISTORY_CHILD)
+  running.clear()
+  queues.clear()
+  awaitingApproval.clear()
+  justFinished.clear()
+  decisions.clear()
+}
 
 const APPROVAL_TURN_ID = 'ta'
 const APPROVAL_STEP_ID = `${APPROVAL_TURN_ID}.1`
@@ -618,7 +640,19 @@ export const transcriptHandlers = [
       }
     })
 
+    // 生成帧是全局帧，不看这条连接订了哪段对话；mock 里同一浏览器只有一个登录用户，不按属主过滤。
+    const unwatchGenerations = watchMockGenerations(({ conversationId, ...payload }) => {
+      client.send(
+        JSON.stringify({
+          payload,
+          session_id: conversationId,
+          type: 'event.generation.changed',
+        }),
+      )
+    })
+
     client.addEventListener('close', () => {
+      unwatchGenerations()
       if (joined !== null) connections.delete(joined)
     })
   }),

@@ -19,15 +19,18 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RequestUsage
 from pydantic_ai_harness.step_persistence import StepEvent
 
+from iclip.harness.job_status import JobStatus
 from iclip.harness.media import media_tag_close, media_tag_open
 from iclip.harness.transcript.from_messages import (
     ORPHAN_TOOL_ERROR,
+    ChildRun,
     SteeredPrompt,
     TurnState,
     approvals_from_messages,
     drop_last_turn,
     run_ids_from_messages,
     run_state_from_events,
+    tasks_from_messages,
     turn_run_ids,
     turn_usage,
     turns_from_messages,
@@ -271,7 +274,7 @@ def _decided(outcome: str) -> list[ModelRequest | ModelResponse]:
 
 
 _BOTH_COMPLETED: dict[str, TurnState] = {"r1": "completed", "r2": "completed"}
-_SETTLED = {"r1": "completed", "r2": "completed"}
+_SETTLED: dict[str, JobStatus] = {"r1": "completed", "r2": "completed"}
 
 
 def _card(turn: TranscriptTurn) -> ToolFrame:
@@ -310,7 +313,11 @@ def test_a_frontier_approval_is_settled_by_the_prompt_that_stopped_waiting() -> 
 
     messages = _awaiting()
     states: dict[str, TurnState] = {"r1": "completed"}
-    for status, turn_state in (("aborted", "cancelled"), ("failed", "failed")):
+    cases: tuple[tuple[JobStatus, TurnState], ...] = (
+        ("aborted", "cancelled"),
+        ("failed", "failed"),
+    )
+    for status, turn_state in cases:
         turns = turns_from_messages(
             messages,
             turn_states=states,
@@ -431,6 +438,30 @@ def test_an_official_repair_return_is_not_a_decision() -> None:
         )
         == ()
     )
+
+
+def test_a_delegation_closed_by_a_repair_return_carries_no_error_text() -> None:
+    """崩溃续跑补的 interrupted 返回等同没有返回：任务不带结果与错误，终态取子运行。"""
+
+    messages = [
+        _ask("给这条视频做分镜"),
+        _reply(ToolCallPart(tool_name="delegate_task", args={}, tool_call_id="c1")),
+        _returns(
+            ToolReturnPart(
+                tool_name="delegate_task",
+                content=INTERRUPTED_TOOL_RETURN_CONTENT,
+                tool_call_id="c1",
+                outcome="interrupted",
+            )
+        ),
+    ]
+    child = ChildRun(
+        run_id="child-1", agent_name="shot-writer", started_at=_at(1), ended_at=None, state="failed"
+    )
+
+    (task,) = tasks_from_messages(messages, subagent_of_call={"c1": "child-1"}, child_runs=[child])
+
+    assert (task.state, task.result_summary, task.error) == ("failed", None, None)
 
 
 def test_two_runs_without_a_mapping_stay_two_turns() -> None:

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Final
 
 from sqlalchemy import (
     CheckConstraint,
     Column,
+    ColumnElement,
     DateTime,
     ForeignKey,
     Index,
@@ -18,6 +20,7 @@ from sqlalchemy import (
     Table,
     Text,
     Uuid,
+    and_,
     delete,
     func,
     or_,
@@ -31,11 +34,13 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from iclip.common.errors import NotFound
 from iclip.domains.tasks.models import (
+    ACTIVE_STATUSES,
     STATUS_CONFIRMED,
     STATUS_DRAFT,
     STATUS_PUBLISHED,
     TASK_STATUSES,
     Task,
+    TaskCursor,
     TaskStatus,
 )
 from iclip.domains.tasks.schemas import TaskInputs, inputs_from_payload, inputs_to_payload
@@ -70,8 +75,47 @@ tasks_table = Table(
 
 _ROWS = tasks_table.c
 
-# 列表按 (created_at, id) 倒序（ADR-0030）。
+# 列表按 (created_at, id) 倒序。
 Index("ix_tasks_created", _ROWS.created_at.desc(), _ROWS.id.desc())
+
+_ORDER: Final = (_ROWS.created_at.desc(), _ROWS.id.desc())
+
+
+def _conditions(
+    status: TaskStatus | None,
+    assignee_user_id: uuid.UUID | None,
+    ids: Sequence[uuid.UUID] | None,
+) -> list[ColumnElement[bool]]:
+    """列表与计数共用的筛选条件。"""
+
+    conditions: list[ColumnElement[bool]] = []
+    if status is not None:
+        conditions.append(_ROWS.status == status)
+    if assignee_user_id is not None:
+        conditions.append(
+            _ROWS.id.in_(
+                select(task_assignees_table.c.task_id).where(
+                    task_assignees_table.c.user_id == assignee_user_id
+                )
+            )
+        )
+    if ids is not None:
+        conditions.append(_ROWS.id.in_(list(ids)))
+    return conditions
+
+
+def _after(cursor: TaskCursor | None) -> list[ColumnElement[bool]]:
+    """按 ``(created_at, id)`` 的复合排序键续页，避免跳过同一时刻建的记录。"""
+
+    if cursor is None:
+        return []
+    return [
+        or_(
+            _ROWS.created_at < cursor.created_at,
+            and_(_ROWS.created_at == cursor.created_at, _ROWS.id < cursor.task_id),
+        )
+    ]
+
 
 # 联合主键保证认领幂等；撤回需求单时保留认领记录。
 task_assignees_table = Table(
@@ -157,23 +201,35 @@ class SqlTaskRepository:
         *,
         status: TaskStatus | None = None,
         assignee_user_id: uuid.UUID | None = None,
+        ids: Sequence[uuid.UUID] | None = None,
         limit: int,
+        after: TaskCursor | None = None,
     ) -> tuple[Task, ...]:
-        statement = select(tasks_table).order_by(_ROWS.created_at.desc(), _ROWS.id.desc())
-        if status is not None:
-            statement = statement.where(_ROWS.status == status)
-        if assignee_user_id is not None:
-            statement = statement.where(
-                _ROWS.id.in_(
-                    select(task_assignees_table.c.task_id).where(
-                        task_assignees_table.c.user_id == assignee_user_id
-                    )
-                )
-            )
+        statement = (
+            select(tasks_table)
+            .where(*_conditions(status, assignee_user_id, ids), *_after(after))
+            .order_by(*_ORDER)
+            .limit(limit)
+        )
         async with self._engine.connect() as conn:
-            rows = (await conn.execute(statement.limit(limit))).mappings().all()
+            rows = (await conn.execute(statement)).mappings().all()
             assignees = await self._assignees_of(conn, [row["id"] for row in rows])
         return tuple(_row(row, assignees.get(row["id"], ())) for row in rows)
+
+    async def count(
+        self,
+        *,
+        status: TaskStatus | None = None,
+        assignee_user_id: uuid.UUID | None = None,
+        ids: Sequence[uuid.UUID] | None = None,
+    ) -> int:
+        statement = (
+            select(func.count())
+            .select_from(tasks_table)
+            .where(*_conditions(status, assignee_user_id, ids))
+        )
+        async with self._engine.connect() as conn:
+            return int((await conn.execute(statement)).scalar_one())
 
     @staticmethod
     async def _assignees_of(
@@ -249,7 +305,7 @@ class SqlTaskRepository:
                     select(_ROWS.status).where(_ROWS.id == task_id).with_for_update()
                 )
             ).scalar_one_or_none()
-            if current not in (STATUS_PUBLISHED, STATUS_CONFIRMED):
+            if current not in ACTIVE_STATUSES:
                 return None
             await conn.execute(
                 pg_insert(task_assignees_table)

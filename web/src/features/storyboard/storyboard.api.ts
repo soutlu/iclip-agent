@@ -1,7 +1,7 @@
-import { useQuery } from '@tanstack/react-query'
+import { queryOptions, useQuery } from '@tanstack/react-query'
 import { type z } from 'zod'
-import { apiFetch } from '@/shared/api/client'
-import { MEDIA_IMAGE_ACCEPT, uploadMediaFile } from '@/shared/api/media-upload'
+import { ApiError, apiFetch } from '@/shared/api/client'
+import { drainPages } from '@/shared/api/paging'
 import type { VideoGenerationIn, VideoShotIn } from '@/shared/api/generated/types.gen'
 import {
   zGenerationsPageOut,
@@ -23,8 +23,17 @@ const POLL_MS = 5000
 /** 出片固定的分辨率。视频模型清单只给模型名、不给各家支持的档位，前端做不出下拉，就定一档。 */
 const VIDEO_RESOLUTION = '720p'
 
+const conversationGenerationsKey = (conversationId: string) =>
+  ['generations', 'conversation', conversationId] as const
+
 export const storyboardQueryKeys = {
-  generations: (conversationId: string) => ['generations', { conversationId }] as const,
+  /** 本对话全部生成记录查询的前缀：视频记录、参考帧编辑、视频编辑链都挂在它下面，状态跳转帧到了
+   * 失效它一次就全部重拉。模型清单不在这下面。 */
+  conversation: conversationGenerationsKey,
+  /** 本对话全部视频记录；分镜页与需求单面板共用这一份缓存。 */
+  videoJobs: (conversationId: string) =>
+    [...conversationGenerationsKey(conversationId), 'video'] as const,
+  imageModels: ['generations', 'image-models'] as const,
   videoModels: ['generations', 'video-models'] as const,
 }
 
@@ -83,22 +92,40 @@ export const submitVideoGeneration = async (input: VideoGenerationInput): Promis
 }
 
 /** 状态跳转帧到了由 useLiveGenerations 立刻失效；存在运行任务时仍每 5 秒轮询兜底，全部结束后停止。 */
-export const generationsRefetchInterval = (items: readonly { status: string }[]): number | false =>
-  items.some((item) => isRunningStatus(item.status)) ? POLL_MS : false
+export const generationsRefetchInterval = (
+  items: readonly { status: GenerationJob['status'] }[],
+): number | false => (items.some((item) => isRunningStatus(item.status)) ? POLL_MS : false)
 
-export const useShotGenerations = (conversationId: string) =>
-  useQuery({
-    queryFn: ({ signal }) =>
-      apiFetch(
-        `/generations?conversationId=${conversationId}&kind=video&limit=${PAGE_LIMIT}`,
-        zGenerationsPageOut,
-        { fallbackErrorMessage: '读取生成任务失败', signal },
-      ),
-    queryKey: storyboardQueryKeys.generations(conversationId),
-    refetchInterval: ({ state }) => generationsRefetchInterval(state.data?.items ?? []),
+const VIDEO_JOBS_ERROR = '读取视频记录失败'
+
+/** 读完本对话的全部视频记录（含编辑链的衍生记录），按创建时间倒序。
+ *
+ * 只读第一页会让更早的出片静默消失：在途、失败与编辑结果都占名额。任一页失败整体抛错。 */
+export const readConversationVideoJobs = (conversationId: string, signal: AbortSignal) =>
+  drainPages<GenerationJob, string>(async (before) => {
+    const params = new URLSearchParams({ conversationId, kind: 'video', limit: `${PAGE_LIMIT}` })
+    if (before !== undefined) params.set('before', before)
+    const page = await apiFetch(`/generations?${params}`, zGenerationsPageOut, {
+      fallbackErrorMessage: VIDEO_JOBS_ERROR,
+      signal,
+    })
+    // 筛选在分页截断前执行，不满一页就是读完了，省掉最后一次空页请求。
+    if (page.items.length < PAGE_LIMIT) return { items: page.items, next: null }
+    const last = page.items.at(-1)
+    // 游标没往前走就说明分页坏了，再翻下去是死循环。
+    if (last === undefined || last.id === before) {
+      throw new ApiError(0, `${VIDEO_JOBS_ERROR}：分页异常，请重试`)
+    }
+    return { items: page.items, next: last.id }
   })
 
-export const FRAME_IMAGE_ACCEPT = MEDIA_IMAGE_ACCEPT
+/** 本对话视频记录的查询配置；消费方各自用 `select` 投影，同一份数据只请求一次。 */
+export const conversationVideoJobsQuery = (conversationId: string) =>
+  queryOptions({
+    queryFn: ({ signal }) => readConversationVideoJobs(conversationId, signal),
+    queryKey: storyboardQueryKeys.videoJobs(conversationId),
+    refetchInterval: ({ state }) => generationsRefetchInterval(state.data ?? []),
+  })
 
-/** 上传并确认本地图片，返回可用于分镜引用的地址。 */
-export const uploadFrameImage = (file: File): Promise<string> => uploadMediaFile(file, 'image')
+export const useShotGenerations = (conversationId: string) =>
+  useQuery(conversationVideoJobsQuery(conversationId))

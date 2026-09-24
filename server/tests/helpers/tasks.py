@@ -1,17 +1,22 @@
-"""tasks 测试替身与构造器。"""
+"""tasks 测试替身、构造器与经 HTTP 建单的驱动。"""
 
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import httpx
+
 from iclip.common.errors import NotFound
 from iclip.domains.tasks.models import (
+    ACTIVE_STATUSES,
     STATUS_CONFIRMED,
     STATUS_DRAFT,
     STATUS_PUBLISHED,
     Task,
+    TaskCursor,
     TaskStatus,
 )
 from iclip.domains.tasks.schemas import TaskInputs
@@ -30,6 +35,57 @@ def make_inputs(**overrides: Any) -> TaskInputs:
 
 def future(days: int = 7) -> datetime:
     return datetime.now(UTC) + timedelta(days=days)
+
+
+URL = "/tasks"
+
+INPUTS = {
+    "products": [
+        {
+            "style_no": STYLE_NO,
+            "name": "秋冬长靴",
+            "brand": "品牌甲",
+            "category": "鞋靴",
+            "color_name": "黑色",
+            "image_oss_urls": ["https://example.com/product.jpg"],
+        },
+        {
+            "style_no": "SBPU24002W",
+            "name": "同系列短靴",
+            "brand": "品牌甲",
+            "category": "鞋靴",
+            "color_name": "棕色",
+            "image_oss_urls": [],
+        },
+    ],
+    "video_spec": {
+        "platform": "douyin",
+        "video_type": "product_showcase",
+        "content_type": "short_video",
+        "resolution": "1080p",
+        "aspect_ratio": "9:16",
+        "duration_seconds": 30,
+    },
+    "creative_requirement": "三十秒的上身效果",
+    "reference_image_oss_urls": {
+        "model": ["https://example.com/model.jpg"],
+        "outfit": [],
+        "prop": [],
+    },
+    "reference_video_oss_url": None,
+}
+
+
+async def create(client: httpx.AsyncClient, **body: object) -> httpx.Response:
+    return await client.post(
+        URL,
+        json={
+            "title": "秋冬新品短视频",
+            "inputs": INPUTS,
+            "deadline": future().isoformat(),
+            **body,
+        },
+    )
 
 
 def make_task(
@@ -81,19 +137,52 @@ class InMemoryTaskRepository:
             raise NotFound("没有这张需求单")
         return found
 
+    def _matching(
+        self,
+        status: TaskStatus | None,
+        assignee_user_id: uuid.UUID | None,
+        ids: Sequence[uuid.UUID] | None,
+    ) -> list[Task]:
+        """与真仓储同一条排序键：``(created_at, id)`` 倒序。"""
+
+        rows = sorted(
+            self.tasks.values(), key=lambda task: (task.created_at, task.id), reverse=True
+        )
+        if status is not None:
+            rows = [task for task in rows if task.status == status]
+        if assignee_user_id is not None:
+            rows = [task for task in rows if assignee_user_id in task.assignee_user_ids]
+        if ids is not None:
+            wanted = set(ids)
+            rows = [task for task in rows if task.id in wanted]
+        return rows
+
     async def list_recent(
         self,
         *,
         status: TaskStatus | None = None,
         assignee_user_id: uuid.UUID | None = None,
+        ids: Sequence[uuid.UUID] | None = None,
         limit: int,
+        after: TaskCursor | None = None,
     ) -> tuple[Task, ...]:
-        rows = sorted(self.tasks.values(), key=lambda task: task.updated_at, reverse=True)
-        if status is not None:
-            rows = [task for task in rows if task.status == status]
-        if assignee_user_id is not None:
-            rows = [task for task in rows if assignee_user_id in task.assignee_user_ids]
+        rows = self._matching(status, assignee_user_id, ids)
+        if after is not None:
+            rows = [
+                task
+                for task in rows
+                if (task.created_at, task.id) < (after.created_at, after.task_id)
+            ]
         return tuple(rows[:limit])
+
+    async def count(
+        self,
+        *,
+        status: TaskStatus | None = None,
+        assignee_user_id: uuid.UUID | None = None,
+        ids: Sequence[uuid.UUID] | None = None,
+    ) -> int:
+        return len(self._matching(status, assignee_user_id, ids))
 
     async def save(
         self,
@@ -121,7 +210,7 @@ class InMemoryTaskRepository:
         from dataclasses import replace
 
         found = self.tasks.get(task_id)
-        if found is None or found.status not in (STATUS_PUBLISHED, STATUS_CONFIRMED):
+        if found is None or found.status not in ACTIVE_STATUSES:
             return None
         assignees = found.assignee_user_ids
         if user_id not in assignees:
@@ -157,8 +246,11 @@ class InMemoryTaskRepository:
 
 
 __all__ = [
+    "INPUTS",
     "STYLE_NO",
+    "URL",
     "InMemoryTaskRepository",
+    "create",
     "future",
     "make_inputs",
     "make_task",

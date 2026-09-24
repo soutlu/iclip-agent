@@ -24,20 +24,22 @@ from iclip.domains.conversations.repository import (
     StateFilter,
 )
 from iclip.domains.conversations.schemas import DEFAULT_TITLE, MAX_TITLE_CHARS
-from iclip.domains.identity.public import ACT_AS_PERMISSION, Principal
+from iclip.domains.identity.public import (
+    MANAGE_PERMISSION,
+    Principal,
+    visible_owner_incl_act_as,
+)
+from iclip.platform.paging import check_limit, decode_cursor, encode_cursor
 
 _logger = structlog.stdlib.get_logger(__name__)
 
-MAX_LIST_LIMIT = 100
-MANAGE_PERMISSION = "users:manage"
-"""治理者可读取所有对话及工作区文件；写入仍限属主。"""
-
 SIDEBAR_COLLECTIONS = 100
+"""侧栏最多带几个合集：只取最近建立的这些，更早的连同其中的对话不在侧栏里。"""
 SIDEBAR_UNGROUPED = 20
 SIDEBAR_PER_COLLECTION = 10
 
 ListState = Literal["all", "running", "done", "open"]
-"""列表状态筛选：``done`` / ``open`` 看属主标没标收尾（ADR-0031），两者互补；``running`` 是此刻占着的那几段。"""
+"""列表状态筛选：``done`` / ``open`` 看属主标没标收尾，两者互补；``running`` 是此刻占着的那几段。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,9 +66,7 @@ ActivitiesOf = Callable[[Sequence[uuid.UUID]], Awaitable[Mapping[uuid.UUID, Conv
 """批量读取引擎侧活动信息，由组合根注入；未返回的 id 使用 IDLE_ACTIVITY。"""
 
 BusyConversationIds = Callable[[uuid.UUID | None], Awaitable[frozenset[uuid.UUID]]]
-"""此刻在跑（含等审批）的对话 id；给属主就按属主算，给 None 算全平台。
-
-「已完成」不另查：跑过至少一次（``last_run_id`` 非空）且不在这个集合里就是。"""
+"""此刻在跑（含等审批）的对话 id；给属主就按属主算，给 None 算全平台。"""
 
 GenerateTitle = Callable[[str], Awaitable[str | None]]
 """由组合根注入的标题生成器；返回 None 表示本次不生成标题。"""
@@ -105,8 +105,11 @@ class CollectionInfo:
     updated_at: datetime
 
 
-ListCollections = Callable[[uuid.UUID], Awaitable[Sequence[CollectionInfo]]]
-"""按建立时间倒序读取属主的合集元信息；实现由组合根注入。"""
+class ListCollections(Protocol):
+    """按建立时间倒序读取属主最近建立的至多 ``limit`` 个合集元信息；实现由组合根注入。"""
+
+    async def __call__(self, owner: uuid.UUID, *, limit: int) -> Sequence[CollectionInfo]: ...
+
 
 ClaimTask = Callable[[uuid.UUID, uuid.UUID], Awaitable[None]]
 """对话挂上需求单就是有人在做了：以 (需求单 id, 对话属主) 认领它。实现由组合根注入。"""
@@ -126,8 +129,9 @@ class ForkTranscript(Protocol):
         """源对话一共几轮；越界的分叉点在拷贝任何东西之前就被挡掉。"""
         ...
 
-    async def seed(self, *, source_id: uuid.UUID, target_id: uuid.UUID, turn: int) -> None:
-        """把源对话截到第 ``turn`` 轮的消息写成副本的第一张快照。
+    async def seed(self, *, source_id: uuid.UUID, target_id: uuid.UUID, turn: int) -> bool:
+        """把源对话截到第 ``turn`` 轮的消息写成副本的第一张快照；源在数过轮数之后又跑了一轮就
+        什么都不写、回 ``False``，冲不冲突由用例判。
 
         消息里的 run_id 照抄源对话：副本靠它们回源查每轮的终态与子代理，不另存一份。"""
         ...
@@ -231,31 +235,42 @@ class AuditPage:
     running_total: int
 
 
+@dataclass(frozen=True, slots=True)
+class SidebarGroup:
+    """侧栏里的一个合集：元信息、筛选下的对话总数与第一页。"""
+
+    collection: CollectionInfo
+    total: int
+    page: ConversationPage
+
+
+@dataclass(frozen=True, slots=True)
+class Sidebar:
+    """侧栏一屏：合集分组（空合集也在）、未分组的总数与第一页，以及这些页里每段对话的活动状态。"""
+
+    groups: tuple[SidebarGroup, ...]
+    ungrouped_total: int
+    ungrouped: ConversationPage
+    activities: Mapping[uuid.UUID, ConversationActivity]
+
+
 def _page(items: tuple[Conversation, ...], *, limit: int) -> ConversationPage:
     """满页时生成下一页游标，避免额外查询；最后一页恰好满额时允许下一页为空。"""
 
+    last = items[-1] if len(items) == limit else None
     return ConversationPage(
-        items=items, next_cursor=_encode_cursor(items[-1]) if len(items) == limit else None
+        items=items,
+        next_cursor=None if last is None else encode_cursor(last.created_at, last.id),
     )
 
 
-def _encode_cursor(conversation: Conversation) -> str:
-
-    return f"{conversation.created_at.isoformat()}|{conversation.id}"
-
-
-def _decode_cursor(cursor: str | None) -> PageCursor | None:
-    """解析游标，格式错误抛 ValidationFailed。"""
+def _after(cursor: str | None) -> PageCursor | None:
+    """把游标还原成仓库的排序键；``None`` 即从头取。"""
 
     if cursor is None:
         return None
-    stamp, _, raw_id = cursor.partition("|")
-    try:
-        return PageCursor(
-            created_at=datetime.fromisoformat(stamp), conversation_id=uuid.UUID(raw_id)
-        )
-    except ValueError as exc:
-        raise ValidationFailed("cursor 不是一个有效的翻页位置") from exc
+    parsed = decode_cursor(cursor)
+    return PageCursor(created_at=parsed.at, conversation_id=parsed.uuid_key())
 
 
 class ConversationService:
@@ -308,9 +323,7 @@ class ConversationService:
 
         if principal.has(MANAGE_PERMISSION):
             return await self._repo.get(conversation_id, owner=None, include_deleted=True)
-        if principal.kind == "api_key" and principal.has(ACT_AS_PERMISSION):
-            return await self._repo.get(conversation_id, owner=None)
-        return await self._repo.get(conversation_id, owner=principal.user_id)
+        return await self._repo.get(conversation_id, owner=visible_owner_incl_act_as(principal))
 
     async def files(
         self, principal: Principal, conversation_id: uuid.UUID
@@ -431,7 +444,10 @@ class ConversationService:
         await self._copy_generations(
             source_id=source_id, target_id=target_id, owner=principal.user_id, task_id=None
         )
-        await self._fork_transcript.seed(source_id=source_id, target_id=target_id, turn=turn)
+        if not await self._fork_transcript.seed(
+            source_id=source_id, target_id=target_id, turn=turn
+        ):
+            raise Conflict("这段对话刚刚又跑了一轮，重新挑一个分叉点")
         conversation, _ = await self._repo.create_if_absent(
             Conversation(
                 id=target_id,
@@ -463,8 +479,7 @@ class ConversationService:
     ) -> tuple[Conversation, ...]:
         """在数据库中按标题筛选，再按建立时间倒序截取，确保可搜索全部历史。"""
 
-        if not 1 <= limit <= MAX_LIST_LIMIT:
-            raise ValidationFailed(f"limit 必须在 1 到 {MAX_LIST_LIMIT} 之间")
+        check_limit(limit)
         keyword = (title_query or "").strip()
         return await self._repo.list_for_owner(
             owner=principal.user_id, limit=limit, title_contains=keyword or None
@@ -478,36 +493,46 @@ class ConversationService:
         busy = await self._busy_conversation_ids(owner) if state == "running" else frozenset()
         return StateFilter(state=state, busy=busy)
 
-    async def sidebar(
-        self, principal: Principal, *, state: ListState = "all"
-    ) -> tuple[tuple[CollectionInfo, int, ConversationPage], ...]:
-        """返回侧栏合集元信息、对话总数及第一页，保留空合集。条数与分页使用相同状态筛选。"""
+    async def sidebar(self, principal: Principal, *, state: ListState = "all") -> Sidebar:
+        """一次读出侧栏一屏：最近建立的至多 ``SIDEBAR_COLLECTIONS`` 个合集各带总数与第一页，
+        加上未分组的总数与第一页。
 
-        collections = await self._list_collections(principal.user_id)
+        三块共用同一个状态筛选，busy 集只取一次，计数与列表才对得上；所有页里的对话合起来
+        只读一次活动状态。"""
+
+        owner = principal.user_id
+        chosen = await self._state_filter(state, owner)
+        collections = await self._list_collections(owner, limit=SIDEBAR_COLLECTIONS)
         found = await self._repo.list_by_collections(
-            owner=principal.user_id,
+            owner=owner,
             collection_ids=tuple(item.id for item in collections),
             per_collection=SIDEBAR_PER_COLLECTION,
-            state=await self._state_filter(state, principal.user_id),
+            state=chosen,
         )
         by_id = {group.collection_id: group for group in found}
-        return tuple(
-            (
-                item,
-                by_id[item.id].total if item.id in by_id else 0,
-                _page(
+        groups = tuple(
+            SidebarGroup(
+                collection=item,
+                total=by_id[item.id].total if item.id in by_id else 0,
+                page=_page(
                     by_id[item.id].conversations if item.id in by_id else (),
                     limit=SIDEBAR_PER_COLLECTION,
                 ),
             )
             for item in collections
         )
-
-    async def ungrouped_count(self, principal: Principal, *, state: ListState = "all") -> int:
-        """返回符合状态筛选的未分类对话总数。"""
-
-        return await self._repo.count_ungrouped(
-            owner=principal.user_id, state=await self._state_filter(state, principal.user_id)
+        ungrouped_total = await self._repo.count_ungrouped(owner=owner, state=chosen)
+        ungrouped = _page(
+            await self._repo.list_ungrouped(owner=owner, limit=SIDEBAR_UNGROUPED, state=chosen),
+            limit=SIDEBAR_UNGROUPED,
+        )
+        pages = (*(group.page for group in groups), ungrouped)
+        shown = [item.id for page in pages for item in page.items]
+        return Sidebar(
+            groups=groups,
+            ungrouped_total=ungrouped_total,
+            ungrouped=ungrouped,
+            activities=await self.activities(shown),
         )
 
     async def ungrouped(
@@ -518,7 +543,7 @@ class ConversationService:
         items = await self._repo.list_ungrouped(
             owner=principal.user_id,
             limit=SIDEBAR_UNGROUPED,
-            after=_decode_cursor(cursor),
+            after=_after(cursor),
             state=await self._state_filter(state, principal.user_id),
         )
         return _page(items, limit=SIDEBAR_UNGROUPED)
@@ -537,14 +562,13 @@ class ConversationService:
             owner=principal.user_id,
             collection_id=collection_id,
             limit=SIDEBAR_PER_COLLECTION,
-            after=_decode_cursor(cursor),
+            after=_after(cursor),
             state=await self._state_filter(state, principal.user_id),
         )
         return _page(items, limit=SIDEBAR_PER_COLLECTION)
 
     async def audit(
         self,
-        principal: Principal,
         *,
         owner_user_id: uuid.UUID | None = None,
         task_id: uuid.UUID | None = None,
@@ -558,12 +582,10 @@ class ConversationService:
         """治理者按建立时间倒序分页查询全平台对话，附当前筛选下的总数与在跑数。
 
         给了 ``owner_user_id`` 时占着的集合按该属主算，不给才算全平台；busy 集只取一次，
-        列表与两个计数才对得上。``deleted`` 决定属主删掉的墓碑收不收，这是唯一列得出墓碑的口。"""
+        列表与两个计数才对得上。``deleted`` 决定属主删掉的墓碑收不收，这是唯一列得出墓碑的口。
+        治理者权限由路由声明，本方法不判。"""
 
-        if not principal.has(MANAGE_PERMISSION):
-            raise PermissionDenied("只有治理者能查全部对话")
-        if not 1 <= limit <= MAX_LIST_LIMIT:
-            raise ValidationFailed(f"limit 必须在 1 到 {MAX_LIST_LIMIT} 之间")
+        check_limit(limit)
         scope = AuditFilter(
             owner=owner_user_id,
             task_id=task_id,
@@ -573,9 +595,7 @@ class ConversationService:
         )
         busy = await self._busy_conversation_ids(owner_user_id)
         chosen = None if state == "all" else StateFilter(state=state, busy=busy)
-        found = await self._repo.list_audit(
-            scope, state=chosen, limit=limit, after=_decode_cursor(cursor)
-        )
+        found = await self._repo.list_audit(scope, state=chosen, limit=limit, after=_after(cursor))
         page = _page(found, limit=limit)
         return AuditPage(
             items=page.items,
@@ -631,7 +651,7 @@ class ConversationService:
     async def set_completed(
         self, principal: Principal, conversation_id: uuid.UUID, *, completed: bool
     ) -> Conversation:
-        """标记或取消属主的收尾标记。机器不会自己标；属主再动手会自动取消（ADR-0031）。"""
+        """标记或取消属主的收尾标记。机器不会自己标；属主再动手会自动取消。"""
 
         return await self._repo.set_completed(
             conversation_id, owner=principal.user_id, completed=completed
@@ -673,15 +693,14 @@ class ConversationService:
         return (await self._readable(principal, parsed)).agent_id
 
     async def header_of(self, principal: Principal, conversation_id: str) -> Conversation:
-        """读取可见对话的整行，给会话页首屏贴标题、属主与删除时刻；后续改名经 session.meta.updated 推送。"""
+        """读取可见对话的整行，可见范围同 ``agent_of(writing=False)``。会话页首屏用它贴标题、属主与
+        删除时刻并取 Agent，一行只读一次；后续改名经 session.meta.updated 推送。"""
 
         return await self._readable(principal, _as_conversation_id(conversation_id))
 
 
 __all__ = [
     "IDLE_ACTIVITY",
-    "MANAGE_PERMISSION",
-    "MAX_LIST_LIMIT",
     "SIDEBAR_COLLECTIONS",
     "SIDEBAR_PER_COLLECTION",
     "SIDEBAR_UNGROUPED",
@@ -701,6 +720,8 @@ __all__ = [
     "ListDerivedFiles",
     "ListState",
     "ReadDerivedFile",
+    "Sidebar",
+    "SidebarGroup",
     "WorkspaceDocumentValidator",
     "WriteDerivedFile",
 ]

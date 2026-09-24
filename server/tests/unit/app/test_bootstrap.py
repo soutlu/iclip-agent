@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
@@ -22,7 +21,6 @@ from iclip.config import (
     ImageModelSection,
     MediaGenerationSection,
     OpsSection,
-    ResolvedAgent,
     RuntimeConfig,
     SecuritySection,
     SsoSection,
@@ -30,6 +28,7 @@ from iclip.config import (
     VideoSection,
 )
 from iclip.domains.agents.transcript_api import LiveConnections
+from tests.helpers.agents import declared_agent
 from tests.helpers.file_store import FakeFileStore
 from tests.helpers.generation import MemoryObjectStore
 
@@ -43,23 +42,6 @@ def minimal_config() -> RuntimeConfig:
         security=SecuritySection(),
         sso=SsoSection(app_name="iclip"),
         ops=OpsSection(log_level="WARNING"),
-    )
-
-
-def declared_agent(tmp_path: Path) -> ResolvedAgent:
-    spec_dir = tmp_path / AGENT_ID
-    spec_dir.mkdir(parents=True, exist_ok=True)
-    spec = spec_dir / "agent.yaml"
-    spec.write_text("", encoding="utf-8")
-    return ResolvedAgent(
-        agent_id=AGENT_ID,
-        name=AGENT_ID,
-        spec=spec,
-        instructions=None,
-        model="m",
-        skills=None,
-        capabilities=(),
-        subagents=(),
     )
 
 
@@ -87,7 +69,7 @@ def test_declared_agents_build(base_env: None, tmp_path: Path) -> None:
 
     app = build_app(
         minimal_config(),
-        agents=(declared_agent(tmp_path),),
+        agents=(declared_agent(tmp_path, AGENT_ID, model="m"),),
         engine=engine(),
         models={"m": TestModel()},
     )
@@ -148,6 +130,7 @@ async def test_media_generation_mounts_routes_when_configured(
 
     for name, value in MEDIA_ENVS.items():
         monkeypatch.setenv(name, value)
+    monkeypatch.setattr("iclip.app.bootstrap.ffmpeg_available", lambda: True)
 
     app = build_app(
         config_with_media(),
@@ -158,6 +141,19 @@ async def test_media_generation_mounts_routes_when_configured(
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         assert (await client.get("/generations")).status_code == 401
+
+
+def test_media_generation_without_ffmpeg_fails_at_startup(
+    base_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """视频裁剪拼接跟着媒体生成一起装，缺 ffmpeg 要在启动时就报，不留到队列里才发现。"""
+
+    for name, value in MEDIA_ENVS.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr("iclip.app.bootstrap.ffmpeg_available", lambda: False)
+
+    with pytest.raises(RuntimeError, match="ffmpeg"):
+        build_app(config_with_media(), engine=engine(), models={}, object_store=MemoryObjectStore())
 
 
 def test_media_generation_half_configured_fails_at_startup(
@@ -230,8 +226,8 @@ def test_video_agent_builds_without_generation_oss_or_ffmpeg(
     config = minimal_config().model_copy(
         update={"video": VideoSection(understanding_model="vision")}
     )
-    declaration = replace(
-        declared_agent(tmp_path), agent_id="video-only", capabilities=("workspace", "video")
+    declaration = declared_agent(
+        tmp_path, "video-only", model="m", capabilities=("workspace", "video")
     )
     app = build_app(config, agents=(declaration,), engine=engine(), models={"m": TestModel()})
     layer: CurrentAgentLayer = app.state.agent_layer

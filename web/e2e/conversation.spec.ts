@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { openConversation } from './helpers'
 import { login } from './login'
 
 // Headless Chromium 默认隐藏滚动条，必须显示它才能检验显隐引起的正文重排。
@@ -7,18 +8,17 @@ test.use({ launchOptions: { ignoreDefaultArgs: ['--hide-scrollbars'] } })
 // MSW 同时提供 REST 历史与 WebSocket 流式批次，用于验证浏览器中的合并渲染。
 
 test('点开一段对话：历史铺开，回复逐字长出来', async ({ page }) => {
-  await page.goto('/')
-  await login(page)
-
-  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+  await openConversation(page, '夜景延时素材生成')
 
   await expect(page).toHaveURL(/\/c\//)
   await expect(page.getByRole('heading', { name: '夜景延时素材生成' })).toBeVisible()
 
   await expect(page.getByText('第 1 个问题')).toBeVisible()
   await expect(page.getByText('这是第 2 轮的回复。')).toBeVisible()
-  await expect(page.getByText('读取文件')).toBeVisible()
-  await expect(page.getByText('shots/storyboard.md')).toBeVisible()
+  // 第 3 轮边流式边写同一文件，路径随时会出现在它的工具行和正文里，所以只在历史轮次里找读取行。
+  const historyTurn = page.getByRole('article', { name: '第 2 轮' })
+  await expect(historyTurn.getByText('读取文件')).toBeVisible()
+  await expect(historyTurn.getByText('shots/storyboard.md')).toBeVisible()
 
   await expect(page.getByText('镜头表已经更新。')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByRole('listitem').filter({ hasText: '拆出 3 个镜头' })).toBeVisible()
@@ -27,14 +27,11 @@ test('点开一段对话：历史铺开，回复逐字长出来', async ({ page 
 })
 
 test('点派活卡的「查看」：右侧打开子代理的过程，地址记住这张卡', async ({ page }) => {
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+  const panel = await openConversation(page, '夜景延时素材生成')
   await expect(page.getByText('第 1 个问题')).toBeVisible()
 
   await page.getByRole('button', { name: '查看子代理过程' }).first().click()
 
-  const panel = page.getByRole('complementary', { name: '右侧面板' })
   await expect(
     panel.getByRole('tab', { name: '委派任务 · shot-writer', selected: true }),
   ).toBeVisible()
@@ -46,9 +43,7 @@ test('点派活卡的「查看」：右侧打开子代理的过程，地址记�
 
 test('长对话可以滚动，鼠标离开后正文位置与宽度保持稳定', async ({ page }) => {
   await page.setViewportSize({ height: 900, width: 1594 })
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+  await openConversation(page, '夜景延时素材生成')
   await expect(page.getByText('镜头表已经更新。')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByRole('button', { name: '停止', exact: true })).toBeHidden()
 
@@ -100,9 +95,7 @@ test('长对话可以滚动，鼠标离开后正文位置与宽度保持稳定',
 })
 
 test('在会话页发一条：气泡先出来，回复跟着长出来', async ({ page }) => {
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+  await openConversation(page, '夜景延时素材生成')
   await expect(page.getByText('第 1 个问题')).toBeVisible()
 
   // 首次订阅会启动演示轮；末轮完成且会话空闲时才允许重新生成。
@@ -135,9 +128,7 @@ test('首页发一条：新建对话并跳进会话页', async ({ page }) => {
 })
 
 test('在跑的时候再发一条：排队、追加、停止', async ({ page }) => {
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+  await openConversation(page, '夜景延时素材生成')
   await expect(page.getByText('第 1 个问题')).toBeVisible()
 
   // 等待运行开始后按 Enter 发送；运行中发送按钮已替换为停止。
@@ -154,9 +145,7 @@ test('在跑的时候再发一条：排队、追加、停止', async ({ page }) 
 })
 
 test('点停止：这一轮收成取消，发送钮回来', async ({ page }) => {
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '亚麻衬衫二剪', exact: true }).click()
+  await openConversation(page, '亚麻衬衫二剪')
 
   await page.getByRole('button', { name: '停止' }).click()
 

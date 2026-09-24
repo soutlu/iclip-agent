@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI
 
-from iclip.app.errors import install_error_handlers
 from iclip.domains.identity.acting import ActAs
 from iclip.domains.identity.models import Principal
 from iclip.domains.tasks.api import create_tasks_router
@@ -20,6 +20,7 @@ from iclip.domains.tasks.models import (
     STATUS_WITHDRAWN,
 )
 from iclip.domains.tasks.service import TaskService
+from tests.helpers.app import app_with_principal
 from tests.helpers.identity import InMemoryUserRepository
 from tests.helpers.tasks import (
     STYLE_NO,
@@ -55,18 +56,7 @@ def build_test_app(
     *,
     granted: Principal | None,
 ) -> FastAPI:
-    app = FastAPI()
-
-    @app.middleware("http")
-    async def _inject_principal(
-        request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
-        if granted is not None:
-            request.state.principal = granted
-        return await call_next(request)
-
-    install_error_handlers(app)
-
+    app = app_with_principal(granted)
     app.include_router(
         create_tasks_router(TaskService(repo), act_as=ActAs(InMemoryUserRepository()))
     )
@@ -83,6 +73,14 @@ def body_of(task: object, **overrides: object) -> dict[str, object]:
     payload = {key: task[key] for key in ("title", "priority", "deadline", "inputs")}
     payload.update(overrides)
     return payload
+
+
+def test_openapi_publishes_task_status_as_enum() -> None:
+    """前端从合同派生状态词，合同里只剩字符串就只能手写平行词表。"""
+
+    app = build_test_app(InMemoryTaskRepository(), granted=None)
+    status = app.openapi()["components"]["schemas"]["TaskOut"]["properties"]["status"]
+    assert status["enum"] == ["draft", "published", "confirmed", "withdrawn"]
 
 
 async def test_creating_lands_a_draft_owned_by_the_caller() -> None:
@@ -410,6 +408,49 @@ async def test_list_filters_by_status_and_rejects_out_of_range_limit() -> None:
         assert (await http.get("/tasks?status=nonsense")).status_code == 422
         assert (await http.get("/tasks?limit=0")).status_code == 422
         assert (await http.get("/tasks?limit=1000")).status_code == 422
+
+
+async def test_list_pages_by_created_at_and_id_and_keeps_the_total() -> None:
+    """满页给游标、末页不给；同一时刻建的按 id 倒序兜底，续页不跳行；总数不随翻页变。"""
+
+    base = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
+    tasks = [replace(make_task(), created_at=base - timedelta(minutes=i)) for i in range(3)]
+    twins = sorted(
+        (replace(make_task(), created_at=base - timedelta(hours=1)) for _ in range(2)),
+        key=lambda task: task.id,
+        reverse=True,
+    )
+    repo = InMemoryTaskRepository([*tasks, *twins])
+    expected = [str(task.id) for task in (*tasks, *twins)]
+    async with client(build_test_app(repo, granted=principal("tasks:read"))) as http:
+        first = (await http.get("/tasks", params={"limit": 2})).json()
+        second = (
+            await http.get("/tasks", params={"limit": 2, "cursor": first["nextCursor"]})
+        ).json()
+        third = (
+            await http.get("/tasks", params={"limit": 2, "cursor": second["nextCursor"]})
+        ).json()
+
+        assert [item["id"] for item in first["items"]] == expected[:2]
+        assert [item["id"] for item in second["items"]] == expected[2:4]
+        assert [item["id"] for item in third["items"]] == expected[4:]
+        assert (first["total"], second["total"], third["total"]) == (5, 5, 5)
+        assert third["nextCursor"] is None
+        assert (await http.get("/tasks?cursor=nonsense")).status_code == 422
+
+
+async def test_list_by_ids_reads_a_batch_and_caps_at_one_page() -> None:
+    wanted = [make_task(), make_task()]
+    repo = InMemoryTaskRepository([*wanted, make_task()])
+    async with client(build_test_app(repo, granted=principal("tasks:read"))) as http:
+        params = (*(("ids", str(task.id)) for task in wanted), ("ids", str(uuid.uuid4())))
+        page = (await http.get("/tasks", params=params)).json()
+        assert {item["id"] for item in page["items"]} == {str(task.id) for task in wanted}
+        assert page["total"] == 2 and page["nextCursor"] is None
+
+        too_many = tuple(("ids", str(uuid.uuid4())) for _ in range(101))
+        assert (await http.get("/tasks", params=too_many)).status_code == 422
+        assert (await http.get("/tasks?ids=not-a-uuid")).status_code == 422
 
 
 async def test_confirm_records_who_claimed() -> None:

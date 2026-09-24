@@ -7,14 +7,16 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+from procrastinate.testing import InMemoryConnector
+
 from iclip.domains.generation.models import (
     STATUS_COMPLETED,
     STATUS_FAILED,
     STATUS_PENDING,
     STATUS_SUBMITTED,
     STATUS_SUBMITTING,
-    TERMINAL_STATUSES,
     GenerationJob,
+    GenerationKind,
     GenerationStatus,
     InFlightPhase,
 )
@@ -23,15 +25,15 @@ from iclip.domains.generation.provider import (
     ProviderProgress,
     ProviderSubmission,
 )
+from iclip.domains.generation.queue import GenerationQueue, GenerationQueueSettings, ProviderLane
 from iclip.domains.generation.schemas import (
-    KIND_CLIP,
     KIND_VIDEO,
     ClipIn,
     GenerationRequest,
     ImageGenerationIn,
     VideoGenerationIn,
 )
-from iclip.platform.object_store.oss import StoredObject
+from iclip.platform.object_store.store import StoredObject
 
 FAKE_VIDEO_PROVIDER = "video_fake"
 FAKE_IMAGE_PROVIDER = "image_fake"
@@ -56,6 +58,7 @@ def clip_request(**overrides: Any) -> ClipIn:
     fields: dict[str, Any] = {
         "purpose": "reference",
         "segments": [{"url": "https://example.com/base.mp4", "start": 4, "end": 8}],
+        "root_job_id": uuid.uuid4(),
     }
     fields.update(overrides)
     return ClipIn(**fields)
@@ -108,6 +111,7 @@ def make_job(
     conversation_id: uuid.UUID | None = None,
     metadata: dict[str, Any] | None = None,
     task_id: uuid.UUID | None = None,
+    root_job_id: uuid.UUID | None = None,
     output_url: str | None = None,
     watermark_output_url: str | None = None,
     error_code: str | None = None,
@@ -122,6 +126,8 @@ def make_job(
         conversation_id=conversation_id,
         metadata=metadata,
         task_id=task_id,
+        # 与受理时一样从请求上抄原作号；显式给了就以给的为准。
+        root_job_id=root_job_id or payload.root_job_id,
         kind=payload.kind,
         provider=provider
         or (FAKE_VIDEO_PROVIDER if payload.kind == KIND_VIDEO else FAKE_IMAGE_PROVIDER),
@@ -142,7 +148,7 @@ def make_job(
 
 
 class InMemoryGenerationRepository:
-    """GenerationRepository 内存替身，仅处理状态跳转；排期由队列负责。"""
+    """GenerationRepository 内存替身，仅处理状态跳转与列表筛选；排期由队列负责。"""
 
     def __init__(self, jobs: list[GenerationJob] | None = None) -> None:
         self.jobs: dict[uuid.UUID, GenerationJob] = {job.id: job for job in jobs or []}
@@ -165,9 +171,10 @@ class InMemoryGenerationRepository:
         owner: uuid.UUID | None,
         limit: int,
         conversation_id: uuid.UUID | None = None,
-        kind: str | None = None,
+        kind: GenerationKind | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
+        root_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
         rows = [
@@ -176,6 +183,7 @@ class InMemoryGenerationRepository:
             if (owner is None or job.owner_user_id == owner)
             and (conversation_id is None or job.conversation_id == conversation_id)
             and (task_id is None or job.task_id == task_id)
+            and (root_job_id is None or job.root_job_id == root_job_id)
         ]
         rows = [job for job in rows if kind is None or job.kind == kind]
         if metadata is not None:
@@ -202,26 +210,9 @@ class InMemoryGenerationRepository:
         owner: uuid.UUID,
         task_id: uuid.UUID | None,
     ) -> int:
-        from dataclasses import replace
+        """分叉复制的规则只由 Postgres 仓储的集成测试覆盖，替身不复刻。"""
 
-        copied = [
-            replace(
-                job,
-                id=uuid.uuid4(),
-                owner_user_id=owner,
-                api_key_id=None,
-                conversation_id=target_conversation_id,
-                task_id=task_id,
-            )
-            for job in list(self.jobs.values())
-            if job.conversation_id == source_conversation_id
-            and job.status == STATUS_COMPLETED
-            and job.kind != KIND_CLIP
-            and "rootJob" not in (job.metadata or {})
-        ]
-        for job in copied:
-            self.jobs[job.id] = job
-        return len(copied)
+        raise AssertionError("unit 层不走分叉复制")
 
     async def mark_submitting(self, job_id: uuid.UUID) -> GenerationJob:
         return self._replace(job_id, status=STATUS_SUBMITTING)
@@ -309,19 +300,11 @@ class InMemoryGenerationRepository:
         return self._replace(job_id, provider_status=provider_status, **extra)
 
     async def in_flight_by_conversation(
-        self, conversation_ids: Sequence[uuid.UUID], *, kind: str
+        self, conversation_ids: Sequence[uuid.UUID], *, kind: GenerationKind
     ) -> Mapping[uuid.UUID, InFlightPhase]:
-        phases: dict[uuid.UUID, InFlightPhase] = {}
-        for job in self.jobs.values():
-            if job.conversation_id not in conversation_ids or job.kind != kind:
-                continue
-            if job.status in TERMINAL_STATUSES or job.conversation_id is None:
-                continue
-            if job.status != STATUS_PENDING or phases.get(job.conversation_id) is None:
-                phases[job.conversation_id] = (
-                    "queued" if job.status == STATUS_PENDING else "running"
-                )
-        return phases
+        """在途汇总的优先级规则只由 Postgres 仓储的集成测试覆盖，替身不复刻。"""
+
+        raise AssertionError("unit 层不走在途汇总")
 
     def _replace(self, job_id: uuid.UUID, **values: Any) -> GenerationJob:
         from dataclasses import replace
@@ -369,6 +352,36 @@ class ScriptedProvider:
         return self._progress
 
 
+QUEUE_SETTINGS = GenerationQueueSettings(
+    poll_interval_seconds=5, error_retry_seconds=30, job_timeout_seconds=3600
+)
+
+
+def build_queue(
+    repo: InMemoryGenerationRepository,
+    *,
+    video: ScriptedProvider | None = None,
+    image: ScriptedProvider | None = None,
+    lanes: tuple[ProviderLane, ...] | None = None,
+) -> tuple[GenerationQueue, InMemoryConnector]:
+    """两家替身各占一条 lane，名字与 make_job 落到 provider 列上的值一致。"""
+
+    if lanes is None:
+        video_double = video or ScriptedProvider()
+        video_double.provider_name = FAKE_VIDEO_PROVIDER
+        image_double = image or ScriptedProvider()
+        image_double.provider_name = FAKE_IMAGE_PROVIDER
+        lanes = (ProviderLane(video_double, 1), ProviderLane(image_double, 1))
+    connector = InMemoryConnector()
+    queue = GenerationQueue(
+        repo,
+        lanes=lanes,
+        connector=connector,
+        settings=QUEUE_SETTINGS,
+    )
+    return queue, connector
+
+
 class MemoryObjectStore:
     """PublicBucket 内存替身。
 
@@ -398,9 +411,11 @@ class MemoryObjectStore:
 
 
 __all__ = [
+    "QUEUE_SETTINGS",
     "InMemoryGenerationRepository",
     "MemoryObjectStore",
     "ScriptedProvider",
+    "build_queue",
     "clip_request",
     "image_request",
     "make_job",

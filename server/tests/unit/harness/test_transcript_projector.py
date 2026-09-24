@@ -27,7 +27,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from iclip.harness.agents import DELEGATE_TOOL, delegate_display_table
+from iclip.harness.agents import DELEGATE_TOOL, SubAgentProfile, delegate_display_table
 from iclip.harness.transcript.from_messages import turns_from_messages
 from iclip.harness.transcript.projector import TranscriptEventStream
 from iclip.harness.transcript.store import TranscriptStore
@@ -59,7 +59,7 @@ CONTENT: tuple[PromptContent, ...] = (TextContent(text=PROMPT),)
 WRITER = "shot-writer"
 TASK = "写第 3 组的三个镜头"
 CHILD = "child-run-1"
-PROFILE = {"agent_name": WRITER, "model": "test-model"}
+PROFILE: SubAgentProfile = {"agent_name": WRITER, "model": "test-model"}
 
 
 def _read_display(args: Any) -> ToolDisplay | None:
@@ -275,16 +275,15 @@ async def test_a_steer_before_the_first_step_keeps_its_prompt_id() -> None:
 
 
 async def test_a_failed_turn_fails_its_running_task() -> None:
-    """父运行报错时，框架补的 failed 返回把任务一起收尾。"""
+    """父运行报错时任务随轮次收尾为 failed；框架补的收尾不进历史，所以也不带它的错误文本。"""
 
     task = await _task_after(RuntimeError("父运行炸了"))
 
-    assert (task.state, task.state_reason) == ("failed", None)
-    assert task.error is not None
+    assert (task.state, task.state_reason, task.error) == ("failed", None, None)
 
 
 async def test_a_stopped_turn_kills_its_running_task() -> None:
-    """取消补的是 interrupted 返回，与历史从子运行事件推出的 killed 对上。"""
+    """父运行被停时任务随轮次收尾为 killed，与历史从子运行事件推出的对上。"""
 
     assert (await _task_after(RunCancelled("用户停止"))).state == "killed"
 

@@ -1,16 +1,20 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { useState } from 'react'
 import {
   AnomaliesPanel,
   AuditScopeBar,
   ConversationsPanel,
   OverviewPanel,
+  useAuditAnomalies,
+  useAuditConversationReports,
+  type AnomalyKind,
   type AuditScope,
 } from '@/features/audit'
-import { useUsersDirectory } from '@/shared/auth'
-import type { PickerSource } from '@/shared/ui/search-picker'
+import { userPickerSourceOf, useUsersDirectory } from '@/shared/auth'
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from '@/shared/ui/tabs'
 import { auditSearchSchema, scopeFromSearch, searchFromScope } from '../-audit-search'
 import { requireGovernor } from '../-require-governor'
+import { useAuditTaskPreviews } from '../-use-audit-task-previews'
 import { useTaskPickerSource } from '../-use-task-picker-source'
 
 const TABS = [
@@ -37,23 +41,9 @@ function AuditPage() {
   const setScope = (next: AuditScope) =>
     void navigate({ replace: true, search: { ...searchFromScope(next), tab: search.tab } })
 
-  // 报表按上游归属的用户名归人，候选的 id 用用户名；没有用户名的账号不会出现在报表里，也不列。
-  const userSource: PickerSource = {
-    error: directory.error,
-    isPending: directory.isPending,
-    onRetry: () => void directory.refetch(),
-    options: directory.users.flatMap((item) =>
-      item.username === null ? [] : [{ id: item.username, label: item.displayName }],
-    ),
-  }
-  const displayNameByUsername = new Map(
-    directory.users.flatMap((item) =>
-      item.username === null ? [] : [[item.username, item.displayName] as const],
-    ),
-  )
-  const taskTitles = new Map((taskSource?.options ?? []).map((task) => [task.id, task.label]))
-  const nameOf = (userName: string) => displayNameByUsername.get(userName)
-  const taskTitleOf = (taskId: string) => taskTitles.get(taskId)
+  // 报表按上游归属的用户名归人，候选的 id 与显示名都按用户名查。
+  const userSource = userPickerSourceOf(directory, 'username')
+  const nameOf = directory.nameOfUsername
 
   // 切标签不动筛选范围；总览是默认标签，不写进地址。
   const selectTab = (value: string) => {
@@ -98,13 +88,56 @@ function AuditPage() {
             />
           </TabsContent>
           <TabsContent className="flex flex-col ui-focus" value="conversations">
-            <ConversationsPanel nameOf={nameOf} scope={scope} taskTitleOf={taskTitleOf} />
+            <ConversationsTab nameOf={nameOf} scope={scope} />
           </TabsContent>
           <TabsContent className="flex flex-col ui-focus" value="anomalies">
-            <AnomaliesPanel nameOf={nameOf} scope={scope} taskTitleOf={taskTitleOf} />
+            <AnomaliesTab nameOf={nameOf} scope={scope} />
           </TabsContent>
         </TabsRoot>
       </div>
     </main>
+  )
+}
+
+type TabProps = {
+  scope: AuditScope
+  nameOf: (userName: string) => string | undefined
+}
+
+/**
+ * 按列表已读到的每页行批量取需求单标题，一页一个请求；取不到的由面板退回占位字。
+ *
+ * 不借选择器候选：那只有最近一页需求单，挂在更早需求单上的行会拿不到标题。
+ */
+const useTaskTitleOf = (
+  pages: readonly { items: readonly { taskId: string | null }[] }[] | undefined,
+) => {
+  const { taskPreviews } = useAuditTaskPreviews(
+    (pages ?? []).map((page) =>
+      page.items.flatMap((row) => (row.taskId === null ? [] : [row.taskId])),
+    ),
+  )
+  return (taskId: string) => taskPreviews.get(taskId)?.title
+}
+
+// 标签与面板读同一个查询键，这里只为拿到行上的 taskId，不多发请求。
+function ConversationsTab({ scope, nameOf }: TabProps) {
+  const reports = useAuditConversationReports(scope)
+  const taskTitleOf = useTaskTitleOf(reports.data?.pages)
+  return <ConversationsPanel nameOf={nameOf} scope={scope} taskTitleOf={taskTitleOf} />
+}
+
+function AnomaliesTab({ scope, nameOf }: TabProps) {
+  const [kinds, setKinds] = useState<AnomalyKind[]>([])
+  const anomalies = useAuditAnomalies(scope, kinds)
+  const taskTitleOf = useTaskTitleOf(anomalies.data?.pages)
+  return (
+    <AnomaliesPanel
+      kinds={kinds}
+      nameOf={nameOf}
+      onKindsChange={setKinds}
+      scope={scope}
+      taskTitleOf={taskTitleOf}
+    />
   )
 }

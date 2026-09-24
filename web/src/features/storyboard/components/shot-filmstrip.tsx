@@ -4,7 +4,7 @@ import { useEffect, useRef, type CSSProperties } from 'react'
 import { cn } from '@/shared/lib/utils'
 
 import { frameBadgeStatus, frameBadgeText, type FrameBadge } from '../frame-status'
-import type { ShotContent } from '../shot-content'
+import { contentLabel, type ShotContent } from '../shot-content'
 import { Icon } from '@/shared/icons'
 import { StatusBadge } from '@/shared/ui/status-badge'
 
@@ -59,9 +59,7 @@ export function ShotFilmstrip({
         return (
           <div
             aria-current={active}
-            aria-label={
-              scene.timelineIndex === undefined ? scene.title : `镜头 ${scene.timelineIndex + 1}`
-            }
+            aria-label={contentLabel(scene)}
             className={cn(
               'storyboard-scene',
               active && 'storyboard-scene-active',
@@ -76,11 +74,7 @@ export function ShotFilmstrip({
             <div className="storyboard-scene-frames">
               {visibleFrames.length === 0 ? (
                 <button
-                  aria-label={
-                    scene.timelineIndex === undefined
-                      ? scene.title
-                      : `镜头 ${scene.timelineIndex + 1}`
-                  }
+                  aria-label={contentLabel(scene)}
                   className="storyboard-thumbnail grid cursor-pointer place-items-center bg-surface-container text-caption text-on-surface-faint ui-focus"
                   aria-pressed={active}
                   onClick={() => onSelect(scene.id)}
@@ -91,11 +85,7 @@ export function ShotFilmstrip({
               ) : (
                 visibleFrames.map((number) => {
                   const badge = badges.get(number)
-                  const label = active
-                    ? `预览第 ${number} 帧`
-                    : scene.timelineIndex === undefined
-                      ? scene.title
-                      : `镜头 ${scene.timelineIndex + 1}`
+                  const label = active ? `预览第 ${number} 帧` : contentLabel(scene)
                   return (
                     <button
                       aria-label={

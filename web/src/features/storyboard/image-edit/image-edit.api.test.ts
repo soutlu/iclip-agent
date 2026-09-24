@@ -1,10 +1,17 @@
+import { QueryClient } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
+import { makeGenerationJob } from '@/testing/generation-job'
 import { server } from '@/testing/mocks/server'
+import { generationsRefetchInterval } from '../storyboard.api'
 import {
   compileEditPrompt,
+  imageEditConversationKey,
+  imageEditJobsRefetchInterval,
+  imageEditQueryKey,
   parseEditPrompt,
   resolveImageOptions,
+  seedImageEditJob,
   submitImageEdit,
 } from './image-edit.api'
 import type { ImageModel } from './image-edit.api'
@@ -71,6 +78,61 @@ const target: FrameEditTarget = {
   frameNumber: 3,
 }
 
+describe('imageEditJobsRefetchInterval', () => {
+  const done = makeGenerationJob({ kind: 'image', status: 'completed' })
+  const running = makeGenerationJob({ kind: 'image', status: 'submitted' })
+
+  it('与生成列表同一口径：已翻开的哪一页里有在跑的都算', () => {
+    const interval = imageEditJobsRefetchInterval({
+      pages: [{ items: [done] }, { items: [running] }],
+    })
+
+    expect(interval).toBe(generationsRefetchInterval([done, running]))
+    expect(interval).not.toBe(false)
+  })
+
+  it('全落定了、或者还没读到就不问', () => {
+    expect(imageEditJobsRefetchInterval({ pages: [{ items: [done] }] })).toBe(false)
+    expect(imageEditJobsRefetchInterval(undefined)).toBe(false)
+  })
+})
+
+describe('seedImageEditJob', () => {
+  const job = makeGenerationJob({ kind: 'image', status: 'pending' })
+
+  it('这一格还没读过就落成一页', () => {
+    const queryClient = new QueryClient()
+
+    seedImageEditJob(queryClient, target, job)
+
+    expect(queryClient.getQueryData(imageEditQueryKey(target))).toEqual({
+      pages: [{ items: [job] }],
+      pageParams: [undefined],
+    })
+  })
+
+  it('已翻开几页时只进第一页最前面、同一条替换不重复，其余页不动，并失效本对话前缀', () => {
+    const queryClient = new QueryClient()
+    const older = makeGenerationJob({ kind: 'image' })
+    const secondPage = { items: [makeGenerationJob({ kind: 'image' })] }
+    queryClient.setQueryData(imageEditQueryKey(target), {
+      pages: [{ items: [job, older] }, secondPage],
+      pageParams: [undefined, older.id],
+    })
+    const frameJobsKey = imageEditConversationKey(target.conversationId)
+    queryClient.setQueryData(frameJobsKey, { items: [] })
+    const accepted = { ...job, status: 'submitted' as const }
+
+    seedImageEditJob(queryClient, target, accepted)
+
+    expect(queryClient.getQueryData(imageEditQueryKey(target))).toEqual({
+      pages: [{ items: [accepted, older] }, secondPage],
+      pageParams: [undefined, older.id],
+    })
+    expect(queryClient.getQueryState(frameJobsKey)?.isInvalidated).toBe(true)
+  })
+})
+
 describe('submitImageEdit', () => {
   it('坐标里带上这次改的是哪张图，参考图与编译好的正文照发', async () => {
     let body: Record<string, unknown> = {}
@@ -87,8 +149,9 @@ describe('submitImageEdit', () => {
               metadata: body['metadata'],
               outputUrl: null,
               request: {},
-              status: 'queued',
+              status: 'pending',
               taskId: null,
+              rootJobId: null,
               clipStage: null,
               durationMs: null,
               watermarkOutputUrl: null,
@@ -106,7 +169,7 @@ describe('submitImageEdit', () => {
       channel: 'dev',
     })
 
-    expect(job.status).toBe('queued')
+    expect(job.status).toBe('pending')
     expect(body['metadata']).toEqual({
       shot: 2,
       frame: 3,

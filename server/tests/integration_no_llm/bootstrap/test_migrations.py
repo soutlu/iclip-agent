@@ -7,13 +7,15 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from alembic import command
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import MetaData, inspect, text
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from iclip.domains.collections.infra_sql import metadata_obj as collections_metadata
 from iclip.domains.conversations.infra_sql import metadata_obj as conversations_metadata
@@ -348,7 +350,11 @@ async def test_path_drop_migration_keeps_the_other_coordinate_keys(migrated_pg: 
                 ),
                 # 只发 shot_index 的调用方与视频编辑链本来就没有 path。
                 (gateway, '{"shot": 5}'),
-                (video_edit, '{"rootJob": "r", "baseJob": "r", "editId": "e"}'),
+                # 0013 会把 rootJob 抄进列再擦掉，这里只看 0012 留下了别的键。
+                (
+                    video_edit,
+                    json.dumps({"rootJob": str(video), "baseJob": str(video), "editId": "e"}),
+                ),
                 # 0005 之后不该再有这种行；NULLIF 兜的就是它。
                 (path_only, '{"path": "video_shot.json"}'),
             )
@@ -395,8 +401,315 @@ async def test_path_drop_migration_keeps_the_other_coordinate_keys(migrated_pg: 
         "sourceUrl": "https://cdn.test/a.png",
     }
     assert _jsonb(found[gateway]) == {"shot": 5}
-    assert _jsonb(found[video_edit]) == {"rootJob": "r", "baseJob": "r", "editId": "e"}
+    # 升到 head 还会过 0013 与 0014：rootJob 抄进列，指向根的 baseJob 擦掉，只剩 editId。
+    assert _jsonb(found[video_edit]) == {"editId": "e"}
     assert found[path_only] is None
+
+
+BEFORE_ROOT_JOB = "5a9c2e17bd48"
+"""0012：原作号还写在 metadata.rootJob 里的那一版。"""
+
+_INSERT_GENERATION = text(
+    "INSERT INTO iclip.generation_jobs (id, owner_user_id, kind, provider, request, status, "
+    "metadata, created_at, updated_at) VALUES (:id, :owner, :kind, 'test', '{}', 'completed', "
+    "CAST(:metadata AS jsonb), now(), now())"
+)
+
+
+async def _insert_generation_owner(conn: AsyncConnection, owner: uuid.UUID) -> None:
+    await conn.execute(
+        text(
+            "INSERT INTO iclip.users (id, email, hashed_password, is_active, is_superuser, "
+            "is_verified, display_name, avatar_url, roles, direct_permissions, city, "
+            "job_title, departments) VALUES (:id, :email, 'x', true, false, true, '原作属主', "
+            "'', '[]', '[]', '', '', '[]')"
+        ),
+        {"id": owner, "email": f"{owner}@example.com"},
+    )
+
+
+async def _remove_generation_owner(migrated_pg: str, owner: uuid.UUID) -> None:
+    engine = create_async_engine(migrated_pg)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("DELETE FROM iclip.generation_jobs WHERE owner_user_id = :owner"),
+                {"owner": owner},
+            )
+            await conn.execute(text("DELETE FROM iclip.users WHERE id = :owner"), {"owner": owner})
+    finally:
+        await engine.dispose()
+
+
+async def test_root_job_migration_lifts_root_job_into_the_column(migrated_pg: str) -> None:
+    """0013：便签上的 rootJob 抄进 root_job_id 再擦掉，别的键原样留着；降级再写回便签。"""
+
+    cfg = _alembic(migrated_pg)
+    owner = uuid.uuid4()
+    root, reference, edited = (uuid.uuid4() for _ in range(3))
+    chain = {"rootJob": str(root), "baseJob": str(root), "editId": "e"}
+    engine = create_async_engine(migrated_pg)
+    try:
+        await engine.dispose()
+        command.downgrade(cfg, BEFORE_ROOT_JOB)
+        async with engine.begin() as conn:
+            await _insert_generation_owner(conn, owner)
+            rows = (
+                (root, "video", '{"shot": 2}'),
+                (reference, "clip", json.dumps(chain)),
+                (edited, "video", json.dumps({**chain, "editStart": 1})),
+            )
+            for job_id, kind, metadata in rows:
+                await conn.execute(
+                    _INSERT_GENERATION,
+                    {"id": job_id, "owner": owner, "kind": kind, "metadata": metadata},
+                )
+        await engine.dispose()
+        command.upgrade(cfg, "head")
+
+        async with engine.connect() as conn:
+            found = {
+                row["id"]: (row["root_job_id"], _jsonb(row["metadata"]))
+                for row in (
+                    await conn.execute(
+                        text(
+                            "SELECT id, root_job_id, metadata FROM iclip.generation_jobs "
+                            "WHERE owner_user_id = :owner"
+                        ),
+                        {"owner": owner},
+                    )
+                ).mappings()
+            }
+            foreign_keys = await conn.run_sync(
+                lambda sync_conn: {
+                    fk["name"]
+                    for fk in inspect(sync_conn).get_foreign_keys(
+                        "generation_jobs", schema=DB_SCHEMA
+                    )
+                }
+            )
+        await engine.dispose()
+        command.downgrade(cfg, BEFORE_ROOT_JOB)
+        async with engine.connect() as conn:
+            restored = (
+                await conn.execute(
+                    text("SELECT metadata FROM iclip.generation_jobs WHERE id = :id"),
+                    {"id": reference},
+                )
+            ).scalar_one()
+    finally:
+        await engine.dispose()
+        command.upgrade(cfg, "head")
+        await _remove_generation_owner(migrated_pg, owner)
+
+    assert found[root] == (None, {"shot": 2}), "独立记录一个字不动"
+    # 升到 head 还会过 0014：指向根的 baseJob 是「基于原片」，键擦掉。
+    assert found[reference] == (root, {"editId": "e"})
+    assert found[edited] == (root, {"editId": "e", "editStart": 1})
+    assert "fk_generation_jobs_root_job" in foreign_keys
+    assert _jsonb(restored) == chain, "降级把列写回便签"
+
+
+async def _root_job_migration_refuses(
+    migrated_pg: str, *, kind: str, metadata: str | None, message: str
+) -> None:
+    """0013 遇到对不上的行不静默放过：带 id 报错，库停在 0012。"""
+
+    cfg = _alembic(migrated_pg)
+    owner, job_id = uuid.uuid4(), uuid.uuid4()
+    engine = create_async_engine(migrated_pg)
+    try:
+        await engine.dispose()
+        command.downgrade(cfg, BEFORE_ROOT_JOB)
+        async with engine.begin() as conn:
+            await _insert_generation_owner(conn, owner)
+            await conn.execute(
+                _INSERT_GENERATION,
+                {"id": job_id, "owner": owner, "kind": kind, "metadata": metadata},
+            )
+        await engine.dispose()
+        with pytest.raises(RuntimeError, match=message) as refused:
+            command.upgrade(cfg, "head")
+        async with engine.connect() as conn:
+            version = (
+                await conn.execute(text("SELECT version_num FROM iclip.alembic_version"))
+            ).scalar_one()
+    finally:
+        await engine.dispose()
+        await _remove_generation_owner(migrated_pg, owner)
+        command.upgrade(cfg, "head")
+
+    assert str(job_id) in str(refused.value), "报错要点名是哪一行"
+    assert version == BEFORE_ROOT_JOB, "整个迁移回滚，列没加上"
+
+
+async def test_root_job_migration_refuses_a_root_that_does_not_exist(migrated_pg: str) -> None:
+    await _root_job_migration_refuses(
+        migrated_pg,
+        kind="video",
+        metadata=json.dumps({"rootJob": str(uuid.uuid4())}),
+        message="rootJob 指向不存在的记录",
+    )
+
+
+async def test_root_job_migration_refuses_a_clip_without_a_root(migrated_pg: str) -> None:
+    await _root_job_migration_refuses(
+        migrated_pg, kind="clip", metadata=None, message="clip 记录没有原作号"
+    )
+
+
+BEFORE_BASE_EDIT = "b6e2f4a9c713"
+"""0013：编辑坐标里「基于哪一版」还写着记录 id（baseJob）的那一版。"""
+
+_INSERT_CHAIN_JOB = text(
+    "INSERT INTO iclip.generation_jobs (id, owner_user_id, kind, provider, request, status, "
+    "metadata, root_job_id, created_at, updated_at) VALUES (:id, :owner, :kind, 'test', "
+    "CAST(:request AS jsonb), 'completed', CAST(:metadata AS jsonb), :root, now(), now())"
+)
+
+
+async def _seed_chain(
+    conn: AsyncConnection,
+    owner: uuid.UUID,
+    rows: Sequence[tuple[uuid.UUID, str, str, str | None, uuid.UUID | None]],
+) -> None:
+    """(id, kind, request, metadata, root_job_id) 各一行，都已完成。"""
+
+    await _insert_generation_owner(conn, owner)
+    for job_id, kind, request, metadata, root_id in rows:
+        await conn.execute(
+            _INSERT_CHAIN_JOB,
+            {
+                "id": job_id,
+                "owner": owner,
+                "kind": kind,
+                "request": request,
+                "metadata": metadata,
+                "root": root_id,
+            },
+        )
+
+
+async def _metadata_by_id(migrated_pg: str, owner: uuid.UUID) -> dict[uuid.UUID, object]:
+    engine = create_async_engine(migrated_pg)
+    try:
+        async with engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    text(
+                        "SELECT id, metadata FROM iclip.generation_jobs WHERE owner_user_id = :owner"
+                    ),
+                    {"owner": owner},
+                )
+            ).mappings()
+            return {row["id"]: _jsonb(row["metadata"]) for row in rows}
+    finally:
+        await engine.dispose()
+
+
+async def test_base_edit_migration_rewrites_base_job_into_edit_ids(migrated_pg: str) -> None:
+    """0014：baseJob 指向根的擦掉（基于原片不写），指向成片的换成那条成片的 editId；降级写回记录 id。"""
+
+    cfg = _alembic(migrated_pg)
+    owner = uuid.uuid4()
+    root, master, reference, edited = (uuid.uuid4() for _ in range(4))
+    # 第二轮编辑基于成片 e1：参考片段与编辑结果同一个 editId，baseJob 都写着成片的 id。
+    second = {"baseJob": str(master), "editId": "e2", "editStart": 2, "editEnd": 5}
+    engine = create_async_engine(migrated_pg)
+    try:
+        await engine.dispose()
+        command.downgrade(cfg, BEFORE_BASE_EDIT)
+        async with engine.begin() as conn:
+            await _seed_chain(
+                conn,
+                owner,
+                (
+                    (root, "video", '{"prompt": "p"}', '{"shot": 1}', None),
+                    (
+                        master,
+                        "clip",
+                        '{"purpose": "master", "segments": []}',
+                        json.dumps(
+                            {"baseJob": str(root), "editId": "e1", "editStart": 1, "editEnd": 4}
+                        ),
+                        root,
+                    ),
+                    (
+                        reference,
+                        "clip",
+                        '{"purpose": "reference", "segments": []}',
+                        json.dumps(second),
+                        root,
+                    ),
+                    (edited, "video", '{"prompt": "p"}', json.dumps(second), root),
+                ),
+            )
+        await engine.dispose()
+        command.upgrade(cfg, "head")
+        found = await _metadata_by_id(migrated_pg, owner)
+        command.downgrade(cfg, BEFORE_BASE_EDIT)
+        restored = await _metadata_by_id(migrated_pg, owner)
+    finally:
+        await engine.dispose()
+        command.upgrade(cfg, "head")
+        await _remove_generation_owner(migrated_pg, owner)
+
+    upgraded_second = {"baseEdit": "e1", "editId": "e2", "editStart": 2, "editEnd": 5}
+    assert found[root] == {"shot": 1}, "独立记录不动"
+    assert found[master] == {"editId": "e1", "editStart": 1, "editEnd": 4}, "基于原片：键擦掉"
+    assert found[reference] == upgraded_second
+    assert found[edited] == upgraded_second
+    assert restored[master] == {"baseJob": str(root), "editId": "e1", "editStart": 1, "editEnd": 4}
+    assert restored[reference] == second
+    assert restored[edited] == second
+
+
+async def test_base_edit_migration_refuses_a_dangling_base_job(migrated_pg: str) -> None:
+    """对不上的 baseJob 不能静默当成基于原片：带 id 报错，库停在 0013。"""
+
+    cfg = _alembic(migrated_pg)
+    owner = uuid.uuid4()
+    root, edited = uuid.uuid4(), uuid.uuid4()
+    engine = create_async_engine(migrated_pg)
+    try:
+        await engine.dispose()
+        command.downgrade(cfg, BEFORE_BASE_EDIT)
+        async with engine.begin() as conn:
+            await _seed_chain(
+                conn,
+                owner,
+                (
+                    (root, "video", '{"prompt": "p"}', '{"shot": 1}', None),
+                    (
+                        edited,
+                        "video",
+                        '{"prompt": "p"}',
+                        json.dumps(
+                            {
+                                "baseJob": str(uuid.uuid4()),
+                                "editId": "e2",
+                                "editStart": 2,
+                                "editEnd": 5,
+                            }
+                        ),
+                        root,
+                    ),
+                ),
+            )
+        await engine.dispose()
+        with pytest.raises(RuntimeError, match="baseJob 指向不存在的记录") as refused:
+            command.upgrade(cfg, "head")
+        async with engine.connect() as conn:
+            version = (
+                await conn.execute(text("SELECT version_num FROM iclip.alembic_version"))
+            ).scalar_one()
+    finally:
+        await engine.dispose()
+        await _remove_generation_owner(migrated_pg, owner)
+        command.upgrade(cfg, "head")
+
+    assert str(edited) in str(refused.value)
+    assert version == BEFORE_BASE_EDIT
 
 
 BEFORE_LAST_RUN_BACKFILL = "2d6f8a1b4c07"
