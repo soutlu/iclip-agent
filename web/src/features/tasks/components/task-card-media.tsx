@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from '@/shared/icons'
+import { imageThumbnailUrl } from '@/shared/lib/media-url'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { MediaFallback } from '@/shared/ui/media-fallback'
@@ -8,6 +9,10 @@ import type { Task } from '../tasks.api'
 
 type TaskProduct = Task['inputs']['products'][number]
 const imageLabel = (product: TaskProduct) => `${product.name.trim() || product.style_no} 商品图`
+
+// 按 2 倍显示尺寸取图：封面只保证盖满 196×180 的框，裁切仍由 object-cover 做；参考图按 28px 高等比缩放。
+const COVER_PROCESS = 'resize,m_mfit,w_400,h_360/format,webp'
+const REFERENCE_PROCESS = 'resize,h_56/format,webp'
 
 export function TaskCardMedia({ products }: { products: TaskProduct[] }) {
   const cover = taskCoverOf(products)
@@ -156,7 +161,7 @@ function ProductImage({
       loading="lazy"
       onLoad={onLoad}
       onError={() => setFailedSrc(src)}
-      src={src}
+      src={imageThumbnailUrl(src, compact ? REFERENCE_PROCESS : COVER_PROCESS)}
     />
   )
 }

@@ -9,9 +9,9 @@ export const fileNameOfUrl = (url: string): string => {
   return decodeURIComponent(path.slice(path.lastIndexOf('/') + 1))
 }
 
-/** 图片的小缩略图（长边 64）；不是 OSS 地址就原图。 */
-export const imageThumbnailUrl = (url: string): string =>
-  OSS_PLAIN_URL.test(url) ? `${url}?x-oss-process=image/resize,l_64` : url
+/** 图片缩略图；`process` 是 `image/` 之后的 OSS 处理串，默认长边 64。不是 OSS 地址就原图。 */
+export const imageThumbnailUrl = (url: string, process = 'resize,l_64'): string =>
+  OSS_PLAIN_URL.test(url) ? `${url}?x-oss-process=image/${process}` : url
 
 /** 仅 OSS 支持视频首帧；poster 调用方需按显示尺寸指定宽度，避免放大模糊。 */
 export const videoSnapshotUrl = (url: string, width = 128): string | undefined =>
