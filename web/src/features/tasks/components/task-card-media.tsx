@@ -17,7 +17,7 @@ const REFERENCE_PROCESS = 'resize,h_56/format,webp'
 export function TaskCardMedia({ products }: { products: TaskProduct[] }) {
   const cover = taskCoverOf(products)
   return (
-    <span className="task-card-media relative block w-full overflow-hidden rounded-md bg-surface-container-low">
+    <span className="task-card-media task-card-cover relative block w-full overflow-hidden rounded-md bg-surface-container-low">
       <ProductImage alt={cover ? imageLabel(cover.product) : '需求单商品图'} src={cover?.url} />
     </span>
   )
@@ -130,6 +130,8 @@ function ProductImage({
   onLoad?: (() => void) | undefined
 }) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null)
+  // 封面到达后淡入；参考条一排缩略图同时淡入会闪，直接显示。
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null)
   const failed = src !== undefined && failedSrc === src
 
   if (failed) return <MediaFallback className="size-full" compact={compact} kind="image" />
@@ -156,10 +158,17 @@ function ProductImage({
   return (
     <img
       alt={alt}
-      className={compact ? 'task-card-reference-image object-contain' : 'size-full object-cover'}
+      className={
+        compact
+          ? 'task-card-reference-image object-contain'
+          : cn('task-card-cover-image size-full object-cover', loadedSrc !== src && 'opacity-0')
+      }
       decoding="async"
       loading="lazy"
-      onLoad={onLoad}
+      onLoad={() => {
+        if (!compact) setLoadedSrc(src)
+        onLoad?.()
+      }}
       onError={() => setFailedSrc(src)}
       src={imageThumbnailUrl(src, compact ? REFERENCE_PROCESS : COVER_PROCESS)}
     />

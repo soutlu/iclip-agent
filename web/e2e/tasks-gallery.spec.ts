@@ -276,6 +276,8 @@ for (const viewport of [
         await expect
           .poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth))
           .toBeGreaterThan(0)
+        // 封面加载前透明、加载后淡入，最终必须完全显示。
+        await expect(image).toHaveCSS('opacity', '1')
       }
     } else {
       expect(Math.abs(first.x - second.x)).toBeLessThan(1)

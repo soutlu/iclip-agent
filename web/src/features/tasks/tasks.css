@@ -31,6 +31,37 @@
   display: none;
 }
 
+/* 封面到达后淡入；悬停时在框内微放大并浮起，只动封面、不改变布局。
+   悬停挂在整张卡的外层：参考条盖在封面底部且不在主按钮里，鼠标经过它时不能丢掉悬停。 */
+.task-card-cover-image {
+  transition-property: opacity, scale;
+  transition-duration: var(--dur-s);
+  transition-timing-function: var(--ease);
+}
+
+@media (hover: hover) {
+  .task-card-cover {
+    transition: box-shadow var(--dur-s) var(--ease);
+  }
+
+  .task-gallery-item:hover .task-card-cover {
+    box-shadow: var(--shadow-1);
+  }
+
+  .task-gallery-item:hover .task-card-cover-image {
+    scale: 1.03;
+  }
+}
+
+/* 按下主按钮时整张卡连同叠在封面上的状态、参考条一起回缩，与按钮的按压反馈一致。 */
+.task-gallery-item {
+  transition: scale var(--dur-s) var(--ease);
+}
+
+.task-gallery-item:has(> .task-gallery-card:active) {
+  scale: 0.98;
+}
+
 /* TaskHero 使用 ph-* 钩子与 .dark 共用一份 SVG；色板外的插画原色在此声明。 */
 .task-hero .ph-ink {
   fill: var(--n0);
