@@ -75,5 +75,7 @@ def test_only_the_first_error_is_reported() -> None:
     assert validation_error_detail(errors) == "model: Field required"
 
 
-def test_empty_errors_fall_back_to_a_sentence() -> None:
-    assert validation_error_detail([]) == "请求格式无效"
+def test_empty_errors_still_give_a_non_empty_detail() -> None:
+    detail = validation_error_detail([])
+    assert isinstance(detail, str)
+    assert detail

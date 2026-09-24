@@ -256,6 +256,7 @@ export function Composer({
             <div
               aria-hidden
               className="composer-drop-overlay layer-overlay animate-in duration-(--dur-s) fade-in"
+              data-testid="composer-drop-overlay"
             >
               <div className="composer-drop-card">
                 <Icon decorative name="add-file" size="lg" />

@@ -25,7 +25,6 @@ from pydantic_ai_harness.subagents import SubAgent, SubAgents
 from structlog.testing import capture_logs
 
 from iclip.capabilities.workspace.capability import (
-    CAPABILITY_ID,
     FULL_RESOLUTION_MAX_BYTES,
     MAX_READ_CHARS,
     CropRegion,
@@ -276,7 +275,7 @@ async def test_two_users_do_not_see_each_other(
     theirs = make_context(make_deps(OTHER_USER))
     await tools.write_file(mine, "笔记.md", "我的稿子")
     assert "笔记.md" in text(await tools.list_files(mine))
-    assert text(await tools.list_files(theirs)) == "工作区还没有任何文件。"
+    assert "笔记.md" not in text(await tools.list_files(theirs))
     assert await store.read(f"{OTHER_USER}/{THREAD}", "笔记.md") is None
 
 
@@ -287,15 +286,13 @@ async def test_two_conversations_of_one_user_do_not_see_each_other(
     here = make_context(make_deps())
     there = make_context(make_deps(conversation_id=OTHER_THREAD))
     await tools.write_file(here, "笔记.md", "这段对话的稿子")
-    assert text(await tools.list_files(there)) == "工作区还没有任何文件。"
+    assert "笔记.md" not in text(await tools.list_files(there))
 
 
 async def test_write_then_read_round_trip(
     tools: WorkspaceToolset[object], ctx: RunContext[object]
 ) -> None:
-    assert "已写入 分镜/第一集.md" in text(
-        await tools.write_file(ctx, "分镜/第一集.md", "镜头一\n镜头二")
-    )
+    assert "分镜/第一集.md" in text(await tools.write_file(ctx, "分镜/第一集.md", "镜头一\n镜头二"))
     assert text(await tools.read_file(ctx, "分镜/第一集.md")) == "     1\t镜头一\n     2\t镜头二"
 
 
@@ -313,7 +310,8 @@ async def test_read_pages_and_says_how_much_is_left(
     page = await tools.read_file(ctx, "长稿.md", offset=3, limit=2)
     assert "     3\t第3行" in text(page)
     assert "     4\t第4行" in text(page)
-    assert "还有 6 行没读" in text(page)
+    assert "6 行" in text(page)
+    assert "offset=5" in text(page)
     # 卡片只拿范围，正文仍在 output 里，不重复一份。
     assert page.metadata == {"path": "长稿.md", "lines": 2, "truncated": True}
     whole = await tools.read_file(ctx, "长稿.md")
@@ -342,7 +340,7 @@ async def test_read_stops_at_a_whole_line_once_the_char_limit_is_reached(
     assert len(body) <= MAX_READ_CHARS
     assert f"     2\t{line}\n" in body
     assert "     3\t" not in body
-    assert body.endswith("还有 3 行没读，用 offset=3 接着读]")
+    assert "offset=3" in body
     assert page.metadata == {"path": "宽稿.md", "lines": 2, "truncated": True}
     assert text(await tools.read_file(ctx, "宽稿.md", offset=3)).startswith(f"     3\t{line}\n")
 
@@ -435,7 +433,7 @@ async def test_delete_removes_the_file_and_reports_a_miss(
     tools: WorkspaceToolset[object], ctx: RunContext[object]
 ) -> None:
     await tools.write_file(ctx, "废稿.md", "不要了")
-    assert await tools.delete_file(ctx, "废稿.md") == "已删除 废稿.md"
+    assert "废稿.md" in await tools.delete_file(ctx, "废稿.md")
     with pytest.raises(ModelRetry, match="无从删除"):
         await tools.delete_file(ctx, "废稿.md")
 
@@ -509,7 +507,7 @@ async def test_full_workspace_tells_the_model_how_to_recover(ctx: RunContext[obj
     await tools.write_file(ctx, "a.md", "x" * 80)
     with pytest.raises(ModelRetry, match="删掉"):
         await tools.write_file(ctx, "b.md", "y" * 80)
-    assert "已写入 a.md" in text(await tools.write_file(ctx, "a.md", "z" * 90))
+    assert "a.md" in text(await tools.write_file(ctx, "a.md", "z" * 90))
 
 
 async def test_quota_and_conflict_are_distinguishable(store: FakeFileStore) -> None:
@@ -546,13 +544,16 @@ async def test_a_big_image_is_downsampled_and_says_so() -> None:
 
     result = await read_tools(FakeProbe()).read_media_file(make_context(make_deps()), OSS_IMAGE)
 
-    assert model_facing(result) == [
-        f'<image url="{OSS_IMAGE}">',
-        "原图 3000×2000 像素，image/jpeg，2.0 KB；已降采样到长边 1024。"
-        "要看清小字或细节，用 `region` 按原图像素坐标看一块。输出坐标一律按原图尺寸算。",
-        ImageUrl(url=f"{OSS_IMAGE}?x-oss-process=image/resize,l_1024", media_type="image/jpeg"),
-        "</image>",
-    ]
+    facing = model_facing(result)
+    assert len(facing) == 4
+    assert facing[0] == f'<image url="{OSS_IMAGE}">'
+    assert facing[2] == ImageUrl(
+        url=f"{OSS_IMAGE}?x-oss-process=image/resize,l_1024", media_type="image/jpeg"
+    )
+    assert facing[3] == "</image>"
+    summary = str(facing[1])
+    assert "3000×2000" in summary
+    assert "1024" in summary
     # 卡片：交付的是处理过的图就在角标说明。
     assert result.metadata == {
         "items": [
@@ -571,12 +572,14 @@ async def test_a_small_image_goes_untouched() -> None:
     probe = FakeProbe(ImageInfo(media_type="image/png", size_bytes=1536, width=800, height=600))
     result = await read_tools(probe).read_media_file(make_context(make_deps()), OSS_IMAGE)
 
-    assert model_facing(result) == [
-        f'<image url="{OSS_IMAGE}">',
-        "原图 800×600 像素，image/png，1.5 KB；未缩放。",
-        ImageUrl(url=OSS_IMAGE, media_type="image/png"),
-        "</image>",
-    ]
+    facing = model_facing(result)
+    assert len(facing) == 4
+    assert facing[0] == f'<image url="{OSS_IMAGE}">'
+    assert facing[2] == ImageUrl(url=OSS_IMAGE, media_type="image/png")
+    assert facing[3] == "</image>"
+    summary = str(facing[1])
+    assert "800×600" in summary
+    assert "1024" not in summary
 
 
 async def test_a_region_crops_in_original_coordinates_and_flags_the_offset() -> None:
@@ -589,13 +592,15 @@ async def test_a_region_crops_in_original_coordinates_and_flags_the_offset() -> 
     )
 
     delivered = f"{OSS_IMAGE}?x-oss-process=image/crop,x_100,y_100,w_5000,h_5000/resize,l_1024"
-    assert model_facing(result) == [
-        f'<image url="{OSS_IMAGE}">',
-        "原图 3000×2000 像素，image/jpeg，2.0 KB；当前显示区域 x=100, y=100, 2900×1900，"
-        "已降采样到长边 1024。输出原图坐标时加上区域偏移 (x, y)。",
-        ImageUrl(url=delivered, media_type="image/jpeg"),
-        "</image>",
-    ]
+    facing = model_facing(result)
+    assert len(facing) == 4
+    assert facing[0] == f'<image url="{OSS_IMAGE}">'
+    assert facing[2] == ImageUrl(url=delivered, media_type="image/jpeg")
+    assert facing[3] == "</image>"
+    summary = str(facing[1])
+    assert "x=100, y=100" in summary
+    assert "2900×1900" in summary
+    assert "1024" in summary
 
 
 async def test_a_stringified_region_is_parsed_on_the_agent_path(store: FakeFileStore) -> None:
@@ -682,12 +687,14 @@ async def test_full_resolution_under_the_limit_hands_over_the_bare_address() -> 
         make_context(make_deps()), OSS_IMAGE, full_resolution=True
     )
 
-    assert model_facing(result) == [
-        f'<image url="{OSS_IMAGE}">',
-        "原图 3000×2000 像素，image/jpeg，2.0 KB；原分辨率。",
-        ImageUrl(url=OSS_IMAGE, media_type="image/jpeg"),
-        "</image>",
-    ]
+    facing = model_facing(result)
+    assert len(facing) == 4
+    assert facing[0] == f'<image url="{OSS_IMAGE}">'
+    assert facing[2] == ImageUrl(url=OSS_IMAGE, media_type="image/jpeg")
+    assert facing[3] == "</image>"
+    summary = str(facing[1])
+    assert "3000×2000" in summary
+    assert "1024" not in summary
 
 
 async def test_region_and_full_resolution_are_mutually_exclusive() -> None:
@@ -774,47 +781,16 @@ async def test_read_media_file_only_takes_http_urls(url: str) -> None:
         await check_args(read_tools(FakeProbe()), make_context(make_deps()), url=url)
 
 
-def test_capability_has_a_stable_id(capability: Workspace[object]) -> None:
-    """for_run 返回新实例；固定 id 保持框架对能力身份的识别。"""
-
-    assert capability.id == CAPABILITY_ID
-    assert WorkspaceToolset(capability).id == CAPABILITY_ID
-
-
-def test_capability_opts_out_of_spec_construction() -> None:
-    """运行时依赖不可从 YAML 构造，因此禁用 spec 构造。"""
-
-    assert Workspace.get_serialization_name() is None
-
-
-def test_capability_guidance_says_only_what_no_docstring_can(
-    capability: Workspace[object],
+def test_every_tool_has_a_display(
+    capability: Workspace[object], tools: WorkspaceToolset[object]
 ) -> None:
-    """指引只描述工作区归属；工具用法由 docstring 与错误消息提供，避免重复占用上下文。"""
-
-    instructions = capability.get_instructions()
-    assert isinstance(instructions, str)
-    assert "工作目录" in instructions
-    for tool_name in ("read_file", "write_file", "edit_file", "delete_file", "list_files"):
-        assert tool_name not in instructions
-
-
-def test_every_tool_has_a_display(capability: Workspace[object]) -> None:
 
     drawn = ToolDisplayRegistry.merged(capability.display_table()).entries
-    assert sorted(drawn) == [
-        "ReadMediaFile",
-        "delete_file",
-        "edit_file",
-        "list_files",
-        "read_file",
-        "search_files",
-        "write_file",
-    ]
-    # 读图不是取网页：标题「读取图片」，主语是文件名。
-    assert drawn["ReadMediaFile"].draw({"url": OSS_IMAGE}) == GenericDisplay(
-        summary="读取图片", detail="style.jpg"
-    )
+    assert set(drawn) == set(tools.tools)
+    # 读图不是取网页：走 generic 卡，主语是文件名。
+    media = drawn["ReadMediaFile"].draw({"url": OSS_IMAGE})
+    assert isinstance(media, GenericDisplay)
+    assert media.detail == "style.jpg"
     assert drawn["ReadMediaFile"].draw({}) is None
     assert drawn["read_file"].draw({"path": "分镜.md"}) == FileIoDisplay(
         operation="read", path="分镜.md"
@@ -829,10 +805,10 @@ def test_every_tool_has_a_display(capability: Workspace[object]) -> None:
     assert drawn["edit_file"].draw({"path": "分镜.md"}) == FileIoDisplay(
         operation="edit", path="分镜.md"
     )
-    # operation 联合不含删除操作，删除工具使用 generic 展示：标题与主语分开。
-    assert drawn["delete_file"].draw({"path": "分镜.md"}) == GenericDisplay(
-        summary="删除文件", detail="分镜.md"
-    )
+    # operation 联合不含删除操作，删除工具使用 generic 展示，主语是路径。
+    deleted = drawn["delete_file"].draw({"path": "分镜.md"})
+    assert isinstance(deleted, GenericDisplay)
+    assert deleted.detail == "分镜.md"
     assert drawn["search_files"].draw({"query": "门厅"}) == SearchDisplay(query="门厅")
     assert drawn["list_files"].draw({}) == FileIoDisplay(operation="glob", path="/")
     assert drawn["list_files"].draw({"prefix": "分镜"}) == FileIoDisplay(

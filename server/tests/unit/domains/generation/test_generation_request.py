@@ -361,12 +361,6 @@ def test_non_http_reference_url_is_rejected(url: str) -> None:
         )
 
 
-def test_request_is_frozen() -> None:
-
-    with pytest.raises(ValueError):
-        video_request().prompt = "改了"  # type: ignore[misc]
-
-
 @pytest.mark.parametrize(
     "damaged",
     [

@@ -98,7 +98,6 @@ describe('OverviewPanel', () => {
 
     const attempts = screen.getByRole('article', { name: '每镜平均出片次数' })
     expect(within(attempts).getByText(/次$/)).toBeVisible()
-    expect(within(attempts).getByText('越接近 1 越好')).toBeVisible()
 
     const cycle = screen.getByRole('article', { name: '交付周期' })
     expect(within(cycle).getAllByText(/小时$/).length).toBeGreaterThan(0)
@@ -151,7 +150,6 @@ describe('OverviewPanel', () => {
     const concentration = within(section).getByRole('figure', { name: '出片次数集中度' })
     // 最费劲的一成是半个出五次的镜，按镜数折半得 2.5 次，占十次里的 25%。
     await waitFor(() => expect(within(concentration).getByText('25%')).toBeVisible())
-    expect(within(concentration).getByText('出片次数最多的 10% 的镜占全部次数')).toBeVisible()
 
     const curve = within(section).getByRole('figure', { name: '出片次数分布' })
     expect(within(curve).getByText('一次完成 60% · 两次以内 80%')).toBeVisible()

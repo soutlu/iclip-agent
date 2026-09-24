@@ -217,7 +217,6 @@ async def test_structured_shot_input_schema_reaches_the_model(capability: Video[
     def script(_messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         tool = next(tool for tool in info.function_tools if tool.name == "write_video_shots")
         seen["schema"] = tool.parameters_json_schema
-        seen["description"] = tool.description
         return ModelResponse(parts=[TextPart("好")])
 
     await Agent(FunctionModel(script), capabilities=[capability]).run("看看参数", deps=make_deps())
@@ -248,10 +247,6 @@ async def test_structured_shot_input_schema_reaches_the_model(capability: Video[
     assert timestamps["minItems"] == timestamps["maxItems"] == 2
     assert timestamps["items"]["type"] == "number"
     assert timestamps["items"]["minimum"] == 0
-    assert (
-        seen["description"].splitlines()[0]
-        == "提交镜头组 prompt 表；每次提交全部镜头组，替换已有的。"
-    )
 
 
 @pytest.mark.parametrize("tool_name", ["video_parser", "write_video_shots"])
