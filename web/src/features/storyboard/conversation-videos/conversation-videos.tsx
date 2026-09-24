@@ -99,7 +99,11 @@ function VideoGroup({ group, onPreview }: VideoGroupProps) {
           onClick={() => onPreview({ kind: 'video', name: group.label, url: selected.outputUrl })}
           size="sm"
         />
-        <VideoDownload url={selected.outputUrl} watermarkUrl={selected.watermarkOutputUrl} />
+        <VideoDownload
+          jobId={selected.id}
+          url={selected.outputUrl}
+          watermarkUrl={selected.watermarkOutputUrl}
+        />
       </div>
       {group.videos.length > 1 ? (
         <div

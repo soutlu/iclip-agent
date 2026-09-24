@@ -38,11 +38,14 @@ export function ConversationsPanel({ scope, nameOf, taskTitleOf }: Conversations
       aria-label="对话明细"
       className="flex flex-col rounded-lg bg-surface-container-lowest shadow-[var(--shadow-1)]"
     >
-      <div className="hidden grid-cols-[minmax(0,2fr)_repeat(5,minmax(0,1fr))_2rem] gap-3 px-5 py-2 text-body-sm text-on-surface-variant lg:grid">
+      <div className="hidden grid-cols-[minmax(0,2fr)_repeat(6,minmax(0,1fr))_2rem] gap-3 px-5 py-2 text-body-sm text-on-surface-variant lg:grid">
         <span>对话</span>
         <span className="text-right">成片</span>
         <span className="text-right">每镜次数</span>
         <span className="text-right">一次通过</span>
+        <span className="text-right" title="有人下载过的镜占出片镜的比例">
+          有效率
+        </span>
         <span className="text-right">交付周期</span>
         <span className="text-right">token</span>
         <span />
@@ -82,7 +85,7 @@ function ConversationRow({ report, nameOf, taskTitleOf }: ConversationRowProps) 
 
   return (
     <li className="border-t-[0.5px] border-border/70">
-      <div className="grid grid-cols-[minmax(0,1fr)_2rem] items-center gap-3 px-5 py-3 lg:grid-cols-[minmax(0,2fr)_repeat(5,minmax(0,1fr))_2rem]">
+      <div className="grid grid-cols-[minmax(0,1fr)_2rem] items-center gap-3 px-5 py-3 lg:grid-cols-[minmax(0,2fr)_repeat(6,minmax(0,1fr))_2rem]">
         <div className="flex min-w-0 flex-col gap-1">
           <Link
             className="min-w-0 truncate text-body font-medium text-on-surface ui-focus hover:underline"
@@ -117,6 +120,7 @@ function ConversationRow({ report, nameOf, taskTitleOf }: ConversationRowProps) 
             <Stat label="成片" value={formatCount(metrics.completedVideos)} />
             <Stat label="每镜" value={formatTimes(metrics.attemptsPerShot)} />
             <Stat label="一次通过" value={formatRate(metrics.oneTakeRate)} />
+            <Stat label="有效率" value={formatRate(metrics.effectiveRate)} />
             <Stat label="周期" value={formatDuration(metrics.cycleSeconds?.median ?? null)} />
             <Stat label="token" value={formatTokens(metrics.usage.totalTokens)} />
           </dl>
@@ -127,6 +131,7 @@ function ConversationRow({ report, nameOf, taskTitleOf }: ConversationRowProps) 
           {formatTimes(metrics.attemptsPerShot)}
         </Cell>
         <Cell>{formatRate(metrics.oneTakeRate)}</Cell>
+        <Cell>{formatRate(metrics.effectiveRate)}</Cell>
         <Cell>{formatDuration(metrics.cycleSeconds?.median ?? null)}</Cell>
         <Cell>{formatTokens(metrics.usage.totalTokens)}</Cell>
         <button

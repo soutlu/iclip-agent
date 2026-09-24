@@ -1,5 +1,6 @@
-/** 一段对话的镜头带：每镜一组点，点数即出片次数，只出一条且成了的镜（一次通过）点上加环。 */
+/** 一段对话的镜头带：每镜一组点，点数即出片次数，只出一条且成了的镜（一次通过）点上加环；有人下载过的镜（有效镜）末尾带下载标记。 */
 
+import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import type { ConversationReport } from '../audit.api'
 import { formatDuration } from '../format'
@@ -29,7 +30,7 @@ export function ShotStrip({ shots, retryOver = DEFAULT_RETRY_OVER }: ShotStripPr
         const spent = new Date(shot.lastAt).getTime() - new Date(shot.firstAt).getTime()
         return (
           <li
-            aria-label={`第 ${shot.shot} 镜，出了 ${shot.attempts} 次，${shot.oneTake ? '一次通过' : '没有一次通过'}`}
+            aria-label={`第 ${shot.shot} 镜，出了 ${shot.attempts} 次，${shot.oneTake ? '一次通过' : '没有一次通过'}，${shot.effective ? '有人下载过' : '没人下载过'}`}
             className="flex items-center gap-2"
             key={shot.shot}
             title={
@@ -73,6 +74,11 @@ export function ShotStrip({ shots, retryOver = DEFAULT_RETRY_OVER }: ShotStripPr
             >
               {shot.attempts} 次
             </span>
+            {shot.effective ? (
+              <span className="inline-flex text-primary" title="有人下载过">
+                <Icon decorative name="download" size="xs" />
+              </span>
+            ) : null}
           </li>
         )
       })}
