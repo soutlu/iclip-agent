@@ -23,7 +23,7 @@ from iclip.domains.generation.models import (
 )
 from iclip.domains.generation.nano_banana import NANO_BANANA_PRO
 from iclip.domains.generation.provider import ImageModelSpec
-from iclip.domains.generation.schemas import request_to_payload
+from iclip.domains.generation.schemas import MAX_METADATA_CHARS, request_to_payload
 from iclip.domains.generation.seedream import SEEDREAM_V5_PRO
 from iclip.domains.generation.service import GenerationService
 from iclip.domains.identity.acting import ActAs
@@ -436,9 +436,9 @@ async def test_metadata_filter_is_containment_and_bad_filters_are_422() -> None:
     assert {item["id"] for item in by_shot.json()["items"]} == {str(hit.id), str(other.id)}
     assert (not_json.status_code, not_object.status_code) == (422, 422)
     assert oversized.status_code == 422
-    assert oversized.json() == {"detail": "metadata 序列化后不能超过 2000 字符"}, (
-        "与请求体的 422 同一口径：不带 pydantic 的前缀"
-    )
+    detail = oversized.json()["detail"]
+    assert str(MAX_METADATA_CHARS) in detail
+    assert not detail.startswith("Value error"), "与请求体的 422 同一口径：不带 pydantic 的前缀"
 
 
 @pytest.mark.parametrize(

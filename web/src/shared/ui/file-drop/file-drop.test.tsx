@@ -31,7 +31,7 @@ function DropPage({
         {zone.dragOver ? <p>松开添加素材</p> : null}
       </div>
       <div aria-label="聊天框" ref={composerRef} role="group" />
-      {fallbackOver ? <p>松开鼠标添加附件</p> : null}
+      {fallbackOver ? <p data-testid="composer-drop-overlay">松开鼠标添加附件</p> : null}
     </>
   )
 }
@@ -130,7 +130,7 @@ describe('接管约定：局部拖放区 preventDefault 并保留冒泡，window
 
     fireEvent.dragEnter(zone(), { dataTransfer: fileDrag() })
     fireEvent.dragOver(zone(), { dataTransfer: fileDrag() })
-    expect(screen.queryByText('松开鼠标添加附件')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('composer-drop-overlay')).not.toBeInTheDocument()
     fireEvent.drop(zone(), { dataTransfer: fileDrag() })
 
     expect(onFiles).toHaveBeenCalledWith([image])
@@ -142,12 +142,12 @@ describe('接管约定：局部拖放区 preventDefault 并保留冒泡，window
     render(<DropPage onFallbackFiles={onFallbackFiles} />)
 
     fireEvent.dragEnter(document.body, { dataTransfer: fileDrag() })
-    expect(screen.getByText('松开鼠标添加附件')).toBeInTheDocument()
+    expect(screen.getByTestId('composer-drop-overlay')).toBeInTheDocument()
     fireEvent.drop(document.body, {
       dataTransfer: fileDrag([{ file: image }, { directory: true, file: new File([], '素材夹') }]),
     })
 
     expect(onFallbackFiles).toHaveBeenCalledWith([image])
-    expect(screen.queryByText('松开鼠标添加附件')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('composer-drop-overlay')).not.toBeInTheDocument()
   })
 })
