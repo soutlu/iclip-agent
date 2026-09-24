@@ -15,8 +15,10 @@ test('点开一段对话：历史铺开，回复逐字长出来', async ({ page 
 
   await expect(page.getByText('第 1 个问题')).toBeVisible()
   await expect(page.getByText('这是第 2 轮的回复。')).toBeVisible()
-  await expect(page.getByText('读取文件')).toBeVisible()
-  await expect(page.getByText('shots/storyboard.md')).toBeVisible()
+  // 第 3 轮边流式边写同一文件，路径随时会出现在它的工具行和正文里，所以只在历史轮次里找读取行。
+  const historyTurn = page.getByRole('article', { name: '第 2 轮' })
+  await expect(historyTurn.getByText('读取文件')).toBeVisible()
+  await expect(historyTurn.getByText('shots/storyboard.md')).toBeVisible()
 
   await expect(page.getByText('镜头表已经更新。')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByRole('listitem').filter({ hasText: '拆出 3 个镜头' })).toBeVisible()
