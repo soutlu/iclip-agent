@@ -14,6 +14,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
+from iclip.common.shot_prompt import ShotCut, ShotScript, format_shot_prompt
 from iclip.domains.generation.models import STATUS_COMPLETED, STATUS_FAILED
 from iclip.domains.generation.schemas import CLIP_REFERENCE, KIND_CLIP, KIND_VIDEO
 from iclip.domains.library.models import Scope, VideoCursor
@@ -27,13 +28,27 @@ SHAN = "Shan.Hu"
 MASTER = "master"
 """ClipPurpose 的另一个取值；生成域没有为它单独起常量。"""
 
-SHOT_ONE = {
+SHOT_ONE: dict[str, Any] = {
     "global_settings": "浅灰地面与白墙，干净留白。",
     "timeline": [
         {"timestamps": [0, 3], "prompt": "空地面停一拍。", "image_indexes": []},
         {"timestamps": [3, 7], "prompt": "踩入 @Image1 夹趾凉鞋。", "image_indexes": [1]},
     ],
 }
+SHOT_ONE_PROMPT = format_shot_prompt(
+    ShotScript(
+        global_settings=SHOT_ONE["global_settings"],
+        timeline=tuple(
+            ShotCut(
+                timestamps=(cut["timestamps"][0], cut["timestamps"][1]),
+                prompt=cut["prompt"],
+                image_indexes=tuple(cut["image_indexes"]),
+            )
+            for cut in SHOT_ONE["timeline"]
+        ),
+    )
+)
+"""受理时服务端照 shot 拼出、与 shot 一起存进请求的正文。"""
 MARKER_PROMPT = (
     "浅灰地面与白墙。\n\n[0–4秒｜镜头1] 换成编织凉鞋 @Image1。\n[4–8秒｜镜头2] 向前迈一步。\n"
     "不要生成字幕，不要生成背景音乐。"
@@ -94,7 +109,7 @@ class Seed:
                 shot=1,
                 created_at=at(0),
                 url_name="a",
-                request={"shot": SHOT_ONE},
+                request={"shot": SHOT_ONE, "prompt": SHOT_ONE_PROMPT},
             )
             await self._video(
                 conn,
@@ -192,7 +207,7 @@ class Seed:
                 shot=1,
                 created_at=at(0),
                 url_name="a",
-                request={"shot": SHOT_ONE},
+                request={"shot": SHOT_ONE, "prompt": SHOT_ONE_PROMPT},
             )
             await self._clip(
                 conn,
@@ -279,8 +294,6 @@ class Seed:
             "reference_image_urls": ["https://oss.example.test/frame-1.jpg"],
             **(request or {}),
         }
-        if "shot" in (request or {}) and "prompt" not in (request or {}):
-            body["prompt"] = "由 shot 拼出的正文。"
         await conn.execute(
             text(
                 "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind,"
