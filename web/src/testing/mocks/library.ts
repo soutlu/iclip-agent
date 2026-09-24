@@ -16,6 +16,10 @@ type Script = z.output<typeof zScriptOut>
 
 const HOUR_MS = 60 * 60_000
 
+/** 脚本里 `@Image1` 指的商品图。 */
+const REFERENCE_IMAGE =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='320'%3E%3Crect width='240' height='320' fill='%23ece6dc'/%3E%3Cpath d='M40 210 Q60 150 120 160 L200 190 Q210 230 190 240 L50 240 Q36 232 40 210Z' fill='%23f7f3ea' stroke='%23a8742a' stroke-width='6'/%3E%3C/svg%3E"
+
 type Spec = {
   title: string | null
   shot: number | null
@@ -197,7 +201,9 @@ const videoOf = (spec: Spec, index: number, now: number): LibraryVideo => {
       model: spec.model,
       outputUrl: url,
       prompt: spec.prompt,
-      referenceImageUrls: [],
+      referenceImageUrls: spec.script?.timeline.some((cut) => cut.imageIndexes.length > 0)
+        ? [REFERENCE_IMAGE]
+        : [],
       resolution: '720p',
       script: spec.script,
       seconds: spec.script?.timeline.at(-1)?.end ?? 10,
@@ -213,6 +219,22 @@ const videoOf = (spec: Spec, index: number, now: number): LibraryVideo => {
 /** 演示用的全部卡片，时刻相对此刻往前排。 */
 export const mockLibraryVideos = (now: number = Date.now()): LibraryVideo[] =>
   SPECS.map((spec, index) => videoOf(spec, index, now))
+
+/** 这一镜的全部出片，早的在前：卡面那次是最后一次，之前每隔一小时出过一次。 */
+const takesOf = (video: LibraryVideo, index: number): LibraryVideo['take'][] => {
+  const last = video.takeCount - 1
+  const at = Date.parse(video.take.createdAt)
+  return Array.from({ length: video.takeCount }, (_, order) =>
+    order === last
+      ? video.take
+      : {
+          ...video.take,
+          createdAt: new Date(at - (last - order) * HOUR_MS).toISOString(),
+          id: idOf('7a1f0000', index * 10 + order),
+          masters: [],
+        },
+  )
+}
 
 const orientationOf = (video: LibraryVideo): 'portrait' | 'landscape' | null => {
   const [w = 0, h = 0] = (video.take.aspectRatio ?? '').split(':').map(Number)
@@ -251,15 +273,19 @@ export const libraryHandlers = [
     return HttpResponse.json({ ...page, total: cursor === null ? rows.length : null })
   }),
 
+  // 这一镜里任何一次出片的 id 都能打开它；同一段对话的其他镜在演示数据里就是同标题的卡。
   http.get('*/api/library/videos/:id', ({ params }) => {
     const all = mockLibraryVideos()
-    const video = all.find((row) => row.id === params['id'])
-    if (video === undefined)
+    const shot = all
+      .map((video, index) => ({ takes: takesOf(video, index), video }))
+      .find(({ takes }) => takes.some((take) => take.id === params['id']))
+    if (shot === undefined)
       return HttpResponse.json({ detail: '资料库里没有这条视频' }, { status: 404 })
+    const { takes, video } = shot
     const siblings = all.filter(
       (row) => row.id !== video.id && row.title !== null && row.title === video.title,
     )
-    return HttpResponse.json({ siblings, takes: [video.take], video })
+    return HttpResponse.json({ siblings, takes, video })
   }),
 
   http.get('*/api/library/authors', () => {

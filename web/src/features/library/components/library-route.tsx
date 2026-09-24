@@ -1,4 +1,4 @@
-/** 资料库页：页头与搜索、吸顶筛选条、瀑布流与翻页。筛选范围由路由存在查询参数里。 */
+/** 资料库页：页头与搜索、吸顶筛选条、瀑布流与翻页，加上盖在列表上的详情。筛选范围与打开着的详情由路由存在查询参数里。 */
 
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { errorMessageOf } from '@/shared/api/client'
@@ -12,6 +12,7 @@ import {
 } from '../library.api'
 import { LibraryFilters } from './library-filters'
 import { LibraryGrid, LibraryGridSkeleton } from './library-grid'
+import { LibraryViewer } from './library-viewer'
 
 /** 停止输入这么久才按关键词重查。 */
 const SEARCH_DEBOUNCE_MS = 300
@@ -20,9 +21,22 @@ type LibraryRouteProps = {
   scope: LibraryScope
   onScopeChange: (next: LibraryScope) => void
   myUserName: string | null
+  /** 打开着详情的那条出片。 */
+  videoId: string | null
+  /** 打开、换一条或关掉（null）详情；`replace` 是在详情里翻条，不新增历史记录。 */
+  onVideoChange: (id: string | null, replace: boolean) => void
+  /** 一条出片的分享地址。 */
+  shareLinkOf: (id: string) => string
 }
 
-export function LibraryRoute({ scope, onScopeChange, myUserName }: LibraryRouteProps) {
+export function LibraryRoute({
+  scope,
+  onScopeChange,
+  myUserName,
+  videoId,
+  onVideoChange,
+  shareLinkOf,
+}: LibraryRouteProps) {
   const mainRef = useRef<HTMLElement>(null)
   const getScrollElement = useCallback(() => mainRef.current, [])
   const videos = useLibraryVideos(scope)
@@ -32,6 +46,31 @@ export function LibraryRoute({ scope, onScopeChange, myUserName }: LibraryRouteP
 
   const filtered = !isDefaultScope(scope)
   const counter = total === undefined ? undefined : filtered ? `找到 ${total} 条` : `共 ${total} 条`
+
+  // 从故事板点帧进来的起播秒数，只对那一条有效。
+  const [startAt, setStartAt] = useState<{ id: string; at: number } | null>(null)
+  const openVideo = (id: string, at: number | null) => {
+    setStartAt(at === null ? null : { at, id })
+    onVideoChange(id, false)
+  }
+  const index = videoId === null ? -1 : loaded.findIndex((video) => video.id === videoId)
+  const prevId = index > 0 ? (loaded[index - 1]?.id ?? null) : null
+  const nextId = index >= 0 ? (loaded[index + 1]?.id ?? null) : null
+
+  // 翻到已读的最后一条时接着读下一页，「下一条」不会停在页尾；翻页失败就停下，由页脚重试。
+  const { fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError } = videos
+  const atLoadedEnd = index >= 0 && index === loaded.length - 1
+  useEffect(() => {
+    if (atLoadedEnd && hasNextPage && !isFetchingNextPage && !isFetchNextPageError)
+      void fetchNextPage()
+  }, [atLoadedEnd, fetchNextPage, hasNextPage, isFetchNextPageError, isFetchingNextPage])
+
+  // 关掉详情后焦点回到那张卡；卡已被虚拟列表回收就交给弹窗的默认去处。
+  const focusCard = (id: string): boolean => {
+    const button = mainRef.current?.querySelector<HTMLElement>(`[data-open-video="${id}"]`)
+    button?.focus()
+    return button != null
+  }
 
   return (
     <main
@@ -78,6 +117,7 @@ export function LibraryRoute({ scope, onScopeChange, myUserName }: LibraryRouteP
             <LibraryGrid
               getScrollElement={getScrollElement}
               onAuthor={(userName) => onScopeChange({ ...scope, userName })}
+              onOpen={openVideo}
               videos={loaded}
             />
           )}
@@ -101,6 +141,24 @@ export function LibraryRoute({ scope, onScopeChange, myUserName }: LibraryRouteP
           ) : null}
         </div>
       </div>
+
+      {videoId === null ? null : (
+        <LibraryViewer
+          listed={index >= 0 ? loaded[index] : undefined}
+          nextId={nextId}
+          onAuthor={(userName) => onScopeChange({ ...scope, userName })}
+          onClose={() => onVideoChange(null, true)}
+          onNavigate={(id) => {
+            setStartAt(null)
+            onVideoChange(id, true)
+          }}
+          onRestoreFocus={() => focusCard(videoId)}
+          prevId={prevId}
+          shareLink={shareLinkOf(videoId)}
+          startAt={startAt?.id === videoId ? startAt.at : null}
+          videoId={videoId}
+        />
+      )}
     </main>
   )
 }

@@ -28,3 +28,30 @@ test('从侧栏进资料库，按画幅与关键词筛，筛选留在地址里�
     main.getByRole('article', { name: '滑板女孩 · 厚底靴街拍 · 镜头组 1' }),
   ).toBeVisible()
 })
+
+test('点卡片看详情，详情在地址里；Esc 与浏览器返回都关掉它、留在列表', async ({ page }) => {
+  await page.goto('/')
+  await login(page, 'tester')
+  await page.getByRole('button', { name: '资料库' }).click()
+
+  const main = page.getByRole('main', { name: '资料库' })
+  const title = '滑板女孩 · 厚底靴街拍 · 镜头组 1'
+  const open = main.getByRole('button', { name: `查看详情：${title}` })
+  const viewer = page.getByRole('dialog', { name: title })
+
+  await open.click()
+  await expect(viewer.getByRole('group', { name: '这一镜的版本' }).getByRole('button')).toHaveCount(
+    6,
+  )
+  await expect(page).toHaveURL(/video=/)
+  await page.keyboard.press('Escape')
+  await expect(viewer).toBeHidden()
+  await expect(page).toHaveURL('/library')
+  await expect(open).toBeFocused()
+
+  await open.click()
+  await expect(viewer).toBeVisible()
+  await page.goBack()
+  await expect(viewer).toBeHidden()
+  await expect(page).toHaveURL('/library')
+})
