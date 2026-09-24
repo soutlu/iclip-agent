@@ -2850,6 +2850,10 @@
             "title": "Deliveredorphanconversations",
             "type": "integer"
           },
+          "deliveredShots": {
+            "title": "Deliveredshots",
+            "type": "integer"
+          },
           "deliveredTasks": {
             "title": "Deliveredtasks",
             "type": "integer"
@@ -2858,6 +2862,23 @@
             "description": "成片件数：有成片的需求单各一件，加没挂需求单却有成片的对话各一件。",
             "readOnly": true,
             "title": "Deliveries",
+            "type": "integer"
+          },
+          "effectiveRate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "有效率：有效镜占出片镜的比例。",
+            "readOnly": true,
+            "title": "Effectiverate"
+          },
+          "effectiveShots": {
+            "title": "Effectiveshots",
             "type": "integer"
           },
           "oneTakeRate": {
@@ -2933,6 +2954,8 @@
           "shots",
           "attempts",
           "oneTakeShots",
+          "deliveredShots",
+          "effectiveShots",
           "runs",
           "deliveredConversations",
           "cycleSeconds",
@@ -2942,6 +2965,7 @@
           "deliveries",
           "attemptsPerShot",
           "oneTakeRate",
+          "effectiveRate",
           "tokensPerDelivery"
         ],
         "title": "MetricsOut",
@@ -3497,6 +3521,10 @@
             "title": "Attempts",
             "type": "integer"
           },
+          "effective": {
+            "title": "Effective",
+            "type": "boolean"
+          },
           "firstAt": {
             "format": "date-time",
             "title": "Firstat",
@@ -3520,6 +3548,7 @@
           "shot",
           "attempts",
           "oneTake",
+          "effective",
           "firstAt",
           "lastAt"
         ],
@@ -4960,6 +4989,46 @@
           "state"
         ],
         "title": "ToolFrame",
+        "type": "object"
+      },
+      "TrackingEventIn": {
+        "additionalProperties": false,
+        "description": "一条事件。主语按事件名规定：``video.downloaded`` 必带 ``jobId``、不带 ``conversationId``。",
+        "properties": {
+          "conversationId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversationid"
+          },
+          "jobId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jobid"
+          },
+          "name": {
+            "const": "video.downloaded",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "TrackingEventIn",
         "type": "object"
       },
       "TranscriptMeta": {
@@ -11139,6 +11208,53 @@
         "summary": "Withdraw Task",
         "tags": [
           "tasks"
+        ]
+      }
+    },
+    "/tracking/events": {
+      "post": {
+        "description": "记一条事件。发起人取自凭证，发生时刻取服务端时钟。\n\n``video.downloaded`` 必带 ``jobId``、不带 ``conversationId``，缺了或多带是 ``422``；\n``jobId`` 须是一条成功、有地址的独立视频或成片，不存在与不合格同样是 ``404``。",
+        "operationId": "record_event_tracking_events_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrackingEventIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": [
+              "generation:read"
+            ]
+          },
+          {
+            "BearerToken": [
+              "generation:read"
+            ]
+          }
+        ],
+        "summary": "Record Event",
+        "tags": [
+          "tracking"
         ]
       }
     },

@@ -1512,6 +1512,10 @@ export type MetricsOut = {
    */
   deliveredOrphanConversations: number
   /**
+   * Deliveredshots
+   */
+  deliveredShots: number
+  /**
    * Deliveredtasks
    */
   deliveredTasks: number
@@ -1521,6 +1525,16 @@ export type MetricsOut = {
    * 成片件数：有成片的需求单各一件，加没挂需求单却有成片的对话各一件。
    */
   readonly deliveries: number
+  /**
+   * Effectiverate
+   *
+   * 有效率：有效镜占出片镜的比例。
+   */
+  readonly effectiveRate: number | null
+  /**
+   * Effectiveshots
+   */
+  effectiveShots: number
   /**
    * Onetakerate
    *
@@ -1836,6 +1850,10 @@ export type ShotOut = {
    * Attempts
    */
   attempts: number
+  /**
+   * Effective
+   */
+  effective: boolean
   /**
    * Firstat
    */
@@ -2616,6 +2634,26 @@ export type ToolFrame = {
    * View
    */
   view?: string | null
+}
+
+/**
+ * TrackingEventIn
+ *
+ * 一条事件。主语按事件名规定：``video.downloaded`` 必带 ``jobId``、不带 ``conversationId``。
+ */
+export type TrackingEventIn = {
+  /**
+   * Conversationid
+   */
+  conversationId?: string | null
+  /**
+   * Jobid
+   */
+  jobId?: string | null
+  /**
+   * Name
+   */
+  name: 'video.downloaded'
 }
 
 /**
@@ -5674,6 +5712,33 @@ export type WithdrawTaskTasksTaskIdWithdrawPostResponses = {
 
 export type WithdrawTaskTasksTaskIdWithdrawPostResponse =
   WithdrawTaskTasksTaskIdWithdrawPostResponses[keyof WithdrawTaskTasksTaskIdWithdrawPostResponses]
+
+export type RecordEventTrackingEventsPostData = {
+  body: TrackingEventIn
+  path?: never
+  query?: never
+  url: '/tracking/events'
+}
+
+export type RecordEventTrackingEventsPostErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type RecordEventTrackingEventsPostError =
+  RecordEventTrackingEventsPostErrors[keyof RecordEventTrackingEventsPostErrors]
+
+export type RecordEventTrackingEventsPostResponses = {
+  /**
+   * Successful Response
+   */
+  204: void
+}
+
+export type RecordEventTrackingEventsPostResponse =
+  RecordEventTrackingEventsPostResponses[keyof RecordEventTrackingEventsPostResponses]
 
 export type SignUploadUploadsSignPostData = {
   body: UploadSignIn
