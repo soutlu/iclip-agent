@@ -71,6 +71,12 @@ const RANK_COLUMNS: readonly MetricsColumn[] = [
     render: (m) => formatRate(m.oneTakeRate),
   },
   {
+    key: 'effective',
+    label: '有效率',
+    hint: '有人下载过的镜占出片镜的比例',
+    render: (m) => formatRate(m.effectiveRate),
+  },
+  {
     key: 'cycleMedian',
     label: '周期中位',
     render: (m) => formatDuration(m.cycleSeconds?.median ?? null),
@@ -199,7 +205,11 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
           label="一次通过率"
           note={SHOT_NOTE}
           pending={pending}
-          sub={overall === undefined ? undefined : `${overall.oneTakeShots} / ${overall.shots} 镜`}
+          sub={
+            overall === undefined
+              ? undefined
+              : `${overall.oneTakeShots} / ${overall.shots} 镜 · 有效率 ${formatRate(overall.effectiveRate)}`
+          }
           trend={trendOf((m) => m.oneTakeRate)}
           value={formatRate(overall?.oneTakeRate ?? null)}
         />

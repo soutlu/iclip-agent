@@ -400,8 +400,10 @@ function ViewerBody({
           >
             {copied ? '已复制' : '复制提示词'}
           </Button>
+          {/* 版本是一次出片或它名下的一条成片，id 与地址取自同一条记录。 */}
           <VideoDownload
             className="size-(--control-height-lg) rounded-full"
+            jobId={version.id}
             url={version.outputUrl}
             watermarkUrl={version.watermarkOutputUrl}
           />

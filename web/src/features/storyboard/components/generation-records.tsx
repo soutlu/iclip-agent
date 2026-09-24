@@ -128,7 +128,7 @@ function RecordCard({ job, editCount, onEditPrompt, onEditVideo }: RecordCardPro
           {formatDateTime(job.createdAt)}
         </time>
         {phase === 'completed' && job.outputUrl !== null ? (
-          <VideoDownload url={job.outputUrl} watermarkUrl={job.watermarkOutputUrl} />
+          <VideoDownload jobId={job.id} url={job.outputUrl} watermarkUrl={job.watermarkOutputUrl} />
         ) : null}
         <IconButton
           aria-expanded={open}

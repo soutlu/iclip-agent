@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { addMockConversation, mockAuthUser, mockGovernor } from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
-import { DEFAULT_AUDIT_SCOPE, type AnomalyKind, type AuditScope } from '../audit.api'
+import { DEFAULT_AUDIT_SCOPE, type AnomalyKind, type AuditScope, type Metrics } from '../audit.api'
 import { AnomaliesPanel } from './anomalies-panel'
 import { ConversationsPanel } from './conversations-panel'
 import { OverviewPanel } from './overview-panel'
@@ -55,6 +55,19 @@ const EMPTY_METRICS = {
   videoSeconds: null,
 }
 
+/** 排行表里某一行、某一列的格子；列按表头名找，行按名字找。 */
+const rankCellOf = (table: HTMLElement, rowName: string, column: string): HTMLElement => {
+  const index = within(table)
+    .getAllByRole('columnheader')
+    .findIndex((header) => header.textContent === column)
+  // 第一列是行头，数据格从第二列起。
+  const cell = within(within(table).getByRole('row', { name: new RegExp(rowName) }))
+    .getAllByRole('cell')
+    .at(index - 1)
+  if (index < 1 || cell === undefined) throw new Error(`「${rowName}」行没有「${column}」列`)
+  return cell
+}
+
 /** 三段对话：第三段（下标 2）镜 2 会试三次；第二段没挂需求单；第一段是治理者的。 */
 const seed = () => {
   const first = addMockConversation('秋季新品短片', hoursAgo(2), mockGovernor.id)
@@ -75,6 +88,13 @@ describe('OverviewPanel', () => {
       deliveredTasks: 1,
       deliveries: 2,
       cycleSeconds: { avg: 7200, median: 7200, p90: 10_800 },
+      // 四镜里一镜一次通过、三镜有人下载过。
+      shots: 4,
+      oneTakeShots: 1,
+      oneTakeRate: 0.25,
+      deliveredShots: 4,
+      effectiveShots: 3,
+      effectiveRate: 0.75,
     }
     server.use(
       http.get('*/api/audit/summary', () =>
@@ -102,6 +122,10 @@ describe('OverviewPanel', () => {
     const attempts = screen.getByRole('article', { name: '每镜平均出片次数' })
     expect(within(attempts).getByText(/次$/)).toBeVisible()
 
+    const oneTake = screen.getByRole('article', { name: '一次通过率' })
+    expect(within(oneTake).getByText('25.0%')).toBeVisible()
+    expect(within(oneTake).getByText('1 / 4 镜 · 有效率 75.0%')).toBeVisible()
+
     const cycle = screen.getByRole('article', { name: '交付周期' })
     expect(within(cycle).getAllByText(/小时$/).length).toBeGreaterThan(0)
 
@@ -118,8 +142,12 @@ describe('OverviewPanel', () => {
     expect(within(byUser).getByText('测试用户')).toBeVisible()
     expect(within(byUser).getByText('治理者')).toBeVisible()
     expect(within(byUser).getByRole('columnheader', { name: '运行次数' })).toBeVisible()
+    // 出片镜为零的人有效率是 null，显示成破折号而不是 0%。
+    expect(rankCellOf(byUser, '测试用户', '有效率')).toHaveTextContent('75.0%')
+    expect(rankCellOf(byUser, '治理者', '有效率')).toHaveTextContent('—')
     const byTask = screen.getByRole('region', { name: '按需求单' })
     expect(within(byTask).getAllByRole('row')).toHaveLength(2)
+    expect(rankCellOf(byTask, '夏季亚麻系列', '有效率')).toHaveTextContent('75.0%')
 
     const anomalies = screen.getByRole('region', { name: '异常概览' })
     expect(await within(anomalies).findByText('反复重试')).toBeVisible()
@@ -309,6 +337,84 @@ describe('ConversationsPanel', () => {
     expect(within(thirdRow).getByRole('list', { name: '按模型用量' })).toHaveTextContent(
       'claude-sonnet-5',
     )
+  })
+
+  it('每段对话给出有效率，没有出片镜的是破折号；镜头带标出有人下载过的镜', async () => {
+    const user = userEvent.setup()
+    const at = hoursAgo(3)
+    const shot = (index: number, effective: boolean) => ({
+      attempts: 1,
+      effective,
+      firstAt: at,
+      lastAt: at,
+      oneTake: true,
+      shot: index,
+    })
+    const report = (
+      conversationId: string,
+      title: string,
+      metrics: Metrics,
+      shots: ReturnType<typeof shot>[],
+    ) => ({
+      conversationId,
+      deletedAt: null,
+      deliveredAt: at,
+      metrics,
+      ownerUserId: mockAuthUser.id,
+      shots,
+      startedAt: at,
+      taskId: null,
+      title,
+      usage: [],
+      userName: mockAuthUser.username,
+    })
+    server.use(
+      http.get('*/api/audit/conversations', () =>
+        HttpResponse.json({
+          items: [
+            report(
+              '22222222-2222-4222-8222-222222222222',
+              '四镜里一镜被下载',
+              {
+                ...EMPTY_METRICS,
+                attempts: 4,
+                attemptsPerShot: 1,
+                completedVideos: 4,
+                deliveredShots: 4,
+                effectiveRate: 0.25,
+                effectiveShots: 1,
+                oneTakeRate: 1,
+                oneTakeShots: 4,
+                shots: 4,
+              },
+              [shot(1, true), shot(2, false), shot(3, false), shot(4, false)],
+            ),
+            // 成片不带镜号：没有出片镜，有效率算不出来。
+            report('33333333-3333-4333-8333-333333333333', '不带镜号的成片', EMPTY_METRICS, []),
+          ],
+          nextCursor: null,
+        }),
+      ),
+    )
+    await renderWithProviders(
+      <ConversationsPanel nameOf={nameOf} scope={ALL_TIME} taskTitleOf={taskTitleOf} />,
+    )
+
+    const list = await screen.findByRole('region', { name: '对话明细' })
+    const [withShots, withoutShots] = within(list).getAllByRole('listitem')
+    if (withShots === undefined || withoutShots === undefined) throw new Error('列表应有两行')
+    /** 每行摘要里某一项的值：dt 是名字，紧跟的 dd 是值。 */
+    const statOf = (row: HTMLElement, label: string) =>
+      within(row).getByText(label, { selector: 'dt' }).nextElementSibling
+    expect(statOf(withShots, '有效率')).toHaveTextContent('25.0%')
+    expect(statOf(withoutShots, '有效率')).toHaveTextContent('—')
+
+    await user.click(within(withShots).getByRole('button', { name: '展开镜头明细' }))
+    const shots = within(withShots).getByRole('list', { name: '镜头出片次数' })
+    const downloaded = within(shots).getByRole('listitem', { name: /^第 1 镜.*，有人下载过$/ })
+    expect(within(downloaded).getByTitle('有人下载过')).toBeVisible()
+    const untouched = within(shots).getByRole('listitem', { name: /^第 2 镜.*，没人下载过$/ })
+    expect(within(untouched).queryByTitle('有人下载过')).not.toBeInTheDocument()
   })
 
   it('没有对话时说明这个范围里没有成片', async () => {
