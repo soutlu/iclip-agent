@@ -22,9 +22,9 @@ class AnnouncingGenerationRepository:
     """包在 ``GenerationRepository`` 外面：每次业务状态跳转写成功，就向属主广播一帧。
 
     受理落 ``pending`` 也算一跳，agent 发起的出图才会在页面上冒出来。``record_progress`` 只更新
-    provider 原始状态、不改业务状态，不发帧，否则每次轮询上游都会喊一声——clip 的阶段词也走它，
-    所以最多晚一轮轮询才被看到；``mark_failed`` 与 ``mark_completed`` 带状态守卫没命中时返回
-    None，也不发帧。"""
+    provider 原始状态、不改业务状态，不发帧，否则每次轮询上游都会喊一声——本地加工的阶段词也走
+    它，所以最多晚一轮轮询才被看到；``record_reference_cut`` 只改编辑段的区间，同样不发帧；
+    ``mark_failed`` 与 ``mark_completed`` 带状态守卫没命中时返回 None，也不发帧。"""
 
     def __init__(self, inner: GenerationRepository, live: LiveConnections) -> None:
         self._inner = inner
@@ -170,6 +170,7 @@ class AnnouncingGenerationRepository:
             job.conversation_id,
             job_id=job.id,
             kind=job.kind,
+            operation=job.operation,
             status=job.status,
             metadata=job.metadata,
         )

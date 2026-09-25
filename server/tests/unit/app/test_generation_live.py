@@ -9,9 +9,16 @@ from typing import Any
 from iclip.app.generation_live import AnnouncingGenerationRepository
 from iclip.domains.agents.transcript_api import LiveConnections
 from iclip.domains.generation.models import STATUS_SUBMITTED, STATUS_SUBMITTING
-from tests.helpers.generation import InMemoryGenerationRepository, image_request, make_job
+from tests.helpers.generation import (
+    InMemoryGenerationRepository,
+    image_request,
+    make_composite,
+    make_edit,
+    make_job,
+)
 
-Announced = tuple[uuid.UUID, uuid.UUID | None, uuid.UUID, str, str, Mapping[str, Any] | None]
+Announced = tuple[uuid.UUID, uuid.UUID | None, uuid.UUID, str, str, str, Mapping[str, Any] | None]
+"""(属主, 对话, 任务, kind, operation, status, metadata)。"""
 
 SHOT = {"path": "video_shot.json", "shot": 2}
 FRAME = {"path": "video_shot.json", "shot": 1, "frame": 3}
@@ -31,10 +38,11 @@ class _RecordingConnections(LiveConnections):
         *,
         job_id: uuid.UUID,
         kind: str,
+        operation: str,
         status: str,
         metadata: Mapping[str, Any] | None,
     ) -> None:
-        self.announced.append((owner, conversation_id, job_id, kind, status, metadata))
+        self.announced.append((owner, conversation_id, job_id, kind, operation, status, metadata))
 
 
 async def test_every_status_transition_of_a_video_job_is_announced_to_its_owner() -> None:
@@ -63,9 +71,31 @@ async def test_every_status_transition_of_a_video_job_is_announced_to_its_owner(
         ("submitted", SHOT),
         ("completed", SHOT),
     ], "record_progress 只更新 provider 原始状态，不算一跳"
-    assert {(one[0], one[1], one[2], one[3]) for one in live.announced} == {
-        (owner, conversation_id, job.id, "video")
+    assert {(one[0], one[1], one[2], one[3], one[4]) for one in live.announced} == {
+        (owner, conversation_id, job.id, "video", "generate")
     }
+
+
+async def test_a_composite_announces_its_operation_and_a_reference_cut_is_not_a_step() -> None:
+    """合成与出片同是 video，帧上靠 operation 分；编辑段记切点不改业务状态，不算一跳。"""
+
+    live = _RecordingConnections()
+    repo = AnnouncingGenerationRepository(InMemoryGenerationRepository(), live)
+    edit = make_edit(make_job())
+    composite = make_composite(edit)
+
+    await repo.create(edit)
+    await repo.mark_submitting(edit.id)
+    await repo.record_reference_cut(
+        edit.id, range_start_ms=0, range_end_ms=4000, only_if_status=STATUS_SUBMITTING
+    )
+    await repo.create(composite)
+
+    assert [(one[2], one[4], one[5]) for one in live.announced] == [
+        (edit.id, "generate", "pending"),
+        (edit.id, "generate", "submitting"),
+        (composite.id, "compose", "pending"),
+    ]
 
 
 async def test_an_image_job_carries_its_metadata_and_a_failure_is_announced_once() -> None:
@@ -99,4 +129,6 @@ async def test_a_job_without_a_conversation_still_announces_to_its_owner() -> No
 
     await repo.create(job)
 
-    assert live.announced == [(job.owner_user_id, None, job.id, "video", "pending", None)]
+    assert live.announced == [
+        (job.owner_user_id, None, job.id, "video", "generate", "pending", None)
+    ]

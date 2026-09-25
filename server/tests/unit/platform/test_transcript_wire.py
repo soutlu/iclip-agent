@@ -10,14 +10,16 @@ from iclip.platform.transcript.wire import GenerationChanged, GenerationChangedP
 def test_a_generation_frame_omits_empty_origin_fields_on_the_wire() -> None:
     frame = GenerationChanged(
         session_id=None,
-        payload=GenerationChangedPayload(id="job-1", kind="video", status="pending"),
+        payload=GenerationChangedPayload(
+            id="job-1", kind="video", operation="compose", status="pending"
+        ),
     )
 
     sent = json.loads(frame.model_dump_json(exclude_none=True, by_alias=True))
 
     assert sent == {
         "type": "event.generation.changed",
-        "payload": {"id": "job-1", "kind": "video", "status": "pending"},
+        "payload": {"id": "job-1", "kind": "video", "operation": "compose", "status": "pending"},
     }
 
 
@@ -26,7 +28,7 @@ def test_a_generation_frame_carries_the_callers_metadata_verbatim() -> None:
     frame = GenerationChanged(
         session_id="c-1",
         payload=GenerationChangedPayload(
-            id="job-2", kind="image", status="completed", metadata=coordinate
+            id="job-2", kind="image", operation="generate", status="completed", metadata=coordinate
         ),
     )
 
@@ -36,6 +38,7 @@ def test_a_generation_frame_carries_the_callers_metadata_verbatim() -> None:
     assert sent["payload"] == {
         "id": "job-2",
         "kind": "image",
+        "operation": "generate",
         "status": "completed",
         "metadata": coordinate,
     }
