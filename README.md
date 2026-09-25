@@ -15,7 +15,7 @@ Productor 的后端与 Web 前端。产品定位、业务术语和不变量见 [
 ├── web/                # Vite + React SPA
 ├── contract/           # 后端导出的 OpenAPI 与跨端约定
 ├── deploy/             # 单机 compose 与环境样例
-├── docs/               # 领域、架构、测试与工具规范
+├── docs/               # 领域、架构、测试、工具规范与 ADR
 ├── design/             # 视觉素材源包
 ├── design-system.html  # 全局视觉规范与 token
 ├── scripts/            # 文档核对等仓库脚本
@@ -100,6 +100,7 @@ curl http://localhost/api/healthz
 | [web/AGENTS.md](web/AGENTS.md) | 前端命令、边界、验证要求变化时更新 |
 | [docs/CONTEXT.md](docs/CONTEXT.md) | 两端共用的领域术语、不变量和禁止逻辑变化时更新 |
 | [docs/architecture.md](docs/architecture.md) | 后端分层、职责和装配机制变化时更新 |
+| [docs/adr/](docs/adr/) | 已接受的架构决策与取舍；决策变化时新增一篇并标明取代关系 |
 | [contract/openapi.json](contract/openapi.json) | 后端端点变更后由 `make contract` 导出 |
 | [contract/conventions.md](contract/conventions.md) | OpenAPI 无法表达的跨端约定变化时更新 |
 | [design-system.html](design-system.html) | 全局视觉规则与 token 变化时更新 |

@@ -1,6 +1,6 @@
 # iclip-agent 领域锚点
 
-本文定义 Productor 视频创作产品的领域上下文、术语、不变量与禁止逻辑，两端共用。命令与门禁见 [../AGENTS.md](../AGENTS.md)；机制见 [architecture.md](architecture.md)；跨端约定见 [../contract/conventions.md](../contract/conventions.md)。
+本文定义 Productor 视频创作产品的领域上下文、术语、不变量与禁止逻辑，两端共用。命令与门禁见 [../AGENTS.md](../AGENTS.md)；机制见 [architecture.md](architecture.md)；跨端约定见 [../contract/conventions.md](../contract/conventions.md)；决策见 [adr/](adr/)。
 
 ## 上下文
 
