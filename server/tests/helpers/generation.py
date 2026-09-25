@@ -133,12 +133,14 @@ def make_job(
     conversation_id: uuid.UUID | None = None,
     metadata: dict[str, Any] | None = None,
     task_id: uuid.UUID | None = None,
+    shot_index: int | None = None,
     root_job_id: uuid.UUID | None = None,
     source_job_id: uuid.UUID | None = None,
     range_start_ms: int | None = None,
     range_end_ms: int | None = None,
     output_url: str | None = None,
     watermark_output_url: str | None = None,
+    duration_ms: int | None = None,
     error_code: str | None = None,
     error_message: str | None = None,
 ) -> GenerationJob:
@@ -152,6 +154,7 @@ def make_job(
         conversation_id=conversation_id,
         metadata=metadata,
         task_id=task_id,
+        shot_index=shot_index,
         root_job_id=root_job_id,
         source_job_id=source_job_id,
         range_start_ms=range_start_ms,
@@ -167,6 +170,7 @@ def make_job(
         provider_snapshot=provider_snapshot,
         output_url=output_url,
         watermark_output_url=watermark_output_url,
+        duration_ms=duration_ms,
         error_code=error_code,
         error_message=error_message,
         created_at=created_at or now,
@@ -177,10 +181,11 @@ def make_job(
 
 
 def make_edit(base: GenerationJob, **fields: Any) -> GenerationJob:
-    """基于 ``base`` 的一条编辑段：来源是基底，原作随基底（基底是出片就是它自己），区间默认 1–4 秒。"""
+    """基于 ``base`` 的一条编辑段：来源是基底，原作与镜号随基底（基底是出片就是它自己），区间默认 1–4 秒。"""
 
     fields.setdefault("range_start_ms", 1000)
     fields.setdefault("range_end_ms", 4000)
+    fields.setdefault("shot_index", base.shot_index)
     return make_job(
         edit_request(),
         source_job_id=base.id,
@@ -190,9 +195,10 @@ def make_edit(base: GenerationJob, **fields: Any) -> GenerationJob:
 
 
 def make_composite(edit: GenerationJob, **fields: Any) -> GenerationJob:
-    """合成 ``edit`` 的一条记录：来源是编辑段，原作随它，执行方是本地 ffmpeg。"""
+    """合成 ``edit`` 的一条记录：来源是编辑段，原作与镜号随它，执行方是本地 ffmpeg。"""
 
     fields.setdefault("provider", "ffmpeg")
+    fields.setdefault("shot_index", edit.shot_index)
     return make_job(
         compose_request(), source_job_id=edit.id, root_job_id=edit.root_job_id, **fields
     )
@@ -230,6 +236,7 @@ class InMemoryGenerationRepository:
         operation: GenerationOperation | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
+        shot_index: int | None = None,
         root_job_id: uuid.UUID | None = None,
         source_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
@@ -246,6 +253,7 @@ class InMemoryGenerationRepository:
                 or inherited_through(job, inherited)
             )
             and (task_id is None or job.task_id == task_id)
+            and (shot_index is None or job.shot_index == shot_index)
             and (root_job_id is None or job.root_job_id == root_job_id)
             and (source_job_id is None or job.source_job_id == source_job_id)
         ]
@@ -300,6 +308,7 @@ class InMemoryGenerationRepository:
         provider_snapshot: dict[str, Any],
         provider_task_id: str | None = None,
         watermark_output_url: str | None = None,
+        duration_ms: int | None = None,
         only_if_status: GenerationStatus | None = None,
     ) -> GenerationJob | None:
         current = self.jobs[job_id]
@@ -313,6 +322,7 @@ class InMemoryGenerationRepository:
             provider_status=provider_status,
             provider_snapshot=provider_snapshot,
             provider_task_id=provider_task_id or current.provider_task_id,
+            duration_ms=current.duration_ms if duration_ms is None else duration_ms,
             submitted_at=current.submitted_at or datetime.now(UTC),
             finished_at=datetime.now(UTC),
         )

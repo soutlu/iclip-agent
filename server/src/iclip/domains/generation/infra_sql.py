@@ -69,6 +69,8 @@ generation_jobs_table = Table(
     Column("metadata", JSONB, nullable=True),
     # 需求单同样不建外键：它是归属标签，删单不抹生成记录。
     Column("task_id", Uuid, nullable=True),
+    # 镜头组编号，只有视频有：出片由调用方给，编辑段与合成抄原作的。
+    Column("shot_index", Integer, nullable=True),
     # 原作与来源都建外键：它们不是标签，必须指一条真实存在的记录；生成记录从不硬删。
     Column(
         "root_job_id",
@@ -94,6 +96,8 @@ generation_jobs_table = Table(
     Column("provider_snapshot", JSONB, nullable=True),
     Column("output_url", Text, nullable=True),
     Column("watermark_output_url", Text, nullable=True),
+    # 产物时长（毫秒）：只有本系统自己加工、量过的才有。
+    Column("duration_ms", Integer, nullable=True),
     Column("error_code", Text, nullable=True),
     Column("error_message", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
@@ -113,6 +117,13 @@ generation_jobs_table = Table(
         "ix_generation_jobs_source_job",
         "source_job_id",
         postgresql_where=text("source_job_id IS NOT NULL"),
+    ),
+    # 按（对话，镜号）找一镜的视频；与迁移 0018 同名同式。
+    Index(
+        "ix_generation_jobs_conversation_shot",
+        "conversation_id",
+        "shot_index",
+        postgresql_where=text("kind = 'video' AND shot_index IS NOT NULL"),
     ),
     # 每种行的必填与留空由组合约束兜底，与迁移 0017 同名同式：出片与图片没有来源和区间，
     # 编辑段必有来源、原作与区间，合成必有来源与原作、没有区间。
@@ -159,6 +170,7 @@ class SqlGenerationRepository:
                             conversation_id=job.conversation_id,
                             metadata=job.metadata,
                             task_id=job.task_id,
+                            shot_index=job.shot_index,
                             root_job_id=job.root_job_id,
                             source_job_id=job.source_job_id,
                             range_start_ms=job.range_start_ms,
@@ -173,6 +185,7 @@ class SqlGenerationRepository:
                             provider_snapshot=None,
                             output_url=None,
                             watermark_output_url=None,
+                            duration_ms=None,
                             error_code=None,
                             error_message=None,
                             created_at=func.now(),
@@ -210,6 +223,7 @@ class SqlGenerationRepository:
         operation: GenerationOperation | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
+        shot_index: int | None = None,
         root_job_id: uuid.UUID | None = None,
         source_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
@@ -221,6 +235,8 @@ class SqlGenerationRepository:
         stmt = select(generation_jobs_table).where(_visible(own, inherited))
         if task_id is not None:
             stmt = stmt.where(_JOBS.task_id == task_id)
+        if shot_index is not None:
+            stmt = stmt.where(_JOBS.shot_index == shot_index)
         if root_job_id is not None:
             stmt = stmt.where(_JOBS.root_job_id == root_job_id)
         if source_job_id is not None:
@@ -293,6 +309,7 @@ class SqlGenerationRepository:
         provider_snapshot: dict[str, Any],
         provider_task_id: str | None = None,
         watermark_output_url: str | None = None,
+        duration_ms: int | None = None,
         only_if_status: GenerationStatus | None = None,
     ) -> GenerationJob | None:
         values: dict[str, Any] = {
@@ -308,6 +325,8 @@ class SqlGenerationRepository:
         }
         if provider_task_id is not None:
             values["provider_task_id"] = provider_task_id
+        if duration_ms is not None:
+            values["duration_ms"] = duration_ms
         if only_if_status is not None:
             return await self._update_if(job_id, only_if_status, **values)
         return await self._update(job_id, **values)
@@ -449,6 +468,7 @@ def _job_from_row(row: RowMapping) -> GenerationJob:
         conversation_id=row["conversation_id"],
         metadata=row["metadata"],
         task_id=row["task_id"],
+        shot_index=row["shot_index"],
         root_job_id=row["root_job_id"],
         source_job_id=row["source_job_id"],
         range_start_ms=row["range_start_ms"],
@@ -463,6 +483,7 @@ def _job_from_row(row: RowMapping) -> GenerationJob:
         provider_snapshot=row["provider_snapshot"],
         output_url=row["output_url"],
         watermark_output_url=row["watermark_output_url"],
+        duration_ms=row["duration_ms"],
         error_code=row["error_code"],
         error_message=row["error_message"],
         created_at=row["created_at"],

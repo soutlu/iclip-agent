@@ -1059,7 +1059,12 @@ async def test_last_run_backfill_takes_the_latest_run_and_keeps_later_renames(
 
 
 OPERATION = "7c50c7336e0c"
-"""0017：记录上有了 operation、来源与区间，参考片段不再落行的那一版。"""
+"""0017：记录上有了 operation、来源与区间，参考片段不再落行的那一版。
+
+它的用例升到这里为止：0018 会把视频的镜号从 metadata 搬走。"""
+
+SHOT_INDEX = "3403faebf6dc"
+"""0018：视频的镜号与合成的时长各落一列，视频的 metadata 里不再有 shot 的那一版。"""
 
 _INSERT_BEFORE_OPERATION = text(
     "INSERT INTO iclip.generation_jobs (id, owner_user_id, kind, provider, request, status, "
@@ -1132,7 +1137,9 @@ async def _select_rows(
             ).mappings()
             return {
                 row["id"]: {
-                    key: _jsonb(value) if key in ("request", "metadata") else value
+                    key: _jsonb(value)
+                    if key in ("request", "metadata", "provider_snapshot")
+                    else value
                     for key, value in row.items()
                     if key != "id"
                 }
@@ -1231,7 +1238,7 @@ async def test_operation_migration_backfills_sources_and_ranges_and_drops_refere
                 (image, "image", {"prompt": "猫"}, {"shot": 1, "frame": 2}, None, 7),
             ),
         )
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, OPERATION)
         upgraded = await _select_rows(
             migrated_pg,
             owner,
@@ -1357,57 +1364,78 @@ async def test_operation_migration_refuses_rows_it_cannot_place(
     assert version == BEFORE_OPERATION, "整个迁移回滚，列没加上"
 
 
+_OPEN_ENDED_SEGMENTS: list[dict[str, object]] = [
+    {"url": "https://example.test/root.mp4", "start": 0, "end": 1},
+    {"url": "https://example.test/edit.mp4", "start": 0},
+]
+
+
+async def _insert_since_operation(
+    conn: AsyncConnection,
+    job_id: uuid.UUID,
+    owner: uuid.UUID,
+    *,
+    kind: str = "video",
+    operation: str = "generate",
+    metadata: Mapping[str, object] | None = None,
+    source: uuid.UUID | None = None,
+    root: uuid.UUID | None = None,
+    span: tuple[int, int] | None = None,
+    snapshot: Mapping[str, object] | None = None,
+) -> None:
+    """按 0017 起的形状插一行已完成的记录：编辑段给来源、原作与区间，合成给来源与原作。"""
+
+    request: Mapping[str, object] = (
+        {"segments": _OPEN_ENDED_SEGMENTS, "userName": "luke"}
+        if operation == "compose"
+        else {"model": "m", "prompt": "p"}
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO iclip.generation_jobs (id, owner_user_id, kind, operation, provider, "
+            "request, status, metadata, source_job_id, root_job_id, range_start_ms, range_end_ms, "
+            "output_url, provider_snapshot, created_at, updated_at, finished_at) VALUES (:id, "
+            ":owner, :kind, :operation, 'test', CAST(:request AS jsonb), 'completed', "
+            "CAST(:metadata AS jsonb), :source, :root, :start, :end, 'https://example.test/v.mp4', "
+            "CAST(:snapshot AS jsonb), now(), now(), now())"
+        ),
+        {
+            "id": job_id,
+            "owner": owner,
+            "kind": kind,
+            "operation": operation,
+            "request": json.dumps(request),
+            "metadata": None if metadata is None else json.dumps(metadata),
+            "source": source,
+            "root": root,
+            "start": None if span is None else span[0],
+            "end": None if span is None else span[1],
+            "snapshot": None if snapshot is None else json.dumps(snapshot),
+        },
+    )
+
+
 async def test_operation_migration_refuses_to_downgrade_an_open_ended_composite(
     migrated_pg: str,
 ) -> None:
-    """0017 之后的合成有取到结尾的段，旧形状要求每段都有 end：拒绝降级，库留在 0017。"""
+    """0017 之后的合成有取到结尾的段，旧形状要求每段都有 end：拒绝降级。
+
+    一次命令一个事务，0017 拒绝会把前面 0018 的降级一起回滚，库留在 0018。"""
 
     cfg = _alembic(migrated_pg)
     owner = uuid.uuid4()
     root, edit, composite = (uuid.uuid4() for _ in range(3))
-    rows = (
-        (root, "generate", None, None, None, {"model": "m", "prompt": "p"}),
-        (edit, "generate", root, root, (1000, 4000), {"model": "m", "prompt": "p"}),
-        (
-            composite,
-            "compose",
-            edit,
-            root,
-            None,
-            {
-                "segments": [
-                    {"url": "https://example.test/root.mp4", "start": 0, "end": 1},
-                    {"url": "https://example.test/edit.mp4", "start": 0},
-                ],
-                "userName": "luke",
-            },
-        ),
-    )
     engine = create_async_engine(migrated_pg)
     try:
         async with engine.begin() as conn:
             await _insert_generation_owner(conn, owner)
-            for job_id, operation, source, root_id, span, request in rows:
-                await conn.execute(
-                    text(
-                        "INSERT INTO iclip.generation_jobs (id, owner_user_id, kind, operation, "
-                        "provider, request, status, source_job_id, root_job_id, range_start_ms, "
-                        "range_end_ms, output_url, created_at, updated_at, finished_at) VALUES "
-                        "(:id, :owner, 'video', :operation, 'test', CAST(:request AS jsonb), "
-                        "'completed', :source, :root, :start, :end, 'https://example.test/v.mp4', "
-                        "now(), now(), now())"
-                    ),
-                    {
-                        "id": job_id,
-                        "owner": owner,
-                        "operation": operation,
-                        "request": json.dumps(request),
-                        "source": source,
-                        "root": root_id,
-                        "start": None if span is None else span[0],
-                        "end": None if span is None else span[1],
-                    },
-                )
+            await _insert_since_operation(conn, root, owner)
+            await _insert_since_operation(
+                conn, edit, owner, source=root, root=root, span=(1000, 4000)
+            )
+            await _insert_since_operation(
+                conn, composite, owner, operation="compose", source=edit, root=root
+            )
         await engine.dispose()
         with pytest.raises(RuntimeError, match="合成里有取到结尾的段") as refused:
             command.downgrade(cfg, BEFORE_OPERATION)
@@ -1418,4 +1446,169 @@ async def test_operation_migration_refuses_to_downgrade_an_open_ended_composite(
         command.upgrade(cfg, "head")
 
     assert str(composite) in str(refused.value)
-    assert version == OPERATION
+    assert version == SHOT_INDEX
+
+
+async def _index_definition(migrated_pg: str, name: str) -> str:
+    engine = create_async_engine(migrated_pg)
+    try:
+        async with engine.connect() as conn:
+            return (
+                await conn.execute(
+                    text(
+                        "SELECT indexdef FROM pg_indexes "
+                        "WHERE schemaname = 'iclip' AND indexname = :name"
+                    ),
+                    {"name": name},
+                )
+            ).scalar_one()
+    finally:
+        await engine.dispose()
+
+
+async def test_shot_index_migration_moves_video_shots_and_composite_durations_into_columns(
+    migrated_pg: str,
+) -> None:
+    """0018：出片的镜号取自己的 metadata.shot，编辑段与合成抄原作的、自带的旧坐标被覆盖；视频行擦掉
+    shot 键，图片的坐标一个键不动、也不校验；合成的时长取自快照，快照不改写；建（对话，镜号）的
+    部分索引。降级把出片的镜号与合成的时长写回 JSON，编辑段的旧坐标不还原。"""
+
+    cfg = _alembic(migrated_pg)
+    owner = uuid.uuid4()
+    take, edit, composite, plain, tagged, whole, image, odd_image = (uuid.uuid4() for _ in range(8))
+    engine = create_async_engine(migrated_pg)
+    try:
+        command.downgrade(cfg, OPERATION)
+        async with engine.begin() as conn:
+            await _insert_generation_owner(conn, owner)
+            await _insert_since_operation(conn, take, owner, metadata={"shot": 2})
+            await _insert_since_operation(
+                conn,
+                edit,
+                owner,
+                metadata={"shot": 7, "frame": 1},
+                source=take,
+                root=take,
+                span=(1000, 4000),
+            )
+            await _insert_since_operation(
+                conn,
+                composite,
+                owner,
+                operation="compose",
+                source=edit,
+                root=take,
+                snapshot={"durationMs": 7040},
+            )
+            await _insert_since_operation(conn, plain, owner)
+            await _insert_since_operation(conn, tagged, owner, metadata={"note": "x"})
+            await _insert_since_operation(conn, whole, owner, metadata={"shot": 4.0})
+            await _insert_since_operation(
+                conn, image, owner, kind="image", metadata={"shot": 3, "frame": 2}
+            )
+            await _insert_since_operation(
+                conn, odd_image, owner, kind="image", metadata={"shot": "A", "frame": 1}
+            )
+        await engine.dispose()
+        command.upgrade(cfg, SHOT_INDEX)
+        upgraded = await _select_rows(
+            migrated_pg, owner, "shot_index, duration_ms, metadata, provider_snapshot"
+        )
+        index = await _index_definition(migrated_pg, "ix_generation_jobs_conversation_shot")
+        # 0018 之后的合成不再往快照里写时长：降级要从列里写回去。
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("UPDATE iclip.generation_jobs SET provider_snapshot = NULL WHERE id = :id"),
+                {"id": composite},
+            )
+        await engine.dispose()
+        command.downgrade(cfg, OPERATION)
+        restored = await _select_rows(migrated_pg, owner, "metadata, provider_snapshot")
+    finally:
+        await engine.dispose()
+        await _clear(migrated_pg)
+        command.upgrade(cfg, "head")
+
+    assert {
+        job_id: (row["shot_index"], row["duration_ms"], row["metadata"])
+        for job_id, row in upgraded.items()
+    } == {
+        take: (2, None, None),
+        edit: (2, None, {"frame": 1}),
+        composite: (2, 7040, None),
+        plain: (None, None, None),
+        tagged: (None, None, {"note": "x"}),
+        whole: (4, None, None),
+        image: (None, None, {"shot": 3, "frame": 2}),
+        odd_image: (None, None, {"shot": "A", "frame": 1}),
+    }
+    assert upgraded[composite]["provider_snapshot"] == {"durationMs": 7040}, "快照不改写"
+    assert "(conversation_id, shot_index)" in index
+    assert "kind = 'video'" in index and "shot_index IS NOT NULL" in index
+
+    assert {job_id: row["metadata"] for job_id, row in restored.items()} == {
+        take: {"shot": 2},
+        edit: {"frame": 1},
+        composite: None,
+        plain: None,
+        tagged: {"note": "x"},
+        whole: {"shot": 4},
+        image: {"shot": 3, "frame": 2},
+        odd_image: {"shot": "A", "frame": 1},
+    }, "编辑段迁移前自带的镜号已按原作覆盖，不还原"
+    assert restored[composite]["provider_snapshot"] == {"durationMs": 7040}
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("shot", "3", "metadata.shot 不是正整数"),
+        ("shot", 0, "metadata.shot 不是正整数"),
+        ("shot", 2.5, "metadata.shot 不是正整数"),
+        ("shot", -1, "metadata.shot 不是正整数"),
+        ("shot", 1e10, "metadata.shot 不是正整数"),
+        ("shot", None, "metadata.shot 不是正整数"),
+        ("durationMs", 70.5, "durationMs 不是非负整数"),
+        ("durationMs", "7040", "durationMs 不是非负整数"),
+    ],
+    ids=["字符串", "零", "小数", "负数", "超出 int", "null", "时长是小数", "时长是字符串"],
+)
+async def test_shot_index_migration_refuses_values_it_cannot_carry(
+    migrated_pg: str, field: str, value: object, message: str
+) -> None:
+    """转不成整数列的值不静默丢掉或截断：带 id 报错，库停在 0017。"""
+
+    cfg = _alembic(migrated_pg)
+    owner = uuid.uuid4()
+    take, edit, composite = (uuid.uuid4() for _ in range(3))
+    engine = create_async_engine(migrated_pg)
+    try:
+        command.downgrade(cfg, OPERATION)
+        async with engine.begin() as conn:
+            await _insert_generation_owner(conn, owner)
+            await _insert_since_operation(
+                conn, take, owner, metadata={"shot": value} if field == "shot" else {"shot": 1}
+            )
+            await _insert_since_operation(
+                conn, edit, owner, source=take, root=take, span=(1000, 4000)
+            )
+            await _insert_since_operation(
+                conn,
+                composite,
+                owner,
+                operation="compose",
+                source=edit,
+                root=take,
+                snapshot={"durationMs": value} if field == "durationMs" else None,
+            )
+        await engine.dispose()
+        with pytest.raises(RuntimeError, match=message) as refused:
+            command.upgrade(cfg, SHOT_INDEX)
+        version = await _alembic_version(migrated_pg)
+    finally:
+        await engine.dispose()
+        await _clear(migrated_pg)
+        command.upgrade(cfg, "head")
+
+    assert str(take if field == "shot" else composite) in str(refused.value), "报错要点名是哪一行"
+    assert version == OPERATION, "整个迁移回滚，列没加上"
