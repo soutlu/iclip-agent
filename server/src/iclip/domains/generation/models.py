@@ -9,14 +9,13 @@ from datetime import datetime
 from typing import Any, Final, Literal
 
 from iclip.domains.generation.schemas import (
-    CLIP_REFERENCE,
     STATUS_COMPLETED,
     STATUS_FAILED,
     STATUS_PENDING,
     STATUS_SUBMITTED,
     STATUS_SUBMITTING,
-    ClipIn,
     GenerationKind,
+    GenerationOperation,
     GenerationRequest,
     GenerationStatus,
 )
@@ -28,7 +27,7 @@ InFlightPhase = Literal["queued", "running"]
 
 Inheritance = Sequence[tuple[uuid.UUID, datetime]]
 """一段对话经分叉继承的边界对：沿分叉来源往上的每个祖先，配上这条链上它的下一级对话的
-建立时刻。祖先名下已完成、不是参考片段、完成时刻不晚于边界的记录归这段对话继承。"""
+建立时刻。祖先名下已完成、完成时刻不晚于边界的记录归这段对话继承。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +39,8 @@ class GenerationJob:
     api_key_id: uuid.UUID | None
     """发起生成时使用的 API key，供审计使用。"""
     kind: GenerationKind
+    operation: GenerationOperation
+    """怎么执行：调模型或本地拼接。与 kind、有没有来源一起决定这一行是哪种记录。"""
     provider: str
     request: GenerationRequest
     status: GenerationStatus
@@ -63,11 +64,14 @@ class GenerationJob:
     task_id: uuid.UUID | None = None
     """需求单 id，调用方给的归属标签；不设外键，只做筛选。"""
     root_job_id: uuid.UUID | None = None
-    """原作号：衍生记录指向它所属的那条独立记录，空即独立记录。
+    """原作：编辑段与合成都指最初那条出片，不管基于哪一版，所以链只有一层；出片自己为空。
 
-    视频编辑的参考片段、编辑结果与成片都写最初那条出片，不写各自基于的版本，所以链只有
-    一层，``root_job_id = A`` 就是 A 名下的全部衍生记录。衍生记录不计审计口径；在分叉副本里
-    剪继承来的出片，原作号照样指源对话里那条。"""
+    版本按原作分组。在分叉副本里剪继承来的出片，原作照样指源对话里那条。"""
+    source_job_id: uuid.UUID | None = None
+    """直接来源：编辑段指它的基底成片，合成指它的编辑段；出片与图片为空。可以指继承来的记录。"""
+    range_start_ms: int | None = None
+    range_end_ms: int | None = None
+    """编辑段在基底上改的那一段，毫秒；只有编辑段有。受理时是请求的区间，切出参考片段后改记实际切点。"""
     watermark_output_url: str | None = None
     """视频成功时上游发布的水印版地址；图片没有这一份。"""
 
@@ -75,12 +79,10 @@ class GenerationJob:
 def inherited_through(job: GenerationJob, inheritance: Inheritance) -> bool:
     """这条记录是否经这组边界对继承而来。
 
-    与仓储按对话读记录时的继承分支是同一条规则；受理时核对原作号靠它区分「祖先对话里的」
+    与仓储按对话读记录时的继承分支是同一条规则；受理时核对来源靠它区分「祖先对话里的」
     与「继承来的」——同一个人在源对话里分叉之后才完成的出片，按属主读得到却不归副本。"""
 
     if job.status != STATUS_COMPLETED or job.finished_at is None:
-        return False
-    if isinstance(job.request, ClipIn) and job.request.purpose == CLIP_REFERENCE:
         return False
     return any(
         job.conversation_id == ancestor and job.finished_at <= boundary
@@ -97,6 +99,7 @@ __all__ = [
     "TERMINAL_STATUSES",
     "GenerationJob",
     "GenerationKind",
+    "GenerationOperation",
     "GenerationStatus",
     "InFlightPhase",
     "Inheritance",

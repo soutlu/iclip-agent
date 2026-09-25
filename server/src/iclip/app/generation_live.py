@@ -10,6 +10,7 @@ from iclip.domains.agents.transcript_api import LiveConnections
 from iclip.domains.generation.models import (
     GenerationJob,
     GenerationKind,
+    GenerationOperation,
     GenerationStatus,
     InFlightPhase,
     Inheritance,
@@ -44,9 +45,11 @@ class AnnouncingGenerationRepository:
         limit: int,
         conversation_id: uuid.UUID | None = None,
         kind: GenerationKind | None = None,
+        operation: GenerationOperation | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
         root_job_id: uuid.UUID | None = None,
+        source_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
         inherited: Inheritance = (),
     ) -> tuple[GenerationJob, ...]:
@@ -55,9 +58,11 @@ class AnnouncingGenerationRepository:
             limit=limit,
             conversation_id=conversation_id,
             kind=kind,
+            operation=operation,
             metadata=metadata,
             task_id=task_id,
             root_job_id=root_job_id,
+            source_job_id=source_job_id,
             before=before,
             inherited=inherited,
         )
@@ -136,6 +141,21 @@ class AnnouncingGenerationRepository:
             job_id,
             provider_status=provider_status,
             provider_snapshot=provider_snapshot,
+            only_if_status=only_if_status,
+        )
+
+    async def record_reference_cut(
+        self,
+        job_id: uuid.UUID,
+        *,
+        range_start_ms: int,
+        range_end_ms: int,
+        only_if_status: GenerationStatus,
+    ) -> GenerationJob | None:
+        return await self._inner.record_reference_cut(
+            job_id,
+            range_start_ms=range_start_ms,
+            range_end_ms=range_end_ms,
             only_if_status=only_if_status,
         )
 

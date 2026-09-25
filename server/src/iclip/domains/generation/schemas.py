@@ -25,7 +25,7 @@ from pydantic import (
 from pydantic.alias_generators import to_camel
 
 from iclip.common.errors import ValidationFailed
-from iclip.common.generation_vocab import GenerationKind, GenerationStatus
+from iclip.common.generation_vocab import GenerationKind, GenerationOperation, GenerationStatus
 from iclip.common.shot_prompt import format_seconds, format_shot_prompt
 from iclip.common.shot_rules import (
     MAX_REFERENCE_IMAGES,
@@ -53,6 +53,11 @@ KIND_VIDEO: Final = "video"
 KIND_IMAGE: Final = "image"
 KIND_CLIP: Final = "clip"
 """本地 ffmpeg 加工出来的视频：编辑用的参考片段与拼出来的成片，不经任何外部 provider。"""
+
+OPERATION_GENERATE: Final = "generate"
+"""调模型：出片、编辑段、图片生成都是它。"""
+OPERATION_COMPOSE: Final = "compose"
+"""本地拼接：合成出一条新的成片，不经外部服务。"""
 
 ClipPurpose = Literal["reference", "master"]
 
@@ -242,6 +247,7 @@ class VideoGenerationIn(SnakeModel):
     """
 
     kind: ClassVar[GenerationKind] = KIND_VIDEO
+    operation: ClassVar[GenerationOperation] = OPERATION_GENERATE
 
     model: ModelName
     """新请求只接受配置允许的视频模型。历史记录保留原模型字符串，读回时不套用当前允许表。"""
@@ -311,6 +317,7 @@ class ImageGenerationIn(CamelModel):
     """一次图像生成的输入。参考图为空即文生图，否则走图像编辑。"""
 
     kind: ClassVar[GenerationKind] = KIND_IMAGE
+    operation: ClassVar[GenerationOperation] = OPERATION_GENERATE
 
     prompt: Prompt
     user_name: UserName | None = None
@@ -367,6 +374,7 @@ class ClipIn(CamelModel):
     参数互不相同，一律重编码对齐。两者存在不同前缀下，成片不进过期规则。"""
 
     kind: ClassVar[GenerationKind] = KIND_CLIP
+    operation: ClassVar[GenerationOperation] = OPERATION_COMPOSE
 
     purpose: ClipPurpose
     segments: Annotated[list[ClipSegmentIn], Field(min_length=1, max_length=MAX_CLIP_SEGMENTS)]
@@ -387,13 +395,48 @@ class ClipIn(CamelModel):
         return self
 
 
-GenerationRequest = VideoGenerationIn | ImageGenerationIn | ClipIn
+class ComposeSegment(CamelModel):
+    """合成里的一段：从 ``url`` 那条视频取 ``[start, end)``，单位秒；``end`` 为空就取到那条的结尾。"""
 
-_ADAPTERS: Final = {
-    KIND_VIDEO: TypeAdapter(VideoGenerationIn),
-    KIND_IMAGE: TypeAdapter(ImageGenerationIn),
-    KIND_CLIP: TypeAdapter(ClipIn),
+    url: Annotated[str, Field(min_length=1, max_length=MAX_URL_CHARS)]
+    start: float = Field(ge=0)
+    end: float | None = None
+    """开放的结尾由执行方按下载下来的素材时长补齐：编辑段产物与基底后段多长，受理时不知道。"""
+
+    @field_validator("url")
+    @classmethod
+    def _downloadable(cls, url: str) -> str:
+        if not is_http_url(url):
+            raise ValueError("必须是 http:// 或 https:// 地址")
+        return url
+
+    @model_validator(mode="after")
+    def _end_after_start(self) -> ComposeSegment:
+        if self.end is not None and self.end <= self.start:
+            raise ValueError("end 必须大于 start")
+        return self
+
+
+class VideoComposeRequest(CamelModel):
+    """一次合成交给本地执行方的输入：按顺序取各段拼成一条，一律重编码对齐到原片。
+
+    段由服务端按编辑段的基底与实际区间算出，调用方不直接给。``user_name`` 只作对账标签。"""
+
+    kind: ClassVar[GenerationKind] = KIND_VIDEO
+    operation: ClassVar[GenerationOperation] = OPERATION_COMPOSE
+
+    segments: Annotated[list[ComposeSegment], Field(min_length=1)]
+    user_name: UserName | None = None
+
+
+GenerationRequest = VideoGenerationIn | ImageGenerationIn | ClipIn | VideoComposeRequest
+
+_ADAPTERS: Final[Mapping[tuple[str, str], TypeAdapter[Any]]] = {
+    (KIND_VIDEO, OPERATION_GENERATE): TypeAdapter(VideoGenerationIn),
+    (KIND_IMAGE, OPERATION_GENERATE): TypeAdapter(ImageGenerationIn),
+    (KIND_VIDEO, OPERATION_COMPOSE): TypeAdapter(VideoComposeRequest),
 }
+"""编辑段落库的仍是 ``VideoGenerationIn``：它与出片的区别在来源列上，不在请求形状上。"""
 
 
 def request_to_payload(request: GenerationRequest) -> dict[str, Any]:
@@ -402,12 +445,12 @@ def request_to_payload(request: GenerationRequest) -> dict[str, Any]:
     return request.model_dump(by_alias=True, exclude=set(ORIGIN_FIELDS))
 
 
-def request_from_payload(kind: str, payload: dict[str, Any]) -> GenerationRequest:
-    """按独立存列的 kind 选择适配器并校验持久化请求，非法数据直接报错。"""
+def request_from_payload(kind: str, operation: str, payload: dict[str, Any]) -> GenerationRequest:
+    """按独立存列的 kind 与 operation 选择适配器并校验持久化请求，非法数据直接报错。"""
 
-    adapter = _ADAPTERS.get(kind)
+    adapter = _ADAPTERS.get((kind, operation))
     if adapter is None:
-        raise ValidationFailed(f"未知的生成类型: {kind}")
+        raise ValidationFailed(f"未知的生成类型: {kind} / {operation}")
     try:
         return adapter.validate_python(payload)
     except ValueError as exc:
@@ -592,6 +635,8 @@ __all__ = [
     "MAX_REFERENCE_URLS",
     "MAX_USER_NAME_CHARS",
     "NOT_FORWARDED_FIELDS",
+    "OPERATION_COMPOSE",
+    "OPERATION_GENERATE",
     "ORIGIN_FIELDS",
     "STATUS_COMPLETED",
     "STATUS_FAILED",
@@ -602,8 +647,10 @@ __all__ = [
     "ClipPurpose",
     "ClipSegmentIn",
     "ClipStage",
+    "ComposeSegment",
     "GenerationEnvelope",
     "GenerationKind",
+    "GenerationOperation",
     "GenerationOut",
     "GenerationRequest",
     "GenerationStatus",
@@ -612,6 +659,7 @@ __all__ = [
     "ImageModelOut",
     "ImageModelsOut",
     "Metadata",
+    "VideoComposeRequest",
     "VideoGenerationIn",
     "VideoModelsOut",
     "VideoShotIn",

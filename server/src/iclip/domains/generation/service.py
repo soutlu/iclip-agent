@@ -24,7 +24,6 @@ from iclip.domains.generation.schemas import (
     KIND_VIDEO,
     ClipIn,
     GenerationKind,
-    GenerationRequest,
     ImageGenerationIn,
     VideoGenerationIn,
 )
@@ -32,6 +31,9 @@ from iclip.domains.identity.public import Principal, visible_owner_incl_act_as
 from iclip.platform.paging import check_limit
 
 _logger = structlog.stdlib.get_logger(__name__)
+
+_Submitted = VideoGenerationIn | ImageGenerationIn | ClipIn
+"""HTTP 入口直接收下、自带归属字段的请求。"""
 
 ClearCompletion = Callable[[uuid.UUID, uuid.UUID], Awaitable[None]]
 """按 (对话 id, 属主) 取消那段对话的收尾标记；实现由组合根注入，本域不认识对话表。"""
@@ -109,7 +111,7 @@ class GenerationService:
         await self._check_root(principal, request)
         return await self._accept(principal, request, provider=self._clip_provider_name)
 
-    async def _check_root(self, principal: Principal, request: GenerationRequest) -> None:
+    async def _check_root(self, principal: Principal, request: _Submitted) -> None:
         """原作号必须指向这段对话自己的或它继承的一条独立记录，链才只有一层。
 
         先按主体可见范围读：生成记录的 ``conversation_id`` 只是标签、不按对话验属主，直接按
@@ -147,7 +149,7 @@ class GenerationService:
         return await self._accept(principal, settled, provider=model)
 
     async def _accept(
-        self, principal: Principal, request: GenerationRequest, *, provider: str
+        self, principal: Principal, request: _Submitted, *, provider: str
     ) -> GenerationJob:
         """保存 pending 记录并排队。入库与排队分属不同事务，排队失败时标记失败并抛出错误。
 
@@ -163,6 +165,7 @@ class GenerationService:
             task_id=request.task_id,
             root_job_id=request.root_job_id,
             kind=request.kind,
+            operation=request.operation,
             provider=provider,
             request=request,
             status=STATUS_PENDING,

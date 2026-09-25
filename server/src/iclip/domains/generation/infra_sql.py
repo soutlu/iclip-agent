@@ -7,11 +7,13 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Final
 
 from sqlalchemy import (
+    CheckConstraint,
     Column,
     ColumnElement,
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     MetaData,
     Table,
     Text,
@@ -37,16 +39,12 @@ from iclip.domains.generation.models import (
     STATUS_SUBMITTING,
     GenerationJob,
     GenerationKind,
+    GenerationOperation,
     GenerationStatus,
     InFlightPhase,
     Inheritance,
 )
-from iclip.domains.generation.schemas import (
-    CLIP_REFERENCE,
-    KIND_CLIP,
-    request_from_payload,
-    request_to_payload,
-)
+from iclip.domains.generation.schemas import request_from_payload, request_to_payload
 from iclip.platform.db.ownership import owner_conditions
 
 DB_SCHEMA: Final = "iclip"
@@ -71,14 +69,23 @@ generation_jobs_table = Table(
     Column("metadata", JSONB, nullable=True),
     # 需求单同样不建外键：它是归属标签，删单不抹生成记录。
     Column("task_id", Uuid, nullable=True),
-    # 原作号建外键：它不是标签，衍生记录必须挂在一条真实存在的出片上；生成记录从不硬删。
+    # 原作与来源都建外键：它们不是标签，必须指一条真实存在的记录；生成记录从不硬删。
     Column(
         "root_job_id",
         Uuid,
         ForeignKey(f"{DB_SCHEMA}.generation_jobs.id", name="fk_generation_jobs_root_job"),
         nullable=True,
     ),
+    Column(
+        "source_job_id",
+        Uuid,
+        ForeignKey(f"{DB_SCHEMA}.generation_jobs.id", name="fk_generation_jobs_source_job"),
+        nullable=True,
+    ),
+    Column("range_start_ms", Integer, nullable=True),
+    Column("range_end_ms", Integer, nullable=True),
     Column("kind", Text, nullable=False),
+    Column("operation", Text, nullable=False),
     Column("provider", Text, nullable=False),
     Column("request", JSONB, nullable=False),
     Column("status", Text, nullable=False),
@@ -96,11 +103,37 @@ generation_jobs_table = Table(
     Index("ix_generation_jobs_owner_created", "owner_user_id", "created_at"),
     Index("ix_generation_jobs_conversation_created", "conversation_id", "created_at"),
     Index("ix_generation_jobs_task_created", "task_id", "created_at"),
-    # 只索引衍生记录：按原作查链、外键校验都走它，独立记录占大多数、不必进来。
+    # 只索引有原作、有来源的行：按原作查链、按来源找兄弟、外键校验都走它们，出片占大多数、不必进来。
     Index(
         "ix_generation_jobs_root_job",
         "root_job_id",
         postgresql_where=text("root_job_id IS NOT NULL"),
+    ),
+    Index(
+        "ix_generation_jobs_source_job",
+        "source_job_id",
+        postgresql_where=text("source_job_id IS NOT NULL"),
+    ),
+    # 每种行的必填与留空由组合约束兜底，与迁移 0017 同名同式：出片与图片没有来源和区间，
+    # 编辑段必有来源、原作与区间，合成必有来源与原作、没有区间。
+    CheckConstraint("kind IN ('video', 'image')", name="ck_generation_jobs_kind"),
+    CheckConstraint("operation IN ('generate', 'compose')", name="ck_generation_jobs_operation"),
+    CheckConstraint(
+        "kind <> 'video'"
+        " OR (operation = 'generate' AND source_job_id IS NULL AND root_job_id IS NULL"
+        " AND range_start_ms IS NULL AND range_end_ms IS NULL)"
+        " OR (operation = 'generate' AND source_job_id IS NOT NULL AND root_job_id IS NOT NULL"
+        " AND range_start_ms IS NOT NULL AND range_end_ms IS NOT NULL"
+        " AND range_start_ms >= 0 AND range_end_ms > range_start_ms)"
+        " OR (operation = 'compose' AND source_job_id IS NOT NULL AND root_job_id IS NOT NULL"
+        " AND range_start_ms IS NULL AND range_end_ms IS NULL)",
+        name="ck_generation_jobs_video_shape",
+    ),
+    CheckConstraint(
+        "kind <> 'image'"
+        " OR (operation = 'generate' AND source_job_id IS NULL AND root_job_id IS NULL"
+        " AND range_start_ms IS NULL AND range_end_ms IS NULL)",
+        name="ck_generation_jobs_image_shape",
     ),
 )
 
@@ -127,7 +160,11 @@ class SqlGenerationRepository:
                             metadata=job.metadata,
                             task_id=job.task_id,
                             root_job_id=job.root_job_id,
+                            source_job_id=job.source_job_id,
+                            range_start_ms=job.range_start_ms,
+                            range_end_ms=job.range_end_ms,
                             kind=job.kind,
+                            operation=job.operation,
                             provider=job.provider,
                             request=request_to_payload(job.request),
                             status=job.status,
@@ -170,9 +207,11 @@ class SqlGenerationRepository:
         limit: int,
         conversation_id: uuid.UUID | None = None,
         kind: GenerationKind | None = None,
+        operation: GenerationOperation | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
         root_job_id: uuid.UUID | None = None,
+        source_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
         inherited: Inheritance = (),
     ) -> tuple[GenerationJob, ...]:
@@ -184,8 +223,12 @@ class SqlGenerationRepository:
             stmt = stmt.where(_JOBS.task_id == task_id)
         if root_job_id is not None:
             stmt = stmt.where(_JOBS.root_job_id == root_job_id)
+        if source_job_id is not None:
+            stmt = stmt.where(_JOBS.source_job_id == source_job_id)
         if kind is not None:
             stmt = stmt.where(_JOBS.kind == kind)
+        if operation is not None:
+            stmt = stmt.where(_JOBS.operation == operation)
         if metadata is not None:
             stmt = stmt.where(_JOBS.metadata.contains(dict(metadata)))
         if before is not None:
@@ -312,6 +355,24 @@ class SqlGenerationRepository:
             return await self._update_if(job_id, only_if_status, **values)
         return await self._update(job_id, **values)
 
+    async def record_reference_cut(
+        self,
+        job_id: uuid.UUID,
+        *,
+        range_start_ms: int,
+        range_end_ms: int,
+        only_if_status: GenerationStatus,
+    ) -> GenerationJob | None:
+        return await self._update_if(
+            job_id,
+            only_if_status,
+            range_start_ms=range_start_ms,
+            range_end_ms=range_end_ms,
+            # 切片阶段结束，阶段词清掉；接下来等上游的回执。
+            provider_status=None,
+            updated_at=func.now(),
+        )
+
     async def _update_if(
         self, job_id: uuid.UUID, expected: GenerationStatus, **values: Any
     ) -> GenerationJob | None:
@@ -351,12 +412,6 @@ class SqlGenerationRepository:
         return _job_from_row(row)
 
 
-_REFERENCE_CLIP: Final = and_(
-    _JOBS.kind == KIND_CLIP, _JOBS.request["purpose"].astext == CLIP_REFERENCE
-)
-"""参考片段：切给模型看的中间素材，桶上按前缀配了过期规则，不随分叉继承。"""
-
-
 def _visible(own: Sequence[ColumnElement[bool]], inherited: Inheritance) -> ColumnElement[bool]:
     """按属主收敛的自己那一份，并上经这组边界对继承来的；没有继承就只剩前者。"""
 
@@ -367,14 +422,13 @@ def _visible(own: Sequence[ColumnElement[bool]], inherited: Inheritance) -> Colu
 
 
 def _inherited(inherited: Inheritance) -> ColumnElement[bool]:
-    """经分叉继承的记录：某个祖先名下已完成、不是参考片段、完成时刻不晚于它的边界。
+    """经分叉继承的记录：某个祖先名下已完成、完成时刻不晚于它的边界。
 
     规则与 ``models.inherited_through`` 相同。边界对逐条展开成 OR，而不是去 join 一段 VALUES：
     挂在 OR 下的相关子查询用不上按对话的索引，展开后每一支都能走 ``conversation_id`` 索引。"""
 
     return and_(
         _JOBS.status == STATUS_COMPLETED,
-        ~_REFERENCE_CLIP,
         or_(
             *(
                 and_(_JOBS.conversation_id == ancestor, _JOBS.finished_at <= boundary)
@@ -386,6 +440,7 @@ def _inherited(inherited: Inheritance) -> ColumnElement[bool]:
 
 def _job_from_row(row: RowMapping) -> GenerationJob:
     kind: GenerationKind = row["kind"]
+    operation: GenerationOperation = row["operation"]
     status: GenerationStatus = row["status"]
     return GenerationJob(
         id=row["id"],
@@ -395,9 +450,13 @@ def _job_from_row(row: RowMapping) -> GenerationJob:
         metadata=row["metadata"],
         task_id=row["task_id"],
         root_job_id=row["root_job_id"],
+        source_job_id=row["source_job_id"],
+        range_start_ms=row["range_start_ms"],
+        range_end_ms=row["range_end_ms"],
         kind=kind,
+        operation=operation,
         provider=row["provider"],
-        request=request_from_payload(kind, row["request"]),
+        request=request_from_payload(kind, operation, row["request"]),
         status=status,
         provider_task_id=row["provider_task_id"],
         provider_status=row["provider_status"],
