@@ -44,13 +44,13 @@ const IN_FLIGHT: ReadonlySet<GenerationStatus> = new Set(
 
 export const isRunningStatus = (status: GenerationStatus): boolean => IN_FLIGHT.has(status)
 
-/** 这条记录是这一组的出片：无来源的视频 generate，镜号是这一组。编辑段与合成抄了原作的镜号，
- * 靠来源与操作排除。 */
+/** 出片（take）：无来源的视频 generate。编辑段有来源，合成是 compose，都不算。 */
+export const isTake = (
+  job: Pick<GenerationRecord, 'kind' | 'operation' | 'sourceJobId'>,
+): boolean => job.kind === 'video' && job.operation === 'generate' && job.sourceJobId == null
+
+/** 这条记录是这一组的出片。编辑段与合成抄了原作的镜号，靠 `isTake` 排除。 */
 export const isShotVideo = (
   job: Pick<GenerationRecord, 'kind' | 'operation' | 'shotIndex' | 'sourceJobId'>,
   shotIndex: number,
-): boolean =>
-  job.kind === 'video' &&
-  job.operation === 'generate' &&
-  job.sourceJobId == null &&
-  job.shotIndex === shotIndex
+): boolean => isTake(job) && job.shotIndex === shotIndex

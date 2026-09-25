@@ -1,3 +1,4 @@
+import { isTake } from '../shots'
 import type { GenerationJob } from '../storyboard.api'
 
 type ConversationVideo = GenerationJob & { outputUrl: string }
@@ -9,13 +10,9 @@ export type ConversationVideoGroup = {
   videos: ConversationVideo[]
 }
 
-/** 没有来源的出片才是这段对话的出片；编辑段与合成挂在它下面，不单独成组。 */
+/** 完成、有地址的出片才成组；编辑段与合成挂在它下面，不单独成组。 */
 const isOriginalVideo = (job: GenerationJob): job is ConversationVideo =>
-  job.kind === 'video' &&
-  job.operation === 'generate' &&
-  job.sourceJobId == null &&
-  job.status === 'completed' &&
-  Boolean(job.outputUrl?.trim())
+  isTake(job) && job.status === 'completed' && Boolean(job.outputUrl?.trim())
 
 /** 按镜号归组；没有镜号的出片各自独立，不能据空镜号推成同一镜。 */
 export const groupConversationVideos = (

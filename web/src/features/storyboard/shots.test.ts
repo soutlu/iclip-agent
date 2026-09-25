@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { makeGenerationJob } from '@/testing/generation-job'
-import { isShotVideo, phaseOfStatus } from './shots'
+import { isShotVideo, isTake, phaseOfStatus } from './shots'
 
 describe('phaseOfStatus', () => {
   it.each([
@@ -14,12 +14,11 @@ describe('phaseOfStatus', () => {
   })
 })
 
-describe('isShotVideo', () => {
-  const take = makeGenerationJob({ id: 'take', shotIndex: 2 })
+const take = makeGenerationJob({ id: 'take', shotIndex: 2 })
 
-  it('镜号是这一组的出片算这一组', () => {
-    expect(isShotVideo(take, 2)).toBe(true)
-    expect(isShotVideo(take, 3)).toBe(false)
+describe('isTake', () => {
+  it('无来源的视频 generate 是出片', () => {
+    expect(isTake(take)).toBe(true)
   })
 
   it.each([
@@ -42,8 +41,19 @@ describe('isShotVideo', () => {
         sourceJobId: 'edit',
       }),
     ],
-    ['只在 metadata 里写了 shot 的视频', makeGenerationJob({ metadata: { shot: 2 } })],
-  ])('%s 不算这一组的出片', (_name, job) => {
-    expect(isShotVideo(job, 2)).toBe(false)
+    ['图片', makeGenerationJob({ kind: 'image' })],
+  ])('%s 不是出片', (_name, job) => {
+    expect(isTake(job)).toBe(false)
+  })
+})
+
+describe('isShotVideo', () => {
+  it('镜号是这一组的出片算这一组', () => {
+    expect(isShotVideo(take, 2)).toBe(true)
+    expect(isShotVideo(take, 3)).toBe(false)
+  })
+
+  it('只在 metadata 里写了 shot 的视频不算这一组的出片', () => {
+    expect(isShotVideo(makeGenerationJob({ metadata: { shot: 2 } }), 2)).toBe(false)
   })
 })
