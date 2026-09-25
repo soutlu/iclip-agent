@@ -123,7 +123,7 @@ class GenerationService:
         self._require_video_model(request.model)
         _require_user_name(request.user_name)
         base = await self._check_source(principal, request.source_job_id, request.conversation_id)
-        if not _is_finished_take(base):
+        if not _is_completed_master(base):
             raise ValidationFailed("基底必须是一条已完成的成片")
         forwarded = VideoGenerationIn(
             model=request.model,
@@ -399,7 +399,7 @@ class GenerationService:
         )
 
 
-def _is_finished_take(job: GenerationJob) -> bool:
+def _is_completed_master(job: GenerationJob) -> bool:
     """成片：一条已完成、有地址的视频，是出片（没有来源的 generate）或合成。"""
 
     return (
