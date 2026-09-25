@@ -4,7 +4,7 @@ import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
 import { MediaFallback } from '@/shared/ui/media-fallback'
 import { MediaLightbox, type LightboxMedia } from '@/shared/ui/media-lightbox'
-import { GenerationDownload } from '../components/generation-download'
+import { VideoDownload } from '@/shared/ui/video-download'
 import { useLiveGenerations } from '../use-live-generations'
 import { useConversationVideos } from './conversation-videos.api'
 import type { ConversationVideoGroup } from './video-groups'
@@ -99,7 +99,11 @@ function VideoGroup({ group, onPreview }: VideoGroupProps) {
           onClick={() => onPreview({ kind: 'video', name: group.label, url: selected.outputUrl })}
           size="sm"
         />
-        <GenerationDownload url={selected.outputUrl} watermarkUrl={selected.watermarkOutputUrl} />
+        <VideoDownload
+          jobId={selected.id}
+          url={selected.outputUrl}
+          watermarkUrl={selected.watermarkOutputUrl}
+        />
       </div>
       {group.videos.length > 1 ? (
         <div

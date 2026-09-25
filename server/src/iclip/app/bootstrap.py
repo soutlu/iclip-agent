@@ -29,7 +29,7 @@ from iclip.app.agent_layer import (
     watch_and_reload,
 )
 from iclip.app.capability_table import build_capability_table, build_display_registry
-from iclip.app.conversation_fork import ForkTranscriptAdapter, GenerationsCopier, WorkspaceCopier
+from iclip.app.conversation_fork import ForkLineageAdapter, ForkTranscriptAdapter, WorkspaceCopier
 from iclip.app.conversation_workspace import (
     ConversationWorkspace,
     validate_video_shots,
@@ -65,21 +65,25 @@ from iclip.domains.generation.module import (
 )
 from iclip.domains.generation.queue import GenerationQueueSettings, queue_dsn
 from iclip.domains.generation.schemas import KIND_VIDEO
-from iclip.domains.generation.service import ClearCompletion
+from iclip.domains.generation.service import ClearCompletion, ConversationLineage
 from iclip.domains.generation.video import VideoProviderSettings
 from iclip.domains.identity.accounts import CookieAuthSettings
 from iclip.domains.identity.infra_sql import DB_SCHEMA
 from iclip.domains.identity.middleware import PrincipalMiddleware
 from iclip.domains.identity.module import SsoRuntime, build_identity_module
 from iclip.domains.identity.pms import PmsUserClient
-from iclip.domains.identity.public import ActAs
+from iclip.domains.identity.public import ActAs, Principal
 from iclip.domains.identity.sso import SsoVerifier
 from iclip.domains.inspirations.infra_sql import PgInspirationVideos
 from iclip.domains.inspirations.module import build_inspirations_module
 from iclip.domains.inspirations.service import NoStyleDirectory
+from iclip.domains.library.module import build_library_module
+from iclip.domains.library.reports_pg import PgLibraryReports
 from iclip.domains.products.catalog_pg import PgStyleDirectory
 from iclip.domains.tasks.infra_sql import SqlTaskRepository
 from iclip.domains.tasks.module import build_tasks_module
+from iclip.domains.tracking.infra_sql import SqlTrackingRepository
+from iclip.domains.tracking.module import build_tracking_module
 from iclip.domains.uploads.module import build_uploads_module
 from iclip.harness.agents import DELEGATE_TOOL
 from iclip.harness.jobs import JobQueue, JobRow
@@ -231,6 +235,7 @@ def _generation_module(
     *,
     act_as: ActAs,
     clear_completion: ClearCompletion,
+    lineage: ConversationLineage,
     database_url: str,
     object_store: PublicObjectStore,
     queue_connector: procrastinate.BaseConnector | None,
@@ -244,6 +249,7 @@ def _generation_module(
         AnnouncingGenerationRepository(SqlGenerationRepository(engine), live),
         act_as=act_as,
         clear_completion=clear_completion,
+        lineage=lineage,
         video=VideoProviderSettings(
             submit_url=settings.video_submit_url,
             status_base_url=settings.video_status_base_url,
@@ -362,6 +368,13 @@ def build_app(
 
         await conversations.service.clear_completed(conversation_id, owner)
 
+    async def conversation_readable(principal: Principal, conversation_id: uuid.UUID) -> bool:
+        """生成域按对话列副本继承的出片前，先问主体读不读得到这段对话；同样靠闭包晚取。"""
+
+        return await conversations.service.readable(principal, conversation_id)
+
+    conversation_repo = SqlConversationRepository(active_engine)
+
     # 镜头能力依赖生成服务，须先于 Agent 装配。
     generation: GenerationModule | None = None
     if settings.media_generation is not None:
@@ -372,6 +385,9 @@ def build_app(
             active_engine,
             act_as=identity.act_as,
             clear_completion=clear_conversation_completion,
+            lineage=ForkLineageAdapter(
+                conversations=conversation_repo, readable=conversation_readable
+            ),
             database_url=settings.database_url,
             object_store=public_objects,
             queue_connector=queue_connector,
@@ -466,10 +482,12 @@ def build_app(
     transcript_history = TranscriptHistory(step_store, job_queue, tool_displays, DELEGATE_TOOL)
 
     tasks = build_tasks_module(SqlTaskRepository(active_engine), act_as=identity.act_as)
-    # 审计报表跨模块只读聚合，直接查表。
+    tracking = build_tracking_module(SqlTrackingRepository(active_engine))
+    # 审计报表与资料库跨模块只读聚合，直接查表。
     audit = build_audit_module(PgAuditReports(active_engine))
+    library = build_library_module(PgLibraryReports(active_engine))
     conversations = build_conversations_module(
-        SqlConversationRepository(active_engine),
+        conversation_repo,
         act_as=identity.act_as,
         list_agents=live_agent_directory(agent_layer),
         list_collections=list_owner_collections,
@@ -486,7 +504,6 @@ def build_app(
         busy_conversation_ids=busy_conversation_ids,
         fork_transcript=ForkTranscriptAdapter(queue=job_queue, history=transcript_history),
         copy_workspace=WorkspaceCopier(store=workspace_store, ledger=material_ledger),
-        copy_generations=GenerationsCopier(generation),
     )
     uploads = build_uploads_module(public_objects) if public_objects is not None else None
     context_limits = live_context_limits(agent_layer)
@@ -617,6 +634,10 @@ def build_app(
     for router in tasks.routers:
         app.include_router(router)
     for router in audit.routers:
+        app.include_router(router)
+    for router in library.routers:
+        app.include_router(router)
+    for router in tracking.routers:
         app.include_router(router)
     app.include_router(
         create_transcript_router(

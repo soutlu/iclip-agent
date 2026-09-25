@@ -5,6 +5,8 @@ import { IconButton } from '@/shared/ui/button'
 import { refuseFileDropProps } from '@/shared/ui/file-drop'
 
 export const DialogRoot = DialogPrimitive.Root
+/** 自己排版表头的弹窗（不用 DialogHeader）拿它当可访问标题。 */
+export const DialogTitle = DialogPrimitive.Title
 
 type DialogSurfaceProps = ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
   children: ReactNode

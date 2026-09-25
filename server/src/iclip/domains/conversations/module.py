@@ -14,7 +14,6 @@ from iclip.domains.conversations.service import (
     BusyConversationIds,
     ClaimTask,
     ConversationService,
-    CopyConversationGenerations,
     CopyConversationWorkspace,
     ForkTranscript,
     GenerateTitle,
@@ -53,7 +52,6 @@ def build_conversations_module(
     busy_conversation_ids: BusyConversationIds,
     fork_transcript: ForkTranscript,
     copy_workspace: CopyConversationWorkspace,
-    copy_generations: CopyConversationGenerations,
 ) -> ConversationsModule:
     """外部依赖由组合根注入，协议定义见 service.py。"""
 
@@ -71,7 +69,6 @@ def build_conversations_module(
         busy_conversation_ids=busy_conversation_ids,
         fork_transcript=fork_transcript,
         copy_workspace=copy_workspace,
-        copy_generations=copy_generations,
     )
     return ConversationsModule(
         routers=(create_conversations_router(service, agents=list_agents, act_as=act_as),),

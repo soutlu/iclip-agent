@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -23,6 +23,8 @@ from iclip.domains.generation.infra_sql import metadata_obj as generation_metada
 from iclip.domains.identity.infra_sql import DB_SCHEMA, Base
 from iclip.domains.inspirations.infra_sql import metadata_obj as inspirations_metadata
 from iclip.domains.tasks.infra_sql import metadata_obj as tasks_metadata
+from iclip.domains.tracking.infra_sql import metadata_obj as tracking_metadata
+from tests.helpers.pg import reset_database
 
 _MODULE_METADATA: tuple[MetaData, ...] = (
     Base.metadata,
@@ -31,6 +33,7 @@ _MODULE_METADATA: tuple[MetaData, ...] = (
     collections_metadata,
     tasks_metadata,
     inspirations_metadata,
+    tracking_metadata,
 )
 
 
@@ -710,6 +713,215 @@ async def test_base_edit_migration_refuses_a_dangling_base_job(migrated_pg: str)
 
     assert str(edited) in str(refused.value)
     assert version == BEFORE_BASE_EDIT
+
+
+BEFORE_FORK_INHERIT = "44301a1420de"
+"""0015：分叉还把出片记录拷进副本的那一版。"""
+
+_INSERT_FORK_CONVERSATION = text(
+    "INSERT INTO iclip.conversations (id, owner_user_id, agent_id, title, created_at, updated_at, "
+    "forked_from, fork_turn) VALUES (:id, :owner, 'storyboard', 't', :at, :at, :parent, :turn)"
+)
+_INSERT_FORK_JOB = text(
+    "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind, provider, "
+    "request, status, root_job_id, output_url, created_at, updated_at, finished_at) VALUES "
+    "(:id, :owner, :conversation, :kind, 'test', CAST(:request AS jsonb), 'completed', :root, "
+    ":url, :at, :at, :at)"
+)
+_INSERT_DOWNLOAD = text(
+    "INSERT INTO iclip.tracking_events (id, name, job_id, user_id, occurred_at) "
+    "VALUES (:id, 'video.downloaded', :job, :owner, now())"
+)
+_REQUESTS = {
+    "video": '{"prompt": "p"}',
+    "master": '{"purpose": "master", "segments": []}',
+    "reference": '{"purpose": "reference", "segments": []}',
+}
+
+
+def _minute(n: int) -> datetime:
+    return datetime(2026, 9, 1, tzinfo=UTC) + timedelta(minutes=n)
+
+
+async def _seed_forks(
+    migrated_pg: str,
+    owner: uuid.UUID,
+    *,
+    conversations: Sequence[tuple[uuid.UUID, uuid.UUID | None, int]],
+    jobs: Sequence[tuple[uuid.UUID, uuid.UUID, str, uuid.UUID | None, str, int]],
+    downloads: Sequence[tuple[uuid.UUID, uuid.UUID]] = (),
+) -> None:
+    """对话 (id, 来源, 建立分钟)、记录 (id, 对话, 请求种类, 原作号, 地址名, 建立分钟)、下载 (id, 记录)。
+
+    清掉别的用例留下的行：认副本看的是全表，遗留的分叉数据会让迁移在别人的行上报错。"""
+
+    engine = create_async_engine(migrated_pg)
+    try:
+        async with engine.begin() as conn:
+            await reset_database(conn)
+            await _insert_generation_owner(conn, owner)
+            for conversation_id, parent, minute in conversations:
+                await conn.execute(
+                    _INSERT_FORK_CONVERSATION,
+                    {
+                        "id": conversation_id,
+                        "owner": owner,
+                        "at": _minute(minute),
+                        "parent": parent,
+                        "turn": None if parent is None else 1,
+                    },
+                )
+            for job_id, conversation_id, request, root, name, minute in jobs:
+                await conn.execute(
+                    _INSERT_FORK_JOB,
+                    {
+                        "id": job_id,
+                        "owner": owner,
+                        "conversation": conversation_id,
+                        "kind": "video" if request == "video" else "clip",
+                        "request": _REQUESTS[request],
+                        "root": root,
+                        "url": f"https://example.test/{name}.mp4",
+                        "at": _minute(minute),
+                    },
+                )
+            for event_id, job_id in downloads:
+                await conn.execute(
+                    _INSERT_DOWNLOAD, {"id": event_id, "job": job_id, "owner": owner}
+                )
+    finally:
+        await engine.dispose()
+
+
+async def _clear(migrated_pg: str) -> None:
+    engine = create_async_engine(migrated_pg)
+    try:
+        async with engine.begin() as conn:
+            await reset_database(conn)
+    finally:
+        await engine.dispose()
+
+
+async def test_fork_inherit_migration_folds_copies_back_into_their_sources(
+    migrated_pg: str,
+) -> None:
+    """0016：副本里拷来的记录删掉；副本里原生的成片改指源那条原作，指向拷贝的下载事件并回源记录。
+
+    嵌套分叉：孙对话里的拷贝是父对话里拷贝的拷贝，源要一路找到祖父那条非拷贝的。"""
+
+    cfg = _alembic(migrated_pg)
+    owner = uuid.uuid4()
+    grand, parent, child = (uuid.uuid4() for _ in range(3))
+    take, master, reference = (uuid.uuid4() for _ in range(3))
+    take_1, master_1, parent_master, parent_take = (uuid.uuid4() for _ in range(4))
+    take_2, master_2, parent_master_2, parent_take_2, child_master = (
+        uuid.uuid4() for _ in range(5)
+    )
+    on_copy, on_nested, on_parent_copy, on_native = (uuid.uuid4() for _ in range(4))
+    try:
+        command.downgrade(cfg, BEFORE_FORK_INHERIT)
+        await _seed_forks(
+            migrated_pg,
+            owner,
+            conversations=((grand, None, 0), (parent, grand, 10), (child, parent, 20)),
+            jobs=(
+                (take, grand, "video", None, "take", 1),
+                (master, grand, "master", take, "master", 2),
+                (reference, grand, "reference", take, "reference", 3),
+                # 父对话：拷来的一对（时间戳是源的），加上分叉后剪的成片与新出的片。
+                (take_1, parent, "video", None, "take", 1),
+                (master_1, parent, "master", take_1, "master", 2),
+                (parent_master, parent, "master", take_1, "parent-master", 12),
+                (parent_take, parent, "video", None, "parent-take", 13),
+                # 孙对话：父对话里四条的拷贝（拷贝的拷贝指向孙对话里的新根），加上自己剪的成片。
+                (take_2, child, "video", None, "take", 1),
+                (master_2, child, "master", take_2, "master", 2),
+                (parent_master_2, child, "master", take_2, "parent-master", 12),
+                (parent_take_2, child, "video", None, "parent-take", 13),
+                (child_master, child, "master", take_2, "child-master", 21),
+            ),
+            downloads=(
+                (on_copy, take_1),
+                (on_nested, master_2),
+                (on_parent_copy, parent_master_2),
+                (on_native, parent_take),
+            ),
+        )
+        command.upgrade(cfg, "head")
+        engine = create_async_engine(migrated_pg)
+        try:
+            async with engine.connect() as conn:
+                jobs = await conn.execute(
+                    text(
+                        "SELECT id, root_job_id FROM iclip.generation_jobs "
+                        "WHERE owner_user_id = :owner"
+                    ),
+                    {"owner": owner},
+                )
+                roots = {job_id: root for job_id, root in jobs.all()}
+                events = await conn.execute(
+                    text("SELECT id, job_id FROM iclip.tracking_events WHERE user_id = :u"),
+                    {"u": owner},
+                )
+                downloaded = {event_id: job_id for event_id, job_id in events.all()}
+        finally:
+            await engine.dispose()
+    finally:
+        command.upgrade(cfg, "head")
+        await _clear(migrated_pg)
+
+    assert roots == {
+        take: None,
+        master: take,
+        reference: take,
+        parent_master: take,
+        parent_take: None,
+        child_master: take,
+    }, "拷贝全删，留下的衍生记录都指祖父那条原作"
+    assert downloaded == {
+        on_copy: take,
+        on_nested: master,
+        on_parent_copy: parent_master,
+        on_native: parent_take,
+    }, "下载事件并回源记录；本来就指非拷贝的不动"
+
+
+@pytest.mark.parametrize("sources", [0, 2], ids=["找不到源", "源不唯一"])
+async def test_fork_inherit_migration_refuses_a_copy_without_exactly_one_source(
+    migrated_pg: str, sources: int
+) -> None:
+    """拷贝对不上唯一一条源记录时不静默删掉或留着：带 id 报错，库停在 0015。"""
+
+    cfg = _alembic(migrated_pg)
+    owner = uuid.uuid4()
+    source, fork, copy = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    originals = tuple(
+        (uuid.uuid4(), source, "video", None, "take", 1 + index) for index in range(sources)
+    )
+    try:
+        command.downgrade(cfg, BEFORE_FORK_INHERIT)
+        await _seed_forks(
+            migrated_pg,
+            owner,
+            conversations=((source, None, 0), (fork, source, 10)),
+            jobs=(*originals, (copy, fork, "video", None, "take", 1)),
+        )
+        with pytest.raises(RuntimeError, match="找不到唯一一条源记录") as refused:
+            command.upgrade(cfg, "head")
+        engine = create_async_engine(migrated_pg)
+        try:
+            async with engine.connect() as conn:
+                version = (
+                    await conn.execute(text("SELECT version_num FROM iclip.alembic_version"))
+                ).scalar_one()
+        finally:
+            await engine.dispose()
+    finally:
+        await _clear(migrated_pg)
+        command.upgrade(cfg, "head")
+
+    assert str(copy) in str(refused.value), "报错要点名是哪一行"
+    assert version == BEFORE_FORK_INHERIT
 
 
 BEFORE_LAST_RUN_BACKFILL = "2d6f8a1b4c07"

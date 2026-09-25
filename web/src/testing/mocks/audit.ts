@@ -80,6 +80,8 @@ const reportOf = (conversation: MockConversation, index: number): Report => {
     const firstAt = new Date(deliveredAt.getTime() - cycleSeconds * 1000 + shotIndex * 15 * 60_000)
     return {
       attempts,
+      // 每三镜里两镜被下载过；mock 里每镜都出成过片，所以出片镜就是全部镜。
+      effective: (index + shotIndex) % 3 !== 2,
       firstAt: firstAt.toISOString(),
       oneTake: attempts === 1,
       lastAt: new Date(firstAt.getTime() + (attempts - 1) * 12 * 60_000).toISOString(),
@@ -88,6 +90,7 @@ const reportOf = (conversation: MockConversation, index: number): Report => {
   })
   const attempts = shots.reduce((sum, shot) => sum + shot.attempts, 0)
   const completed = shotCount + Math.max(0, attempts - shotCount - 1)
+  const effectiveShots = shots.filter((shot) => shot.effective).length
   const usage = usageOf(9000 + index * 1200, 6000 + index * 800, 900, 2200 + index * 150, 6 + index)
   const metrics: Metrics = {
     attempts,
@@ -96,8 +99,11 @@ const reportOf = (conversation: MockConversation, index: number): Report => {
     cycleSeconds: { avg: cycleSeconds, median: cycleSeconds, p90: cycleSeconds },
     deliveredConversations: 1,
     deliveredOrphanConversations: conversation.taskId === null ? 1 : 0,
+    deliveredShots: shotCount,
     deliveredTasks: conversation.taskId === null ? 0 : 1,
     deliveries: 1,
+    effectiveRate: effectiveShots / shotCount,
+    effectiveShots,
     oneTakeRate: shots.filter((shot) => shot.oneTake).length / shotCount,
     oneTakeShots: shots.filter((shot) => shot.oneTake).length,
     producers: 1,
@@ -129,6 +135,8 @@ const aggregate = (reports: Report[]): Metrics => {
   const shots = sum((m) => m.shots)
   const attempts = sum((m) => m.attempts)
   const oneTakeShots = sum((m) => m.oneTakeShots)
+  const deliveredShots = sum((m) => m.deliveredShots)
+  const effectiveShots = sum((m) => m.effectiveShots)
   const usage = usageOf(
     sum((m) => m.usage.inputTokens),
     sum((m) => m.usage.cacheReadTokens),
@@ -146,8 +154,11 @@ const aggregate = (reports: Report[]): Metrics => {
     cycleSeconds: spread(reports.map((r) => r.metrics.cycleSeconds?.median ?? 0)),
     deliveredConversations: reports.length,
     deliveredOrphanConversations: orphans,
+    deliveredShots,
     deliveredTasks,
     deliveries,
+    effectiveRate: deliveredShots === 0 ? null : effectiveShots / deliveredShots,
+    effectiveShots,
     oneTakeRate: shots === 0 ? null : oneTakeShots / shots,
     oneTakeShots,
     producers: new Set(reports.map((r) => r.userName)).size,

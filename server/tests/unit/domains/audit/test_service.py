@@ -246,6 +246,8 @@ def test_metrics_derive_ratios_and_go_blank_on_zero_denominators() -> None:
         shots=4,
         attempts=6,
         one_take_shots=3,
+        delivered_shots=3,
+        effective_shots=2,
         runs=5,
         delivered_conversations=2,
         cycle_seconds=SpreadOut(avg=1, median=1, p90=1),
@@ -257,10 +259,12 @@ def test_metrics_derive_ratios_and_go_blank_on_zero_denominators() -> None:
     assert metrics.deliveries == 2
     assert metrics.attempts_per_shot == 1.5
     assert metrics.one_take_rate == 0.75
+    assert metrics.effective_rate == pytest.approx(2 / 3)
     assert usage.total_tokens == 550
     assert usage.cache_hit_rate == 0.6
     assert metrics.tokens_per_delivery == 275
     assert EMPTY_METRICS.attempts_per_shot is None
     assert EMPTY_METRICS.one_take_rate is None
+    assert EMPTY_METRICS.effective_rate is None
     assert EMPTY_METRICS.tokens_per_delivery is None
     assert EMPTY_METRICS.usage.cache_hit_rate is None

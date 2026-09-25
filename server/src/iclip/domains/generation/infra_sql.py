@@ -8,6 +8,7 @@ from typing import Any, Final
 
 from sqlalchemy import (
     Column,
+    ColumnElement,
     DateTime,
     ForeignKey,
     Index,
@@ -15,17 +16,13 @@ from sqlalchemy import (
     Table,
     Text,
     Uuid,
-    Values,
     and_,
-    column,
     func,
-    literal,
-    null,
     or_,
     select,
     text,
+    true,
     tuple_,
-    values,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine.row import RowMapping
@@ -42,6 +39,7 @@ from iclip.domains.generation.models import (
     GenerationKind,
     GenerationStatus,
     InFlightPhase,
+    Inheritance,
 )
 from iclip.domains.generation.schemas import (
     CLIP_REFERENCE,
@@ -49,7 +47,7 @@ from iclip.domains.generation.schemas import (
     request_from_payload,
     request_to_payload,
 )
-from iclip.platform.db.ownership import scope_to_owner
+from iclip.platform.db.ownership import owner_conditions
 
 DB_SCHEMA: Final = "iclip"
 
@@ -153,11 +151,11 @@ class SqlGenerationRepository:
             )
         return _job_from_row(row)
 
-    async def get(self, job_id: uuid.UUID, *, owner: uuid.UUID | None) -> GenerationJob:
-        stmt = scope_to_owner(
-            select(generation_jobs_table).where(_JOBS.id == job_id),
-            _JOBS.owner_user_id,
-            owner,
+    async def get(
+        self, job_id: uuid.UUID, *, owner: uuid.UUID | None, inherited: Inheritance = ()
+    ) -> GenerationJob:
+        stmt = select(generation_jobs_table).where(
+            _JOBS.id == job_id, _visible(owner_conditions(_JOBS.owner_user_id, owner), inherited)
         )
         async with self._engine.connect() as conn:
             row = (await conn.execute(stmt)).mappings().one_or_none()
@@ -176,10 +174,12 @@ class SqlGenerationRepository:
         task_id: uuid.UUID | None = None,
         root_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
+        inherited: Inheritance = (),
     ) -> tuple[GenerationJob, ...]:
-        stmt = scope_to_owner(select(generation_jobs_table), _JOBS.owner_user_id, owner)
+        own = owner_conditions(_JOBS.owner_user_id, owner)
         if conversation_id is not None:
-            stmt = stmt.where(_JOBS.conversation_id == conversation_id)
+            own.append(_JOBS.conversation_id == conversation_id)
+        stmt = select(generation_jobs_table).where(_visible(own, inherited))
         if task_id is not None:
             stmt = stmt.where(_JOBS.task_id == task_id)
         if root_job_id is not None:
@@ -189,57 +189,13 @@ class SqlGenerationRepository:
         if metadata is not None:
             stmt = stmt.where(_JOBS.metadata.contains(dict(metadata)))
         if before is not None:
-            anchor = await self.get(before, owner=owner)
+            # 锚点与本页同一个可见范围：按对话翻页时，上一页最后一条可能是继承来的。
+            anchor = await self.get(before, owner=owner, inherited=inherited)
             stmt = stmt.where(tuple_(_JOBS.created_at, _JOBS.id) < (anchor.created_at, anchor.id))
         stmt = stmt.order_by(_JOBS.created_at.desc(), _JOBS.id.desc())
         async with self._engine.connect() as conn:
             rows = (await conn.execute(stmt.limit(limit))).mappings().all()
         return tuple(_job_from_row(row) for row in rows)
-
-    async def copy_completed_to_fork(
-        self,
-        *,
-        source_conversation_id: uuid.UUID,
-        target_conversation_id: uuid.UUID,
-        owner: uuid.UUID,
-        task_id: uuid.UUID | None,
-    ) -> int:
-        eligible = [
-            _JOBS.conversation_id == source_conversation_id,
-            _JOBS.status == STATUS_COMPLETED,
-            # 参考片段是切给模型看的中间素材，桶上配了过期规则，成片一出就没用，拷过去迟早是死地址。
-            ~and_(_JOBS.kind == KIND_CLIP, _JOBS.request["purpose"].astext == CLIP_REFERENCE),
-        ]
-        async with self._engine.begin() as conn:
-            picked = (await conn.execute(select(_JOBS.id).where(*eligible))).scalars().all()
-            if not picked:
-                return 0
-            # 新旧 id 对照表：衍生记录的原作号要换成新根的 id，只能先把新 id 定下来再拷。
-            # 同一份对照表 join 两次（本行、本行的根），VALUES 不能复用同一个名字。
-            mapping = {old: uuid.uuid4() for old in picked}
-            fresh = _id_values("fresh", mapping)
-            roots = _id_values("fresh_roots", mapping)
-            copied = {
-                "id": fresh.c.new_id,
-                "owner_user_id": literal(owner, Uuid),
-                "api_key_id": null(),
-                "conversation_id": literal(target_conversation_id, Uuid),
-                "task_id": null() if task_id is None else literal(task_id, Uuid),
-                "root_job_id": roots.c.new_id,
-            }
-            columns = list(generation_jobs_table.c.keys())
-            source = (
-                select(*(copied.get(name, generation_jobs_table.c[name]) for name in columns))
-                .select_from(
-                    generation_jobs_table.join(fresh, fresh.c.old_id == _JOBS.id).outerjoin(
-                        roots, roots.c.old_id == _JOBS.root_job_id
-                    )
-                )
-                # 根不在选中集合里的衍生记录不拷，不留悬空的原作号。
-                .where(*eligible, or_(_JOBS.root_job_id.is_(None), roots.c.new_id.is_not(None)))
-            )
-            result = await conn.execute(generation_jobs_table.insert().from_select(columns, source))
-        return result.rowcount
 
     async def in_flight_by_conversation(
         self, conversation_ids: Sequence[uuid.UUID], *, kind: GenerationKind
@@ -395,11 +351,36 @@ class SqlGenerationRepository:
         return _job_from_row(row)
 
 
-def _id_values(name: str, mapping: Mapping[uuid.UUID, uuid.UUID]) -> Values:
-    """把新旧 id 对照表变成一段可 join 的 VALUES：``old_id`` 是源行，``new_id`` 是副本行。"""
+_REFERENCE_CLIP: Final = and_(
+    _JOBS.kind == KIND_CLIP, _JOBS.request["purpose"].astext == CLIP_REFERENCE
+)
+"""参考片段：切给模型看的中间素材，桶上按前缀配了过期规则，不随分叉继承。"""
 
-    return values(column("old_id", Uuid), column("new_id", Uuid), name=name).data(
-        list(mapping.items())
+
+def _visible(own: Sequence[ColumnElement[bool]], inherited: Inheritance) -> ColumnElement[bool]:
+    """按属主收敛的自己那一份，并上经这组边界对继承来的；没有继承就只剩前者。"""
+
+    mine = and_(true(), *own)
+    if not inherited:
+        return mine
+    return or_(mine, _inherited(inherited))
+
+
+def _inherited(inherited: Inheritance) -> ColumnElement[bool]:
+    """经分叉继承的记录：某个祖先名下已完成、不是参考片段、完成时刻不晚于它的边界。
+
+    规则与 ``models.inherited_through`` 相同。边界对逐条展开成 OR，而不是去 join 一段 VALUES：
+    挂在 OR 下的相关子查询用不上按对话的索引，展开后每一支都能走 ``conversation_id`` 索引。"""
+
+    return and_(
+        _JOBS.status == STATUS_COMPLETED,
+        ~_REFERENCE_CLIP,
+        or_(
+            *(
+                and_(_JOBS.conversation_id == ancestor, _JOBS.finished_at <= boundary)
+                for ancestor, boundary in inherited
+            )
+        ),
     )
 
 

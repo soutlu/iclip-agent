@@ -9,6 +9,13 @@ from typing import Any
 
 from procrastinate.testing import InMemoryConnector
 
+from iclip.config import (
+    ImageGenerationSection,
+    ImageModelSection,
+    MediaGenerationSection,
+    RuntimeConfig,
+    VideoGenerationSection,
+)
 from iclip.domains.generation.models import (
     STATUS_COMPLETED,
     STATUS_FAILED,
@@ -19,6 +26,8 @@ from iclip.domains.generation.models import (
     GenerationKind,
     GenerationStatus,
     InFlightPhase,
+    Inheritance,
+    inherited_through,
 )
 from iclip.domains.generation.provider import (
     ProviderError,
@@ -33,7 +42,9 @@ from iclip.domains.generation.schemas import (
     ImageGenerationIn,
     VideoGenerationIn,
 )
+from iclip.domains.identity.public import Principal
 from iclip.platform.object_store.store import StoredObject
+from tests.helpers.app import make_runtime_config
 
 FAKE_VIDEO_PROVIDER = "video_fake"
 FAKE_IMAGE_PROVIDER = "image_fake"
@@ -107,6 +118,7 @@ def make_job(
     provider_snapshot: dict[str, Any] | None = None,
     submitted_at: datetime | None = None,
     created_at: datetime | None = None,
+    finished_at: datetime | None = None,
     owner_user_id: uuid.UUID | None = None,
     conversation_id: uuid.UUID | None = None,
     metadata: dict[str, Any] | None = None,
@@ -143,7 +155,7 @@ def make_job(
         created_at=created_at or now,
         updated_at=now,
         submitted_at=submitted_at,
-        finished_at=None,
+        finished_at=finished_at,
     )
 
 
@@ -157,11 +169,15 @@ class InMemoryGenerationRepository:
         self.jobs[job.id] = job
         return job
 
-    async def get(self, job_id: uuid.UUID, *, owner: uuid.UUID | None) -> GenerationJob:
+    async def get(
+        self, job_id: uuid.UUID, *, owner: uuid.UUID | None, inherited: Inheritance = ()
+    ) -> GenerationJob:
         from iclip.common.errors import NotFound
 
         job = self.jobs.get(job_id)
-        if job is None or (owner is not None and job.owner_user_id != owner):
+        if job is None or not (
+            owner is None or job.owner_user_id == owner or inherited_through(job, inherited)
+        ):
             raise NotFound(f"没有这次生成: {job_id}")
         return job
 
@@ -176,12 +192,18 @@ class InMemoryGenerationRepository:
         task_id: uuid.UUID | None = None,
         root_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
+        inherited: Inheritance = (),
     ) -> tuple[GenerationJob, ...]:
         rows = [
             job
             for job in self.jobs.values()
-            if (owner is None or job.owner_user_id == owner)
-            and (conversation_id is None or job.conversation_id == conversation_id)
+            if (
+                (
+                    (owner is None or job.owner_user_id == owner)
+                    and (conversation_id is None or job.conversation_id == conversation_id)
+                )
+                or inherited_through(job, inherited)
+            )
             and (task_id is None or job.task_id == task_id)
             and (root_job_id is None or job.root_job_id == root_job_id)
         ]
@@ -195,24 +217,12 @@ class InMemoryGenerationRepository:
                 and all(job.metadata.get(key) == value for key, value in metadata.items())
             ]
         if before is not None:
-            anchor = await self.get(before, owner=owner)
+            anchor = await self.get(before, owner=owner, inherited=inherited)
             rows = [
                 job for job in rows if (job.created_at, job.id) < (anchor.created_at, anchor.id)
             ]
         rows.sort(key=lambda job: (job.created_at, job.id), reverse=True)
         return tuple(rows[:limit])
-
-    async def copy_completed_to_fork(
-        self,
-        *,
-        source_conversation_id: uuid.UUID,
-        target_conversation_id: uuid.UUID,
-        owner: uuid.UUID,
-        task_id: uuid.UUID | None,
-    ) -> int:
-        """分叉复制的规则只由 Postgres 仓储的集成测试覆盖，替身不复刻。"""
-
-        raise AssertionError("unit 层不走分叉复制")
 
     async def mark_submitting(self, job_id: uuid.UUID) -> GenerationJob:
         return self._replace(job_id, status=STATUS_SUBMITTING)
@@ -382,6 +392,58 @@ def build_queue(
     return queue, connector
 
 
+MEDIA_ENVS = {
+    "OSS_BUCKET": "iclip-test",
+    "OSS_ENDPOINT": "oss-cn-hangzhou.aliyuncs.com",
+    "OSS_ACCESS_KEY_ID": "ak",
+    "OSS_ACCESS_KEY_SECRET": "sk",
+    "OSS_PUBLIC_URL_BASE": "https://cdn.example.test",
+    "VIDEO_SUBMIT_URL": "https://video.test/submit",
+    "VIDEO_STATUS_BASE_URL": "https://video.test/status",
+    "VIDEO_API_KEY": "vk",
+    "IMAGE_API_BASE": "https://image.test/atlas",
+}
+"""开媒体生成要的环境变量；地址都是替身，装配期不外呼。"""
+
+
+def config_with_media() -> RuntimeConfig:
+    """测试运行配置外加媒体生成段：视频一个模型，图片一家。"""
+
+    return make_runtime_config().model_copy(
+        update={
+            "media_generation": MediaGenerationSection(
+                video=VideoGenerationSection(model="seedance", allowed_models=("seedance",)),
+                image=ImageGenerationSection(
+                    env="test",
+                    default="nano_banana_pro",
+                    models={
+                        "nano_banana_pro": ImageModelSection(route="nano-banana-pro", concurrency=4)
+                    },
+                ),
+            ),
+        }
+    )
+
+
+class FixedLineage:
+    """ConversationLineage 替身：各对话的继承边界对与主体读不读得到都预先写死。"""
+
+    def __init__(
+        self,
+        ancestry: Mapping[uuid.UUID, Inheritance] | None = None,
+        *,
+        readable: bool = True,
+    ) -> None:
+        self._ancestry = dict(ancestry or {})
+        self._readable = readable
+
+    async def ancestry(self, conversation_id: uuid.UUID) -> Inheritance:
+        return self._ancestry.get(conversation_id, ())
+
+    async def readable(self, principal: Principal, conversation_id: uuid.UUID) -> bool:
+        return self._readable
+
+
 class MemoryObjectStore:
     """PublicBucket 内存替身。
 
@@ -411,12 +473,15 @@ class MemoryObjectStore:
 
 
 __all__ = [
+    "MEDIA_ENVS",
     "QUEUE_SETTINGS",
+    "FixedLineage",
     "InMemoryGenerationRepository",
     "MemoryObjectStore",
     "ScriptedProvider",
     "build_queue",
     "clip_request",
+    "config_with_media",
     "image_request",
     "make_job",
     "video_request",

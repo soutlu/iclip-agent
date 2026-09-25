@@ -1,31 +1,43 @@
-"""验证对话分叉：副本拷什么、源保持不变、谁分得动、什么时候分不动。
+"""验证对话分叉：副本拷什么、继承什么、源保持不变、谁分得动、什么时候分不动。
 
-这一层的 app 没装媒体生成，出片记录的复制在
-[生成仓储测试](../generation/test_generation_repository_pg.py) 里验。
+默认的 app 没装媒体生成；出片记录的继承另装一个开了媒体生成的 app 走一遍端到端，
+边界、筛选与翻页的细节在 [生成仓储测试](../generation/test_generation_repository_pg.py) 里验。
 """
 
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from typing import NoReturn
 
 import httpx
 import pytest
 from fastapi import FastAPI
+from procrastinate.testing import InMemoryConnector
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 from pydantic_ai_harness.step_persistence import ContinuableSnapshot, RunRecord, StepEvent
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from iclip.app.bootstrap import build_app
 from iclip.common.errors import Conflict, NotFound
 from iclip.domains.conversations.infra_sql import SqlConversationRepository
 from iclip.domains.conversations.service import ConversationService
+from iclip.domains.generation.infra_sql import SqlGenerationRepository
+from iclip.domains.generation.models import GenerationJob
 from iclip.domains.identity.public import Principal
 from iclip.harness.step_store_pg import PgStepStore
 from tests.helpers.app import make_client
 from tests.helpers.auth import register_and_login, set_roles_in_db
-from tests.helpers.pg import connected
+from tests.helpers.generation import (
+    MEDIA_ENVS,
+    MemoryObjectStore,
+    config_with_media,
+    make_job,
+    video_request,
+)
+from tests.helpers.pg import connected, reset_database
 
 URL = "/conversations"
 AGENT_ID = "storyboard"
@@ -166,12 +178,6 @@ async def copy_no_workspace(
     *, source_owner: uuid.UUID, source_id: uuid.UUID, target_owner: uuid.UUID, target_id: uuid.UUID
 ) -> None:
     return None
-
-
-async def copy_no_generations(
-    *, source_id: uuid.UUID, target_id: uuid.UUID, owner: uuid.UUID, task_id: uuid.UUID | None
-) -> int:
-    return 0
 
 
 async def test_fork_carries_history_and_workspace_and_leaves_the_source_alone(
@@ -363,7 +369,6 @@ async def test_start_moving_between_counting_and_seeding_voids_the_fork(
             busy_conversation_ids=_untouched,
             fork_transcript=start,
             copy_workspace=copy_no_workspace,
-            copy_generations=copy_no_generations,
         )
         principal = Principal(
             kind="user", user_id=uuid.UUID(owner), permissions=frozenset(), audit_label="luke"
@@ -404,3 +409,127 @@ async def test_inherited_turns_cannot_be_regenerated(
     copy = (await fork(client, source)).json()["conversation"]["id"]
     retried = await client.post(f"{URL}/{copy}/turns/t1:regenerate", json={})
     assert retried.status_code == 404, retried.text
+
+
+@pytest.fixture
+async def media_app(
+    base_env: None, migrated_pg: str, monkeypatch: pytest.MonkeyPatch
+) -> AsyncGenerator[FastAPI]:
+    """开了媒体生成的 app：对象存储与队列连接器用替身，受理只落库、不外呼。"""
+
+    for name, value in MEDIA_ENVS.items():
+        monkeypatch.setenv(name, value)
+    async with connected(migrated_pg) as conn:
+        await reset_database(conn)
+    engine = create_async_engine(migrated_pg)
+    try:
+        yield build_app(
+            config_with_media(),
+            engine=engine,
+            object_store=MemoryObjectStore(),
+            queue_connector=InMemoryConnector(),
+        )
+    finally:
+        await engine.dispose()
+
+
+async def complete(repo: SqlGenerationRepository, job: GenerationJob, name: str) -> GenerationJob:
+    await repo.mark_submitting(job.id)
+    done = await repo.mark_completed(
+        job.id,
+        output_url=f"https://example.test/{name}.mp4",
+        provider_status="succeeded",
+        provider_snapshot={},
+    )
+    assert done is not None
+    return done
+
+
+async def generation_count(pg_url: str) -> int:
+    async with connected(pg_url) as conn:
+        return int(
+            (await conn.execute(text("SELECT count(*) FROM iclip.generation_jobs"))).scalar_one()
+        )
+
+
+async def listed_ids(client: httpx.AsyncClient, conversation_id: str) -> set[str]:
+    listed = await client.get("/generations", params={"conversationId": conversation_id})
+    assert listed.status_code == 200, listed.text
+    return {item["id"] for item in listed.json()["items"]}
+
+
+async def test_a_fork_inherits_finished_takes_instead_of_copying_them(
+    media_app: FastAPI, pg_url: str
+) -> None:
+    """分叉不往生成表里写一行；副本按对话列记录时带上源在分叉前完成的，剪片时拿它当原作。
+
+    分叉那一刻还在跑的、分叉之后才出的都不归副本，同一个人按属主读得到也不行；
+    读不到副本的人拿副本 id 什么也列不出来。"""
+
+    engine = create_async_engine(pg_url)
+    repo = SqlGenerationRepository(engine)
+    try:
+        async with make_client(media_app) as client:
+            owner = uuid.UUID(await login_as(client, pg_url, username="luke"))
+            source = await open_conversation(client)
+            await seed_turns(pg_url, source, ["第一句"])
+            take = await complete(
+                repo,
+                await repo.create(
+                    make_job(
+                        video_request(), owner_user_id=owner, conversation_id=uuid.UUID(source)
+                    )
+                ),
+                "take",
+            )
+            in_flight = await repo.create(
+                make_job(video_request(), owner_user_id=owner, conversation_id=uuid.UUID(source))
+            )
+            written = await generation_count(pg_url)
+
+            forked = await fork(client, source)
+            assert forked.status_code == 201, forked.text
+            copy = forked.json()["conversation"]["id"]
+            assert await generation_count(pg_url) == written, "分叉不拷出片记录"
+            await complete(repo, in_flight, "in-flight")
+            after = await complete(
+                repo,
+                await repo.create(
+                    make_job(
+                        video_request(), owner_user_id=owner, conversation_id=uuid.UUID(source)
+                    )
+                ),
+                "after",
+            )
+
+            assert await listed_ids(client, copy) == {str(take.id)}
+
+            async def clip_on(root: uuid.UUID) -> httpx.Response:
+                return await client.post(
+                    "/generations/clips",
+                    json={
+                        "purpose": "reference",
+                        "segments": [
+                            {"url": "https://example.test/take.mp4", "start": 1, "end": 3}
+                        ],
+                        "conversationId": copy,
+                        "rootJobId": str(root),
+                    },
+                )
+
+            accepted = await clip_on(take.id)
+            assert accepted.status_code == 202, accepted.text
+            clip = accepted.json()["generation"]
+            assert clip["rootJobId"] == str(take.id), "原作号指源对话那条"
+            for outside in (after.id, in_flight.id):
+                refused = await clip_on(outside)
+                assert refused.status_code == 422, refused.text
+            # 片段还在排队、不可能是继承来的：列得出来就说明它记在副本名下。
+            assert await listed_ids(client, copy) == {str(take.id), clip["id"]}
+            assert clip["id"] not in await listed_ids(client, source)
+
+        async with make_client(media_app) as other:
+            await login_as(other, pg_url, username="mia")
+            assert await listed_ids(other, copy) == set()
+    finally:
+        await engine.dispose()

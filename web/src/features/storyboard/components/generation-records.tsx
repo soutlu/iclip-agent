@@ -11,7 +11,7 @@ import { isShotVideo } from '../generation-metadata'
 import type { Shot } from '../shot-document'
 import { phaseOfStatus } from '../shots'
 import { historyShotOf, type GenerationJob } from '../storyboard.api'
-import { GenerationDownload } from './generation-download'
+import { VideoDownload } from '@/shared/ui/video-download'
 
 /** request 是不透明 JSON，只从里面读两个字串来展示：prompt 与 model。 */
 const promptOf = (job: GenerationJob): string | undefined => {
@@ -128,7 +128,7 @@ function RecordCard({ job, editCount, onEditPrompt, onEditVideo }: RecordCardPro
           {formatDateTime(job.createdAt)}
         </time>
         {phase === 'completed' && job.outputUrl !== null ? (
-          <GenerationDownload url={job.outputUrl} watermarkUrl={job.watermarkOutputUrl} />
+          <VideoDownload jobId={job.id} url={job.outputUrl} watermarkUrl={job.watermarkOutputUrl} />
         ) : null}
         <IconButton
           aria-expanded={open}

@@ -724,8 +724,8 @@ export type ConversationFilesOut = {
  *
  * 从源对话的第 ``turn`` 轮分叉出一段新对话，归调用者所有。
  *
- * 对话 id 由服务端铸：分叉先把工作区、素材与出片记录拷进新命名空间，最后才落对话行，
- * 没有可供幂等重放的位置。
+ * 对话 id 由服务端铸：分叉先把工作区与素材拷进新命名空间，最后才落对话行，没有可供幂等
+ * 重放的位置。出片记录不拷，副本按血缘继承。
  */
 export type ConversationForkIn = {
   /**
@@ -973,6 +973,38 @@ export type ErrorModel = {
     | {
         [key: string]: string
       }
+}
+
+/**
+ * FaceOut
+ *
+ * 卡面放哪一条：这一镜最新的成片，没有成片就是最新一次出片。
+ */
+export type FaceOut = {
+  /**
+   * Createdat
+   */
+  createdAt: string
+  /**
+   * Durationms
+   */
+  durationMs: number | null
+  /**
+   * Jobid
+   */
+  jobId: string
+  /**
+   * Kind
+   */
+  kind: 'take' | 'master'
+  /**
+   * Outputurl
+   */
+  outputUrl: string
+  /**
+   * Watermarkoutputurl
+   */
+  watermarkOutputUrl: string | null
 }
 
 /**
@@ -1293,6 +1325,125 @@ export type ItemsRemoveOp = {
 }
 
 /**
+ * LibraryAuthorOut
+ */
+export type LibraryAuthorOut = {
+  /**
+   * Count
+   */
+  count: number
+  /**
+   * Username
+   */
+  userName: string
+}
+
+/**
+ * LibraryAuthorsOut
+ */
+export type LibraryAuthorsOut = {
+  /**
+   * Items
+   */
+  items: Array<LibraryAuthorOut>
+}
+
+/**
+ * LibraryVideoDetailOut
+ */
+export type LibraryVideoDetailOut = {
+  /**
+   * Siblings
+   */
+  siblings: Array<LibraryVideoOut>
+  /**
+   * Takes
+   */
+  takes: Array<TakeOut>
+  video: LibraryVideoOut
+}
+
+/**
+ * LibraryVideoOut
+ *
+ * 资料库的一张卡：一镜，即（对话，镜号）下的全部成功出片；没有镜号的出片一条一张。
+ */
+export type LibraryVideoOut = {
+  /**
+   * Agentid
+   */
+  agentId: string | null
+  /**
+   * Conversationid
+   */
+  conversationId: string | null
+  face: FaceOut
+  /**
+   * Id
+   */
+  id: string
+  /**
+   * Shotindex
+   */
+  shotIndex: number | null
+  take: TakeOut
+  /**
+   * Takecount
+   */
+  takeCount: number
+  /**
+   * Taskid
+   */
+  taskId: string | null
+  /**
+   * Title
+   */
+  title: string | null
+}
+
+/**
+ * LibraryVideosOut
+ */
+export type LibraryVideosOut = {
+  /**
+   * Items
+   */
+  items: Array<LibraryVideoOut>
+  /**
+   * Nextcursor
+   */
+  nextCursor: string | null
+  /**
+   * Total
+   */
+  total: number | null
+}
+
+/**
+ * MasterOut
+ *
+ * 挂在一次出片名下的成片（视频编辑确认合成的那条）。
+ */
+export type MasterOut = {
+  /**
+   * Createdat
+   */
+  createdAt: string
+  /**
+   * Durationms
+   */
+  durationMs: number | null
+  /**
+   * Id
+   */
+  id: string
+  /**
+   * Outputurl
+   */
+  outputUrl: string
+}
+
+/**
  * MetaMergeOp
  */
 export type MetaMergeOp = {
@@ -1361,6 +1512,10 @@ export type MetricsOut = {
    */
   deliveredOrphanConversations: number
   /**
+   * Deliveredshots
+   */
+  deliveredShots: number
+  /**
    * Deliveredtasks
    */
   deliveredTasks: number
@@ -1370,6 +1525,16 @@ export type MetricsOut = {
    * 成片件数：有成片的需求单各一件，加没挂需求单却有成片的对话各一件。
    */
   readonly deliveries: number
+  /**
+   * Effectiverate
+   *
+   * 有效率：有效镜占出片镜的比例。
+   */
+  readonly effectiveRate: number | null
+  /**
+   * Effectiveshots
+   */
+  effectiveShots: number
   /**
    * Onetakerate
    *
@@ -1638,6 +1803,46 @@ export type RunStatusOut = {
 }
 
 /**
+ * ScriptCutOut
+ *
+ * 一镜：起止秒、正文、正文里引用的参考图编号（``@ImageN`` 的 N，按首次出现顺序）。
+ */
+export type ScriptCutOut = {
+  /**
+   * End
+   */
+  end: number
+  /**
+   * Imageindexes
+   */
+  imageIndexes: Array<number>
+  /**
+   * Prompt
+   */
+  prompt: string
+  /**
+   * Start
+   */
+  start: number
+}
+
+/**
+ * ScriptOut
+ *
+ * 结构化的镜头组：全局设定加逐镜时间线。
+ */
+export type ScriptOut = {
+  /**
+   * Globalsettings
+   */
+  globalSettings: string
+  /**
+   * Timeline
+   */
+  timeline: Array<ScriptCutOut>
+}
+
+/**
  * ShotOut
  */
 export type ShotOut = {
@@ -1645,6 +1850,10 @@ export type ShotOut = {
    * Attempts
    */
   attempts: number
+  /**
+   * Effective
+   */
+  effective: boolean
   /**
    * Firstat
    */
@@ -1875,6 +2084,67 @@ export type SummaryOut = {
    * Users
    */
   users: Array<UserMetricsOut>
+}
+
+/**
+ * TakeOut
+ *
+ * 一次成功出片。参数与脚本照出片那一刻的请求。
+ */
+export type TakeOut = {
+  /**
+   * Aspectratio
+   */
+  aspectRatio: string | null
+  /**
+   * Createdat
+   */
+  createdAt: string
+  /**
+   * Generateaudio
+   */
+  generateAudio: boolean | null
+  /**
+   * Id
+   */
+  id: string
+  /**
+   * Masters
+   */
+  masters: Array<MasterOut>
+  /**
+   * Model
+   */
+  model: string | null
+  /**
+   * Outputurl
+   */
+  outputUrl: string
+  /**
+   * Prompt
+   */
+  prompt: string
+  /**
+   * Referenceimageurls
+   */
+  referenceImageUrls: Array<string>
+  /**
+   * Resolution
+   */
+  resolution: string | null
+  script: ScriptOut | null
+  /**
+   * Seconds
+   */
+  seconds: number | null
+  /**
+   * Username
+   */
+  userName: string | null
+  /**
+   * Watermarkoutputurl
+   */
+  watermarkOutputUrl: string | null
 }
 
 /**
@@ -2364,6 +2634,26 @@ export type ToolFrame = {
    * View
    */
   view?: string | null
+}
+
+/**
+ * TrackingEventIn
+ *
+ * 一条事件。主语按事件名规定：``video.downloaded`` 必带 ``jobId``、不带 ``conversationId``。
+ */
+export type TrackingEventIn = {
+  /**
+   * Conversationid
+   */
+  conversationId?: string | null
+  /**
+   * Jobid
+   */
+  jobId?: string | null
+  /**
+   * Name
+   */
+  name: 'video.downloaded'
 }
 
 /**
@@ -3170,7 +3460,7 @@ export type VideoSearchOut = {
 /**
  * VideoShotIn
  *
- * 结构化的镜头组：全局设定加逐镜时间线。发给模型的正文由服务端按 shot_prompt 的规则拼。
+ * 结构化的镜头组：全局设定加逐镜时间线。发给模型的正文由服务端按 common.shot_prompt 的规则拼。
  */
 export type VideoShotIn = {
   /**
@@ -5054,6 +5344,111 @@ export type SearchVideosInspirationsVideosSearchPostResponses = {
 export type SearchVideosInspirationsVideosSearchPostResponse =
   SearchVideosInspirationsVideosSearchPostResponses[keyof SearchVideosInspirationsVideosSearchPostResponses]
 
+export type AuthorsLibraryAuthorsGetData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/library/authors'
+}
+
+export type AuthorsLibraryAuthorsGetResponses = {
+  /**
+   * Successful Response
+   */
+  200: LibraryAuthorsOut
+}
+
+export type AuthorsLibraryAuthorsGetResponse =
+  AuthorsLibraryAuthorsGetResponses[keyof AuthorsLibraryAuthorsGetResponses]
+
+export type VideosLibraryVideosGetData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Username
+     */
+    userName?: string | null
+    /**
+     * Since
+     */
+    since?: string | null
+    /**
+     * Until
+     */
+    until?: string | null
+    /**
+     * Orientation
+     */
+    orientation?: 'portrait' | 'landscape' | null
+    /**
+     * Q
+     */
+    q?: string | null
+    /**
+     * Limit
+     */
+    limit?: number
+    /**
+     * Cursor
+     */
+    cursor?: string | null
+  }
+  url: '/library/videos'
+}
+
+export type VideosLibraryVideosGetErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type VideosLibraryVideosGetError =
+  VideosLibraryVideosGetErrors[keyof VideosLibraryVideosGetErrors]
+
+export type VideosLibraryVideosGetResponses = {
+  /**
+   * Successful Response
+   */
+  200: LibraryVideosOut
+}
+
+export type VideosLibraryVideosGetResponse =
+  VideosLibraryVideosGetResponses[keyof VideosLibraryVideosGetResponses]
+
+export type VideoLibraryVideosVideoIdGetData = {
+  body?: never
+  path: {
+    /**
+     * Video Id
+     */
+    video_id: string
+  }
+  query?: never
+  url: '/library/videos/{video_id}'
+}
+
+export type VideoLibraryVideosVideoIdGetErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type VideoLibraryVideosVideoIdGetError =
+  VideoLibraryVideosVideoIdGetErrors[keyof VideoLibraryVideosVideoIdGetErrors]
+
+export type VideoLibraryVideosVideoIdGetResponses = {
+  /**
+   * Successful Response
+   */
+  200: LibraryVideoDetailOut
+}
+
+export type VideoLibraryVideosVideoIdGetResponse =
+  VideoLibraryVideosVideoIdGetResponses[keyof VideoLibraryVideosVideoIdGetResponses]
+
 export type ListTasksTasksGetData = {
   body?: never
   path?: never
@@ -5317,6 +5712,33 @@ export type WithdrawTaskTasksTaskIdWithdrawPostResponses = {
 
 export type WithdrawTaskTasksTaskIdWithdrawPostResponse =
   WithdrawTaskTasksTaskIdWithdrawPostResponses[keyof WithdrawTaskTasksTaskIdWithdrawPostResponses]
+
+export type RecordEventTrackingEventsPostData = {
+  body: TrackingEventIn
+  path?: never
+  query?: never
+  url: '/tracking/events'
+}
+
+export type RecordEventTrackingEventsPostErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type RecordEventTrackingEventsPostError =
+  RecordEventTrackingEventsPostErrors[keyof RecordEventTrackingEventsPostErrors]
+
+export type RecordEventTrackingEventsPostResponses = {
+  /**
+   * Successful Response
+   */
+  204: void
+}
+
+export type RecordEventTrackingEventsPostResponse =
+  RecordEventTrackingEventsPostResponses[keyof RecordEventTrackingEventsPostResponses]
 
 export type SignUploadUploadsSignPostData = {
   body: UploadSignIn

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from '@/shared/icons'
+import { imageThumbnailUrl } from '@/shared/lib/media-url'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { MediaFallback } from '@/shared/ui/media-fallback'
@@ -9,10 +10,14 @@ import type { Task } from '../tasks.api'
 type TaskProduct = Task['inputs']['products'][number]
 const imageLabel = (product: TaskProduct) => `${product.name.trim() || product.style_no} 商品图`
 
+// 按 2 倍显示尺寸取图：封面只保证盖满 196×180 的框，裁切仍由 object-cover 做；参考图按 28px 高等比缩放。
+const COVER_PROCESS = 'resize,m_mfit,w_400,h_360/format,webp'
+const REFERENCE_PROCESS = 'resize,h_56/format,webp'
+
 export function TaskCardMedia({ products }: { products: TaskProduct[] }) {
   const cover = taskCoverOf(products)
   return (
-    <span className="task-card-media relative block w-full overflow-hidden rounded-md bg-surface-container-low">
+    <span className="task-card-media task-card-cover relative block w-full overflow-hidden rounded-md bg-surface-container-low">
       <ProductImage alt={cover ? imageLabel(cover.product) : '需求单商品图'} src={cover?.url} />
     </span>
   )
@@ -125,6 +130,8 @@ function ProductImage({
   onLoad?: (() => void) | undefined
 }) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null)
+  // 封面到达后淡入；参考条一排缩略图同时淡入会闪，直接显示。
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null)
   const failed = src !== undefined && failedSrc === src
 
   if (failed) return <MediaFallback className="size-full" compact={compact} kind="image" />
@@ -151,12 +158,19 @@ function ProductImage({
   return (
     <img
       alt={alt}
-      className={compact ? 'task-card-reference-image object-contain' : 'size-full object-cover'}
+      className={
+        compact
+          ? 'task-card-reference-image object-contain'
+          : cn('task-card-cover-image size-full object-cover', loadedSrc !== src && 'opacity-0')
+      }
       decoding="async"
       loading="lazy"
-      onLoad={onLoad}
+      onLoad={() => {
+        if (!compact) setLoadedSrc(src)
+        onLoad?.()
+      }}
       onError={() => setFailedSrc(src)}
-      src={src}
+      src={imageThumbnailUrl(src, compact ? REFERENCE_PROCESS : COVER_PROCESS)}
     />
   )
 }

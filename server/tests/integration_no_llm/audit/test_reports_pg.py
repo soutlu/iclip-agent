@@ -24,13 +24,16 @@ from iclip.domains.audit.models import (
 )
 from iclip.domains.audit.reports_pg import PgAuditReports
 from iclip.domains.generation.models import STATUS_COMPLETED, STATUS_FAILED, STATUS_SUBMITTED
-from iclip.domains.generation.schemas import KIND_VIDEO
+from iclip.domains.generation.schemas import KIND_CLIP, KIND_VIDEO
+from iclip.domains.tracking.models import VIDEO_DOWNLOADED
 from tests.helpers.pg import reset_database
 
 BASE = datetime.now(UTC).replace(microsecond=0)
 SHAN = "Shan.Hu"
 DONNIE = "Donnie.Liu"
 EDNA = "Edna.Li"
+MASTER = "master"
+"""ClipPurpose 的成片取值；生成域没有单独的常量。"""
 
 
 def ago(**delta: float) -> datetime:
@@ -38,7 +41,8 @@ def ago(**delta: float) -> datetime:
 
 
 class Seed:
-    """一组固定的数据：三个人（一个只跑过没出片）、两张需求单、八段对话、八条带镜号的视频与一条没镜号的。"""
+    """一组固定的数据：三个人（一个只跑过没出片）、两张需求单、八段对话、八条带镜号的视频与一条没镜号的，
+    外加 C1 两镜各被下载过（镜 1 下的是出片、两个人各一次，镜 2 下的是它名下的成片）。"""
 
     def __init__(self) -> None:
         self.shan = uuid.uuid4()
@@ -54,6 +58,9 @@ class Seed:
         self.c2_created_at = ago(hours=5)
         self.missing_shot_video = uuid.uuid4()
         self.stuck_video = uuid.uuid4()
+        self.c1_shot1_video = uuid.uuid4()
+        self.c1_shot2_video = uuid.uuid4()
+        self.c1_shot2_master = uuid.uuid4()
 
     async def plant(self, engine: AsyncEngine) -> None:
         async with engine.begin() as conn:
@@ -165,6 +172,51 @@ class Seed:
                     },
                 )
 
+            async def master(
+                master_id: uuid.UUID,
+                conversation_id: uuid.UUID,
+                *,
+                root: uuid.UUID,
+                created_at: datetime,
+            ) -> None:
+                """视频编辑确认合成的成片：衍生记录，挂在 ``root`` 那次出片名下。"""
+
+                await conn.execute(
+                    text(
+                        "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id,"
+                        " kind, provider, request, status, metadata, root_job_id, output_url,"
+                        " created_at, updated_at, submitted_at, finished_at)"
+                        " VALUES (:id, :owner, :conversation_id, :kind, 'test',"
+                        " CAST(:request AS jsonb), :status, CAST(:metadata AS jsonb),"
+                        " :root, 'https://example.test/master.mp4', :at, :at, :at, :at)"
+                    ),
+                    {
+                        "id": master_id,
+                        "owner": self.shan,
+                        "conversation_id": conversation_id,
+                        "kind": KIND_CLIP,
+                        "request": json.dumps({"purpose": MASTER, "segments": []}),
+                        "status": STATUS_COMPLETED,
+                        "metadata": json.dumps({"editId": "e1"}),
+                        "root": root,
+                        "at": created_at,
+                    },
+                )
+
+            async def download(job_id: uuid.UUID, *, user_id: uuid.UUID) -> None:
+                await conn.execute(
+                    text(
+                        "INSERT INTO iclip.tracking_events (id, name, job_id, user_id, occurred_at)"
+                        " VALUES (:id, :name, :job_id, :user_id, now())"
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "name": VIDEO_DOWNLOADED,
+                        "job_id": job_id,
+                        "user_id": user_id,
+                    },
+                )
+
             async def usage(
                 conversation_id: uuid.UUID,
                 model: str,
@@ -214,6 +266,7 @@ class Seed:
                 created_at=ago(minutes=100),
                 submitted_at=ago(minutes=99),
                 finished_at=ago(minutes=90),
+                video_id=self.c1_shot1_video,
             )
             await video(
                 self.c1,
@@ -240,6 +293,7 @@ class Seed:
                 created_at=ago(minutes=70),
                 submitted_at=ago(minutes=69),
                 finished_at=ago(minutes=60),
+                video_id=self.c1_shot2_video,
             )
             await video(
                 self.c1,
@@ -275,6 +329,13 @@ class Seed:
                     "editEnd": 4,
                 },
             )
+            # 镜 1 的出片被两个人各下载一次，仍只算一镜；镜 2 下载的是名下的成片，算回镜 2。
+            await master(
+                self.c1_shot2_master, self.c1, root=self.c1_shot2_video, created_at=ago(minutes=30)
+            )
+            await download(self.c1_shot1_video, user_id=self.shan)
+            await download(self.c1_shot1_video, user_id=self.donnie)
+            await download(self.c1_shot2_master, user_id=self.shan)
             await usage(
                 self.c1,
                 "m-a",
@@ -614,6 +675,50 @@ async def test_conversations_window_and_filters(reports: PgAuditReports, seed: S
     assert [row.conversation_id for row in in_task] == [seed.c1, seed.c2]
 
 
+async def test_effective_shots_are_downloaded_shots_among_the_delivered(
+    reports: PgAuditReports, seed: Seed
+) -> None:
+    """有效镜是下载过的出片镜，下载成片算它原作所在的镜，同一镜下载几次都只算一镜；没出成的镜
+    （C2 镜 2 悬在上游）不进分母；分母为零的有效率是空。五个维度同一口径。"""
+
+    overall = await reports.overall(Scope())
+    assert (overall.shots, overall.delivered_shots, overall.effective_shots) == (5, 4, 2)
+    assert overall.effective_rate == 0.5
+
+    recent = await reports.overall(Scope(since=ago(hours=2)))
+    assert (recent.delivered_shots, recent.effective_shots) == (2, 2)
+
+    by_user = {row.user_name: row.metrics for row in await reports.by_user(Scope())}
+    assert (by_user[SHAN].delivered_shots, by_user[SHAN].effective_shots) == (3, 2)
+    donnie = by_user[DONNIE]
+    assert (donnie.shots, donnie.delivered_shots, donnie.effective_shots) == (2, 1, 0)
+    assert donnie.effective_rate == 0
+    assert by_user[EDNA].delivered_shots == 0 and by_user[EDNA].effective_rate is None
+
+    [task] = await reports.by_task(Scope())
+    assert (task.metrics.delivered_shots, task.metrics.effective_shots) == (3, 2)
+
+    series = await reports.by_period(
+        Scope(since=ago(days=3)), bucket="day", timezone="Asia/Shanghai"
+    )
+    assert sum(row.metrics.delivered_shots for row in series) == 4
+    assert sum(row.metrics.effective_shots for row in series) == 2
+    quiet = [row.metrics for row in series if row.metrics.shots == 0]
+    assert quiet and all(m.effective_shots == 0 and m.effective_rate is None for m in quiet)
+
+    rows = {
+        row.conversation_id: row
+        for row in await reports.conversations(Scope(), limit=10, after=None)
+    }
+    assert [(shot.shot, shot.effective) for shot in rows[seed.c1].shots] == [(1, True), (2, True)]
+    assert [(shot.shot, shot.effective) for shot in rows[seed.c2].shots] == [
+        (1, False),
+        (2, False),
+    ]
+    assert rows[seed.c1].metrics.effective_rate == 1
+    assert rows[seed.c2].metrics.effective_rate == 0
+
+
 async def test_anomalies_flag_every_agreed_kind(reports: PgAuditReports, seed: Seed) -> None:
     """九种异常各出一条；P90 / P95 门槛按范围现算，三段周期里最长的那段、两罐里多的那罐被标出。"""
 
@@ -730,10 +835,11 @@ async def test_anomaly_counts_share_the_anomaly_judgement(
 async def test_forks_do_not_count_toward_any_metric(
     reports: PgAuditReports, seed: Seed, engine: AsyncEngine
 ) -> None:
-    """副本带着源对话拷来的出片记录，算进去会把原作者的产量重计一遍；它自己跑的也是试验数据。"""
+    """副本继承的出片记在源对话名下、源那边已经数过；副本自己跑的是试验数据，一律不计。
+    下载副本自己出的片也不让任何一镜变有效。"""
 
     before = await reports.overall(Scope())
-    fork_id = uuid.uuid4()
+    fork_id, fork_video = uuid.uuid4(), uuid.uuid4()
     at = ago(hours=1)
     async with engine.begin() as conn:
         await conn.execute(
@@ -753,7 +859,7 @@ async def test_forks_do_not_count_toward_any_metric(
                 " :request, :status, 'https://example.test/copy.mp4', :at, :at, :at, :at)"
             ),
             {
-                "id": uuid.uuid4(),
+                "id": fork_video,
                 "owner": seed.shan,
                 "conversation_id": fork_id,
                 "metadata": json.dumps({"shot": 1}),
@@ -786,6 +892,18 @@ async def test_forks_do_not_count_toward_any_metric(
                 " VALUES (:conversation_id, 'test-model', 9, 900, 90, 9, 90, :at, :at)"
             ),
             {"conversation_id": str(fork_id), "at": at},
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO iclip.tracking_events (id, name, job_id, user_id, occurred_at)"
+                " VALUES (:id, :name, :job_id, :user_id, now())"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "name": VIDEO_DOWNLOADED,
+                "job_id": fork_video,
+                "user_id": seed.shan,
+            },
         )
 
     after = await reports.overall(Scope())

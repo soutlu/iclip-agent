@@ -9,6 +9,7 @@ import {
 } from '@/shared/api/generated/zod.gen'
 import { PERMISSION } from '@/shared/auth/permissions'
 import { auditHandlers } from './audit'
+import { libraryHandlers } from './library'
 import { mockAuthUser, mockGovernor } from './auth-user'
 import {
   addMockCollection,
@@ -496,9 +497,14 @@ export const handlers = [
     })
   }),
 
+  // 埋点只收不回；不校验主语，夹具里的记录 id 不都是 UUID。
+  http.post('*/api/tracking/events', () => new HttpResponse(null, { status: 204 })),
+
   ...workspaceHandlers,
 
   ...transcriptHandlers,
 
   ...auditHandlers,
+
+  ...libraryHandlers,
 ]

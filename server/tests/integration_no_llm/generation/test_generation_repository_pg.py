@@ -1,4 +1,4 @@
-"""验证生成仓储的数据库时钟、JSON 往返、外键和条件更新原子性。"""
+"""验证生成仓储的数据库时钟、JSON 往返、外键、条件更新原子性与分叉继承的读范围。"""
 
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from iclip.common.errors import NotFound
+from iclip.domains.conversations.infra_sql import SqlConversationRepository
+from iclip.domains.conversations.models import Conversation
 from iclip.domains.generation.infra_sql import SqlGenerationRepository
 from iclip.domains.generation.models import (
     STATUS_COMPLETED,
@@ -21,7 +23,7 @@ from iclip.domains.generation.models import (
     STATUS_SUBMITTING,
     GenerationJob,
 )
-from iclip.domains.generation.schemas import GenerationRequest, VideoGenerationIn
+from iclip.domains.generation.schemas import GenerationRequest
 from tests.helpers.generation import clip_request, image_request, make_job, video_request
 from tests.helpers.pg import reset_database
 
@@ -394,131 +396,172 @@ async def _complete(repo: SqlGenerationRepository, job: GenerationJob, url: str)
     return completed
 
 
-async def test_fork_copy_keeps_coordinates_and_clocks_but_changes_owner(
+# --- 分叉继承 -------------------------------------------------------------------
+# 对话行与生成记录都用各自仓储落库，时刻全是数据库时钟：调用的先后就是时刻的先后，
+# 边界两侧的记录因此是真的落在两侧，递归血缘查询也一起测到。
+
+
+async def open_conversation(
+    conversations: SqlConversationRepository,
+    owner: uuid.UUID,
+    *,
+    forked_from: uuid.UUID | None = None,
+) -> Conversation:
+    now = datetime.now(UTC)
+    created, _ = await conversations.create_if_absent(
+        Conversation(
+            id=uuid.uuid4(),
+            owner_user_id=owner,
+            agent_id="storyboard",
+            title="t",
+            title_kind="custom",
+            last_run_id=None,
+            task_id=None,
+            collection_id=None,
+            created_at=now,
+            updated_at=now,
+            forked_from=forked_from,
+            fork_turn=None if forked_from is None else 1,
+        )
+    )
+    return created
+
+
+async def finished(
+    repo: SqlGenerationRepository,
+    owner: uuid.UUID,
+    conversation_id: uuid.UUID,
+    name: str,
+    request: GenerationRequest | None = None,
+    **fields: Any,
+) -> GenerationJob:
+    """在这段对话里出一条已完成的记录，地址按 ``name`` 起。"""
+
+    job = await repo.create(
+        make_job(
+            request or video_request(),
+            owner_user_id=owner,
+            conversation_id=conversation_id,
+            **fields,
+        )
+    )
+    return await _complete(repo, job, f"https://example.test/{name}.mp4")
+
+
+async def test_each_hop_has_its_own_boundary_and_only_finished_takes_are_inherited(
     engine: AsyncEngine,
 ) -> None:
-    """副本的结果条靠这些列定位：坐标原样、时间戳原样，属主换成分叉的人。"""
+    """孙对话继承父对话在孙建立前完成的，和祖父在父建立前完成的；边界不是一刀切在孙的建立时刻。
+
+    分叉那一刻还在跑、之后才完成的不算，失败的与参考片段也不算。"""
 
     repo = SqlGenerationRepository(engine)
+    conversations = SqlConversationRepository(engine)
+    author, forker = await make_user(engine), await make_user(engine)
+    grand = await open_conversation(conversations, author)
+    from_grand = await finished(repo, author, grand.id, "grand-early")
+    parent = await open_conversation(conversations, author, forked_from=grand.id)
+    await finished(repo, author, grand.id, "grand-after-parent")
+    from_parent = await finished(repo, author, parent.id, "parent-early")
+    in_flight = await repo.create(
+        make_job(video_request(), owner_user_id=author, conversation_id=parent.id)
+    )
+    await finished(repo, author, parent.id, "reference", clip_request(root_job_id=from_parent.id))
+    failed = await repo.create(
+        make_job(video_request(), owner_user_id=author, conversation_id=parent.id)
+    )
+    await repo.mark_failed(failed.id, error_code="UPSTREAM_FAILED", error_message="上游拒了")
+    child = await open_conversation(conversations, forker, forked_from=parent.id)
+    await _complete(repo, in_flight, "https://example.test/in-flight.mp4")
+    await finished(repo, author, parent.id, "parent-after-child")
+    own = await finished(repo, forker, child.id, "child-own")
+
+    inheritance = await conversations.ancestry(child.id)
+    assert inheritance == ((parent.id, child.created_at), (grand.id, parent.created_at)), (
+        "近的祖先在前，边界是这条链上它的下一级对话的建立时刻"
+    )
+    listed = await repo.list_for_owner(
+        owner=forker, limit=20, conversation_id=child.id, inherited=inheritance
+    )
+    assert {job.id for job in listed} == {own.id, from_parent.id, from_grand.id}
+    assert {
+        job.id
+        for job in await repo.list_for_owner(owner=forker, limit=20, conversation_id=child.id)
+    } == {own.id}, "不给边界对就只按属主"
+    assert await conversations.ancestry(grand.id) == (), "不是分叉来的没有祖先"
+
+
+async def test_ancestry_walks_through_a_deleted_source(engine: AsyncEngine) -> None:
+    """源对话删成墓碑，副本从它那里继承的出片照旧在。"""
+
+    conversations = SqlConversationRepository(engine)
     author = await make_user(engine)
-    forker = await make_user(engine)
-    source, target = uuid.uuid4(), uuid.uuid4()
-    original = await _complete(
-        repo,
-        await repo.create(
-            make_job(
-                video_request(user_name="小王"),
-                owner_user_id=author,
-                conversation_id=source,
-                metadata={"path": "/video_shot.json", "shot": 2},
-            )
-        ),
-        "https://example.test/shot-2.mp4",
-    )
+    source = await open_conversation(conversations, author)
+    copy = await open_conversation(conversations, author, forked_from=source.id)
+    await conversations.delete(source.id, owner=author)
 
-    assert (
-        await repo.copy_completed_to_fork(
-            source_conversation_id=source,
-            target_conversation_id=target,
-            owner=forker,
-            task_id=None,
-        )
-        == 1
-    )
-
-    copied = (await repo.list_for_owner(owner=forker, limit=10, conversation_id=target))[0]
-    assert copied.id != original.id
-    assert copied.owner_user_id == forker
-    assert copied.api_key_id is None
-    assert copied.conversation_id == target
-    assert copied.metadata == {"path": "/video_shot.json", "shot": 2}
-    assert copied.output_url == original.output_url
-    assert copied.created_at == original.created_at, "时间戳改了会把副本自己出的片压下去"
-    assert copied.finished_at == original.finished_at
-    assert isinstance(copied.request, VideoGenerationIn)
-    assert copied.request.user_name == "小王", "请求是发往上游的输入快照，不改口径"
-    # 源那条一个字没动。
-    assert (await repo.get(original.id, owner=author)).conversation_id == source
+    assert await conversations.ancestry(copy.id) == ((source.id, copy.created_at),)
 
 
-async def test_fork_copy_carries_the_edit_chain_onto_the_new_root(engine: AsyncEngine) -> None:
-    """已完成的独立记录连同它名下的编辑结果与成片一起进副本，原作号换成新根；在途的与参考片段不拷。"""
+async def test_inherited_records_keep_their_facts_and_obey_the_other_filters(
+    engine: AsyncEngine,
+) -> None:
+    """继承只是读得到：属主与所在对话不变。按原作号、种类与坐标筛时，继承来的与自己的一视同仁。"""
 
     repo = SqlGenerationRepository(engine)
-    owner = await make_user(engine)
-    source, target = uuid.uuid4(), uuid.uuid4()
-    root = await _complete(
-        repo,
-        await repo.create(
-            make_job(
-                video_request(), owner_user_id=owner, conversation_id=source, metadata={"shot": 1}
-            )
-        ),
-        "https://example.test/root.mp4",
+    conversations = SqlConversationRepository(engine)
+    author, forker = await make_user(engine), await make_user(engine)
+    source = await open_conversation(conversations, author)
+    root = await finished(repo, author, source.id, "root", metadata={"shot": 1})
+    await finished(repo, author, source.id, "other-shot", metadata={"shot": 2})
+    edited = await finished(repo, author, source.id, "edited", root_job_id=root.id)
+    master = await finished(
+        repo, author, source.id, "master", clip_request(purpose="master", root_job_id=root.id)
     )
-    await repo.create(make_job(video_request(), owner_user_id=owner, conversation_id=source))
-    reference = await _complete(
-        repo,
-        await repo.create(
-            make_job(clip_request(root_job_id=root.id), owner_user_id=owner, conversation_id=source)
-        ),
-        "https://example.test/ref.mp4",
+    copy = await open_conversation(conversations, forker, forked_from=source.id)
+    own_master = await finished(
+        repo, forker, copy.id, "own-master", clip_request(purpose="master", root_job_id=root.id)
     )
-    edited = await _complete(
-        repo,
-        await repo.create(
-            make_job(
-                video_request(),
-                owner_user_id=owner,
-                conversation_id=source,
-                root_job_id=root.id,
-                metadata={"editId": "e1", "editStart": 4, "editEnd": 8},
-            )
-        ),
-        "https://example.test/edited.mp4",
-    )
-    master = await _complete(
-        repo,
-        await repo.create(
-            make_job(
-                clip_request(
-                    purpose="master",
-                    root_job_id=root.id,
-                    segments=[
-                        {"url": "https://example.test/root.mp4", "start": 0, "end": 4},
-                        {"url": "https://example.test/edited.mp4", "start": 0, "end": 4},
-                        {"url": "https://example.test/root.mp4", "start": 8, "end": 15},
-                    ],
-                ),
-                owner_user_id=owner,
-                conversation_id=source,
-            )
-        ),
-        "https://example.test/master.mp4",
-    )
+    inheritance = await conversations.ancestry(copy.id)
 
-    assert (
-        await repo.copy_completed_to_fork(
-            source_conversation_id=source,
-            target_conversation_id=target,
-            owner=owner,
-            task_id=None,
+    async def listed(**filters: Any) -> set[uuid.UUID]:
+        found = await repo.list_for_owner(
+            owner=forker, limit=20, conversation_id=copy.id, inherited=inheritance, **filters
         )
-        == 3
-    )
+        return {job.id for job in found}
 
-    copied = await repo.list_for_owner(owner=owner, limit=10, conversation_id=target)
-    by_url = {job.output_url: job for job in copied}
-    assert set(by_url) == {root.output_url, edited.output_url, master.output_url}, (
-        "参考片段与在途的没拷"
-    )
-    new_root = by_url[root.output_url]
-    assert new_root.root_job_id is None and new_root.id != root.id
-    for url in (edited.output_url, master.output_url):
-        assert by_url[url].root_job_id == new_root.id, "衍生记录的原作号指向副本里的新根"
-    assert by_url[edited.output_url].metadata == {"editId": "e1", "editStart": 4, "editEnd": 8}
-    chain = await repo.list_for_owner(owner=owner, limit=10, root_job_id=new_root.id)
-    assert {job.output_url for job in chain} == {edited.output_url, master.output_url}
-    # 源对话的链一根没动。
-    original_chain = await repo.list_for_owner(owner=owner, limit=10, root_job_id=root.id)
-    assert {job.id for job in original_chain} == {reference.id, edited.id, master.id}
+    assert await listed(root_job_id=root.id) == {edited.id, master.id, own_master.id}
+    assert await listed(kind="video", metadata={"shot": 1}) == {root.id}
+    inherited_root = await repo.get(root.id, owner=forker, inherited=inheritance)
+    assert (inherited_root.conversation_id, inherited_root.owner_user_id) == (source.id, author)
+
+
+async def test_pages_turn_on_an_inherited_anchor_and_reads_stop_at_the_boundary(
+    engine: AsyncEngine,
+) -> None:
+    """按对话翻页时上一页最后一条可能是继承来的，锚点要读得到它；边界之后的仍然读不到。"""
+
+    repo = SqlGenerationRepository(engine)
+    conversations = SqlConversationRepository(engine)
+    author, forker = await make_user(engine), await make_user(engine)
+    source = await open_conversation(conversations, author)
+    older = await finished(repo, author, source.id, "older")
+    newer = await finished(repo, author, source.id, "newer")
+    copy = await open_conversation(conversations, forker, forked_from=source.id)
+    too_late = await finished(repo, author, source.id, "too-late")
+    own = await finished(repo, forker, copy.id, "own")
+    inheritance = await conversations.ancestry(copy.id)
+
+    pages: list[uuid.UUID] = []
+    before: uuid.UUID | None = None
+    while page := await repo.list_for_owner(
+        owner=forker, limit=1, conversation_id=copy.id, before=before, inherited=inheritance
+    ):
+        pages.append(page[0].id)
+        before = page[0].id
+    assert pages == [own.id, newer.id, older.id]
+
+    with pytest.raises(NotFound):
+        await repo.get(newer.id, owner=forker)
+    with pytest.raises(NotFound):
+        await repo.get(too_late.id, owner=forker, inherited=inheritance)

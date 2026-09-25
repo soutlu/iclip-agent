@@ -153,21 +153,6 @@ class CopyConversationWorkspace(Protocol):
     ) -> None: ...
 
 
-class CopyConversationGenerations(Protocol):
-    """把源对话已出片的记录复制到副本名下，返回复制了几条。
-
-    分镜页的结果条按对话 id 查出片记录，不拷它副本打开就是空的。"""
-
-    async def __call__(
-        self,
-        *,
-        source_id: uuid.UUID,
-        target_id: uuid.UUID,
-        owner: uuid.UUID,
-        task_id: uuid.UUID | None,
-    ) -> int: ...
-
-
 ListDerivedFiles = Callable[[uuid.UUID, uuid.UUID], Awaitable[Sequence[DerivedFile]]]
 """列出工作区文件，参数为 (属主, 对话 id)。"""
 
@@ -292,13 +277,11 @@ class ConversationService:
         busy_conversation_ids: BusyConversationIds,
         fork_transcript: ForkTranscript,
         copy_workspace: CopyConversationWorkspace,
-        copy_generations: CopyConversationGenerations,
     ) -> None:
         self._repo = repo
         self._claim_task = claim_task
         self._fork_transcript = fork_transcript
         self._copy_workspace = copy_workspace
-        self._copy_generations = copy_generations
         self._activities_of = activities_of
         self._busy_conversation_ids = busy_conversation_ids
         self._generate_title = generate_title
@@ -324,6 +307,15 @@ class ConversationService:
         if principal.has(MANAGE_PERMISSION):
             return await self._repo.get(conversation_id, owner=None, include_deleted=True)
         return await self._repo.get(conversation_id, owner=visible_owner_incl_act_as(principal))
+
+    async def readable(self, principal: Principal, conversation_id: uuid.UUID) -> bool:
+        """主体读不读得到这段对话，口径同其他读路径；给别的域判「读得到才放开」用。"""
+
+        try:
+            await self._readable(principal, conversation_id)
+        except NotFound:
+            return False
+        return True
 
     async def files(
         self, principal: Principal, conversation_id: uuid.UUID
@@ -418,11 +410,10 @@ class ConversationService:
         可见范围与其他读路径一致，所以治理者连墓碑也能分叉。源没闲下来就拒绝：那时最新快照
         可能是半截的，轮号会变。
 
-        副本不挂源的需求单：挂上就是认领，那会动到别人的单子。
+        副本不挂源的需求单：挂上就是认领，那会动到别人的单子。出片记录不拷，副本按血缘继承。
 
-        写五处（工作区、素材、出片记录、种子快照、对话行），各自独立提交，对话行最后写。
-        中途失败的副本进不了任何对话列表，也读不出
-        transcript；拷进去的出片记录按属主仍查得到，是查得到却没人用的孤儿行。
+        写四处（工作区、素材、种子快照、对话行），各自独立提交，对话行最后写。
+        中途失败的副本进不了任何对话列表，也读不出 transcript。
         """
 
         source = await self._readable(principal, source_id)
@@ -440,9 +431,6 @@ class ConversationService:
             source_id=source_id,
             target_owner=principal.user_id,
             target_id=target_id,
-        )
-        await self._copy_generations(
-            source_id=source_id, target_id=target_id, owner=principal.user_id, task_id=None
         )
         if not await self._fork_transcript.seed(
             source_id=source_id, target_id=target_id, turn=turn

@@ -72,6 +72,10 @@ class MetricsOut(CamelModel):
     attempts: int
     one_take_shots: int
     """只出了一条且成了的镜数。"""
+    delivered_shots: int
+    """出片镜数：至少出成一条的镜。"""
+    effective_shots: int
+    """有效镜数：有人下载过的镜；下载的是衍生记录时，按原作号算到原作所在的镜。"""
     runs: int
     """agent 运行次数，按发起人归属。"""
     delivered_conversations: int
@@ -104,6 +108,13 @@ class MetricsOut(CamelModel):
 
     @computed_field
     @property
+    def effective_rate(self) -> float | None:
+        """有效率：有效镜占出片镜的比例。"""
+
+        return self.effective_shots / self.delivered_shots if self.delivered_shots else None
+
+    @computed_field
+    @property
     def tokens_per_delivery(self) -> float | None:
         return self.usage.total_tokens / self.deliveries if self.deliveries else None
 
@@ -116,6 +127,8 @@ EMPTY_METRICS: Final = MetricsOut(
     shots=0,
     attempts=0,
     one_take_shots=0,
+    delivered_shots=0,
+    effective_shots=0,
     runs=0,
     delivered_conversations=0,
     cycle_seconds=None,
@@ -169,6 +182,8 @@ class ShotOut(CamelModel):
     shot: int
     attempts: int
     one_take: bool
+    effective: bool
+    """有人下载过这一镜的出片，或挂在它们名下的衍生记录。"""
     first_at: datetime
     last_at: datetime
 

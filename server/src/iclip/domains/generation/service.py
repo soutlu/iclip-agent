@@ -5,12 +5,18 @@ from __future__ import annotations
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Protocol
 
 import structlog
 
 from iclip.common.errors import NotFound, ValidationFailed
-from iclip.domains.generation.models import STATUS_PENDING, GenerationJob, InFlightPhase
+from iclip.domains.generation.models import (
+    STATUS_PENDING,
+    GenerationJob,
+    InFlightPhase,
+    Inheritance,
+    inherited_through,
+)
 from iclip.domains.generation.provider import ImageModelSpec
 from iclip.domains.generation.queue import GenerationQueue
 from iclip.domains.generation.repository import GenerationRepository
@@ -31,6 +37,18 @@ ClearCompletion = Callable[[uuid.UUID, uuid.UUID], Awaitable[None]]
 """按 (对话 id, 属主) 取消那段对话的收尾标记；实现由组合根注入，本域不认识对话表。"""
 
 
+class ConversationLineage(Protocol):
+    """按对话读记录时要知道的两件对话事实；实现由组合根接到对话域上，本域不认识对话表。"""
+
+    async def ancestry(self, conversation_id: uuid.UUID) -> Inheritance:
+        """这段对话的继承边界对，近的祖先在前；不是分叉来的给空。祖先删没删都照走。"""
+        ...
+
+    async def readable(self, principal: Principal, conversation_id: uuid.UUID) -> bool:
+        """主体读不读得到这段对话，与对话域读路径同一口径。"""
+        ...
+
+
 class GenerationService:
     """生成请求受理与记录查询。"""
 
@@ -46,6 +64,7 @@ class GenerationService:
         image_models: Mapping[str, ImageModelSpec],
         image_default_model: str,
         clear_completion: ClearCompletion,
+        lineage: ConversationLineage,
     ) -> None:
         """收下装配期确定的模型集合；此层不持有或调用 Provider 实例。
 
@@ -60,26 +79,18 @@ class GenerationService:
         self._image_models = image_models
         self._image_default_model = image_default_model
         self._clear_completion = clear_completion
+        self._lineage = lineage
 
-    async def copy_to_fork(
-        self,
-        *,
-        source_conversation_id: uuid.UUID,
-        target_conversation_id: uuid.UUID,
-        owner: uuid.UUID,
-        task_id: uuid.UUID | None,
-    ) -> int:
-        """把源对话已出片的记录复制到副本名下，返回复制了几条。
+    async def _inheritance(
+        self, principal: Principal, conversation_id: uuid.UUID | None
+    ) -> Inheritance:
+        """主体读得到这段对话时，它经分叉继承的边界对；没给对话或读不到就是空，只剩属主口径。
 
-        不收 Principal：授权在对话域做完了——能分叉就说明这个人读得到源对话，也读得到
-        它的出片记录。复制只落记录，不排队、不调 Provider、不产生对外调用。"""
+        读不到不报错：生成记录的对话归属只是标签，按对话列记录从来不要求读得到那段对话。"""
 
-        return await self._repo.copy_completed_to_fork(
-            source_conversation_id=source_conversation_id,
-            target_conversation_id=target_conversation_id,
-            owner=owner,
-            task_id=task_id,
-        )
+        if conversation_id is None or not await self._lineage.readable(principal, conversation_id):
+            return ()
+        return await self._lineage.ancestry(conversation_id)
 
     async def submit_video(self, principal: Principal, request: VideoGenerationIn) -> GenerationJob:
         """受理一次视频生成。模型必须在允许表里；其余字段原样转发给上游，由它按模型判。"""
@@ -99,25 +110,33 @@ class GenerationService:
         return await self._accept(principal, request, provider=self._clip_provider_name)
 
     async def _check_root(self, principal: Principal, request: GenerationRequest) -> None:
-        """原作号必须指向同一段对话里的一条独立记录，链才只有一层。
+        """原作号必须指向这段对话自己的或它继承的一条独立记录，链才只有一层。
 
         先按主体可见范围读：生成记录的 ``conversation_id`` 只是标签、不按对话验属主，直接按
-        id 查会让人把衍生记录挂到别人的出片上。三种不满足给同一句，不区分不存在与不可见。"""
+        id 查会让人把衍生记录挂到别人的出片上；继承的那部分只在主体读得到这段对话时才算。
+        按属主读得到的也可能是祖先对话里分叉之后才完成的，那不归这段对话，要再判一次。
+        三种不满足给同一句，不区分不存在与不可见。"""
 
         if request.root_job_id is None:
             return
+        inheritance = await self._inheritance(principal, request.conversation_id)
         try:
             root = await self._repo.get(
-                request.root_job_id, owner=visible_owner_incl_act_as(principal)
+                request.root_job_id,
+                owner=visible_owner_incl_act_as(principal),
+                inherited=inheritance,
             )
         except NotFound:
             root = None
         if (
             root is None
-            or root.conversation_id != request.conversation_id
             or root.root_job_id is not None
+            or (
+                root.conversation_id != request.conversation_id
+                and not inherited_through(root, inheritance)
+            )
         ):
-            raise ValidationFailed("原作号不是这段对话里的一条独立记录")
+            raise ValidationFailed("原作号不是这段对话自己的或继承来的一条独立记录")
 
     async def submit_image(self, principal: Principal, request: ImageGenerationIn) -> GenerationJob:
         """受理一次图片生成。选定哪家、哪个渠道在这里定死，队列等待期间的配置变化不影响它。"""
@@ -261,7 +280,9 @@ class GenerationService:
         root_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
-        """按时间倒序返回可见记录；归属筛选只收窄，不扩大属主可见范围。"""
+        """按时间倒序返回可见记录；归属筛选只收窄，不扩大属主可见范围。
+
+        唯一的例外是按对话列：主体读得到那段对话时，连它经分叉继承的记录一起列出，不看属主。"""
 
         check_limit(limit)
         return await self._repo.list_for_owner(
@@ -273,6 +294,7 @@ class GenerationService:
             task_id=task_id,
             root_job_id=root_job_id,
             before=before,
+            inherited=await self._inheritance(principal, conversation_id),
         )
 
 
@@ -283,4 +305,4 @@ def _require_user_name(user_name: str | None) -> None:
         raise ValidationFailed("user_name 必填")
 
 
-__all__ = ["GenerationService"]
+__all__ = ["ConversationLineage", "GenerationService"]

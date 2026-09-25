@@ -55,7 +55,7 @@ export function TaskCard({ onClick, onRename, task }: TaskCardProps) {
       .trim() || task.title
 
   return (
-    <div className="relative min-w-0">
+    <div className="task-gallery-item relative min-w-0">
       <button
         aria-describedby={`${summaryId} ${statusId}`}
         aria-label={`查看需求：${task.title}`}
@@ -101,8 +101,9 @@ export function TaskCard({ onClick, onRename, task }: TaskCardProps) {
       {onRename && (
         <MenuRoot>
           <MenuTrigger asChild>
+            {/* 按钮只有 24px；角上独处不会与邻近控件抢点，热区扩到 48px 方便触屏。 */}
             <IconButton
-              className="absolute top-2 right-2 bg-surface-container-lowest"
+              className="hit-48 absolute top-2 right-2 bg-surface-container-lowest"
               label="更多操作"
               name="more"
               size="xs"

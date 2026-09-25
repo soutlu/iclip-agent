@@ -111,7 +111,8 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
         before: uuid.UUID | None = None,
     ) -> GenerationsPageOut:
         """给了 ``conversationId`` / ``taskId`` / ``rootJobId`` 就只列那段对话、那张需求单、那条出片
-        名下的记录，可见性口径不变。
+        名下的记录。按对话列时含这段对话经分叉继承的记录（调用方读得到这段对话才算），其余
+        可见性口径不变。
 
         ``metadata`` 在查询串里是一段 JSON 对象，按包含匹配筛（分镜页拿它按镜头组、按帧查）。
         """

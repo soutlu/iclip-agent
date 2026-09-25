@@ -1,4 +1,4 @@
-"""审计报表的 Postgres 查询：跨 ``iclip.*`` 与 ``agent_runtime.*`` 五张表只读聚合，不建表、不写入。
+"""审计报表的 Postgres 查询：跨 ``iclip.*`` 与 ``agent_runtime.*`` 六张表只读聚合，不建表、不写入。
 
 同一份指标 SQL 服务全体、人、需求单、时段、对话五个维度，差别只在五段 CTE 各自的分组键
 表达式（``_DIMENSIONS``）——各指标的时间锚点不同，键要在各自的 CTE 里算。键表达式是本文件
@@ -43,12 +43,12 @@ from iclip.domains.audit.schemas import (
 # 公共 CTE。videos 是全部口径的基础：只认带数字 metadata.shot 且挂着对话的视频行，
 # 需求单从对话取；person 给每段对话定一个人：最近一轮运行的 user_name，没有运行
 # 就取最近一条视频的。
-# 分叉出来的副本一律不进报表（``forked_from`` 非空）：它带着源对话拷来的出片记录，
-# 算进去会把原作者的产量重计一遍，副本自己跑的也是试验数据。挡在 videos / person / runs
-# 三个根 CTE 上，其余口径都从它们派生。
+# 分叉出来的副本一律不进报表（``forked_from`` 非空）：它继承的出片记在源对话名下，源那边
+# 已经数过；副本自己跑的是试验数据。挡在 videos / person / runs 三个根 CTE 上，其余口径都
+# 从它们派生。
 # SQL 里的 'video' / 'completed' / 'submitted' 镜像生成域的 KIND_VIDEO / STATUS_COMPLETED /
-# STATUS_SUBMITTED（报表按表名直接查，不 import 业务模块）；集成测试的种子取自那些
-# 常量，生成域改词这里的用例就红。
+# STATUS_SUBMITTED，'video.downloaded' 镜像埋点的 VIDEO_DOWNLOADED（报表按表名直接查，
+# 不 import 业务模块）；集成测试的种子取自那些常量，改词这里的用例就红。
 # ---------------------------------------------------------------------------
 
 _VIDEOS: Final = """
@@ -56,6 +56,14 @@ videos AS (
     SELECT g.id, g.conversation_id, g.status, g.created_at, g.submitted_at, g.finished_at,
            -- 成片：出成了且有完成时刻；各口径只引用这一列。
            (g.status = 'completed' AND g.finished_at IS NOT NULL) AS delivered,
+           -- 有人下载过它或它名下的衍生记录：下载的那条沿原作号折回独立记录。子查询不相关，
+           -- 整个集合只算一遍，逐行只做成员判断。
+           g.id IN (
+               SELECT COALESCE(d.root_job_id, d.id)
+               FROM iclip.tracking_events t
+               JOIN iclip.generation_jobs d ON d.id = t.job_id
+               WHERE t.name = 'video.downloaded'
+           ) AS downloaded,
            (g.metadata->>'shot')::int AS shot,
            g.request->>'user_name' AS user_name,
            c.task_id
@@ -90,6 +98,8 @@ shots AS (
            min(v.created_at) AS first_at,
            max(v.created_at) AS last_at,
            count(*) = 1 AND bool_and(v.delivered) AS one_take,
+           bool_or(v.delivered) AS delivered,
+           bool_or(v.downloaded) AS effective,
            (array_agg(v.user_name ORDER BY v.created_at, v.id))[1] AS user_name
     FROM videos v
     GROUP BY v.conversation_id, v.shot, v.task_id
@@ -181,7 +191,9 @@ shot_metrics AS (
     SELECT {{k_shot}} AS k,
            count(*) AS shots,
            sum(s.attempts) AS attempts,
-           count(*) FILTER (WHERE s.one_take) AS one_take_shots
+           count(*) FILTER (WHERE s.one_take) AS one_take_shots,
+           count(*) FILTER (WHERE s.delivered) AS delivered_shots,
+           count(*) FILTER (WHERE s.effective) AS effective_shots
     FROM shots s
     WHERE TRUE
     {_WINDOW.format(anchor="s.first_at")}
@@ -228,7 +240,7 @@ SELECT keys.k,
        c.completed_videos, c.delivered_tasks, c.delivered_orphan_conversations, c.producers,
        c.video_avg, c.video_median, c.video_p90,
        c.upstream_avg, c.upstream_median, c.upstream_p90,
-       s.shots, s.attempts, s.one_take_shots,
+       s.shots, s.attempts, s.one_take_shots, s.delivered_shots, s.effective_shots,
        r.runs,
        y.delivered_conversations, y.cycle_avg, y.cycle_median, y.cycle_p90,
        u.requests, u.input_tokens, u.cache_read_tokens, u.cache_write_tokens, u.output_tokens
@@ -320,7 +332,7 @@ LIMIT :limit
 
 _SHOTS_OF: Final = text(f"""
 WITH {_VIDEOS}, {_SHOTS}
-SELECT s.conversation_id, s.shot, s.attempts, s.one_take, s.first_at, s.last_at
+SELECT s.conversation_id, s.shot, s.attempts, s.one_take, s.effective, s.first_at, s.last_at
 FROM shots s
 WHERE s.conversation_id = ANY(CAST(:ids AS uuid[]))
 ORDER BY s.conversation_id, s.shot
@@ -555,6 +567,8 @@ def _metrics_of(row: RowMapping) -> MetricsOut:
         shots=_int(row["shots"]),
         attempts=_int(row["attempts"]),
         one_take_shots=_int(row["one_take_shots"]),
+        delivered_shots=_int(row["delivered_shots"]),
+        effective_shots=_int(row["effective_shots"]),
         runs=_int(row["runs"]),
         delivered_conversations=_int(row["delivered_conversations"]),
         cycle_seconds=_spread_of(row, "cycle"),
@@ -658,6 +672,7 @@ class PgAuditReports:
                     shot=int(row["shot"]),
                     attempts=int(row["attempts"]),
                     one_take=bool(row["one_take"]),
+                    effective=bool(row["effective"]),
                     first_at=row["first_at"],
                     last_at=row["last_at"],
                 )

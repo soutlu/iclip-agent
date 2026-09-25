@@ -71,6 +71,16 @@ depends_on = ["iclip.common", "iclip.platform.paging", "iclip.domains.identity"]
 path = "iclip.domains.audit"
 depends_on = ["iclip.common", "iclip.platform.paging", "iclip.domains.identity"]
 
+# 资料库同样是跨模块的只读读模型，按表名直接查。
+[[modules]]
+path = "iclip.domains.library"
+depends_on = ["iclip.common", "iclip.platform.paging", "iclip.domains.identity"]
+
+# 埋点核对主语资格时按表名读生成记录，不依赖生成域。
+[[modules]]
+path = "iclip.domains.tracking"
+depends_on = ["iclip.common", "iclip.domains.identity"]
+
 [[modules]]
 path = "iclip.domains.uploads"
 depends_on = [
@@ -147,6 +157,8 @@ depends_on = [
     "iclip.domains.collections",
     "iclip.domains.tasks",
     "iclip.domains.audit",
+    "iclip.domains.library",
+    "iclip.domains.tracking",
     "iclip.harness",
     "iclip.capabilities",
 ]

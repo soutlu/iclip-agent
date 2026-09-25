@@ -343,8 +343,8 @@ export const zConversationFilesOut = z.object({
  *
  * 从源对话的第 ``turn`` 轮分叉出一段新对话，归调用者所有。
  *
- * 对话 id 由服务端铸：分叉先把工作区、素材与出片记录拷进新命名空间，最后才落对话行，
- * 没有可供幂等重放的位置。
+ * 对话 id 由服务端铸：分叉先把工作区与素材拷进新命名空间，最后才落对话行，没有可供幂等
+ * 重放的位置。出片记录不拷，副本按血缘继承。
  */
 export const zConversationForkIn = z.object({
   agentId: z.string().min(1).max(128).nullish(),
@@ -466,6 +466,20 @@ export const zDepartmentOut = z.object({
  */
 export const zErrorModel = z.object({
   detail: z.union([z.string(), z.record(z.string(), z.string())]),
+})
+
+/**
+ * FaceOut
+ *
+ * 卡面放哪一条：这一镜最新的成片，没有成片就是最新一次出片。
+ */
+export const zFaceOut = z.object({
+  createdAt: z.iso.datetime(),
+  durationMs: z.int().nullable(),
+  jobId: z.uuid(),
+  kind: z.enum(['take', 'master']),
+  outputUrl: z.string(),
+  watermarkOutputUrl: z.string().nullable(),
 })
 
 /**
@@ -617,6 +631,33 @@ export const zItemsRemoveOp = z.object({
 })
 
 /**
+ * LibraryAuthorOut
+ */
+export const zLibraryAuthorOut = z.object({
+  count: z.int(),
+  userName: z.string(),
+})
+
+/**
+ * LibraryAuthorsOut
+ */
+export const zLibraryAuthorsOut = z.object({
+  items: z.array(zLibraryAuthorOut),
+})
+
+/**
+ * MasterOut
+ *
+ * 挂在一次出片名下的成片（视频编辑确认合成的那条）。
+ */
+export const zMasterOut = z.object({
+  createdAt: z.iso.datetime(),
+  durationMs: z.int().nullable(),
+  id: z.uuid(),
+  outputUrl: z.string(),
+})
+
+/**
  * MetricFiltersIn
  *
  * 表现下限，全部可选；省略的维度不设限。
@@ -682,10 +723,33 @@ export const zRunStatusOut = z.object({
 })
 
 /**
+ * ScriptCutOut
+ *
+ * 一镜：起止秒、正文、正文里引用的参考图编号（``@ImageN`` 的 N，按首次出现顺序）。
+ */
+export const zScriptCutOut = z.object({
+  end: z.number(),
+  imageIndexes: z.array(z.int()),
+  prompt: z.string(),
+  start: z.number(),
+})
+
+/**
+ * ScriptOut
+ *
+ * 结构化的镜头组：全局设定加逐镜时间线。
+ */
+export const zScriptOut = z.object({
+  globalSettings: z.string(),
+  timeline: z.array(zScriptCutOut),
+})
+
+/**
  * ShotOut
  */
 export const zShotOut = z.object({
   attempts: z.int(),
+  effective: z.boolean(),
   firstAt: z.iso.datetime(),
   lastAt: z.iso.datetime(),
   oneTake: z.boolean(),
@@ -790,6 +854,63 @@ export const zStepUpsertOp = z.object({
 export const zStyleMatchOut = z.object({
   matchLevel: z.enum(['exact', 'sameBrandCategory', 'sameCategory', 'none']),
   styleNo: z.string(),
+})
+
+/**
+ * TakeOut
+ *
+ * 一次成功出片。参数与脚本照出片那一刻的请求。
+ */
+export const zTakeOut = z.object({
+  aspectRatio: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  generateAudio: z.boolean().nullable(),
+  id: z.uuid(),
+  masters: z.array(zMasterOut),
+  model: z.string().nullable(),
+  outputUrl: z.string(),
+  prompt: z.string(),
+  referenceImageUrls: z.array(z.string()),
+  resolution: z.string().nullable(),
+  script: zScriptOut.nullable(),
+  seconds: z.int().nullable(),
+  userName: z.string().nullable(),
+  watermarkOutputUrl: z.string().nullable(),
+})
+
+/**
+ * LibraryVideoOut
+ *
+ * 资料库的一张卡：一镜，即（对话，镜号）下的全部成功出片；没有镜号的出片一条一张。
+ */
+export const zLibraryVideoOut = z.object({
+  agentId: z.string().nullable(),
+  conversationId: z.uuid().nullable(),
+  face: zFaceOut,
+  id: z.uuid(),
+  shotIndex: z.int().nullable(),
+  take: zTakeOut,
+  takeCount: z.int(),
+  taskId: z.uuid().nullable(),
+  title: z.string().nullable(),
+})
+
+/**
+ * LibraryVideoDetailOut
+ */
+export const zLibraryVideoDetailOut = z.object({
+  siblings: z.array(zLibraryVideoOut),
+  takes: z.array(zTakeOut),
+  video: zLibraryVideoOut,
+})
+
+/**
+ * LibraryVideosOut
+ */
+export const zLibraryVideosOut = z.object({
+  items: z.array(zLibraryVideoOut),
+  nextCursor: z.string().nullable(),
+  total: z.int().nullable(),
 })
 
 /**
@@ -1001,6 +1122,17 @@ export const zToolFrame = z.object({
 })
 
 /**
+ * TrackingEventIn
+ *
+ * 一条事件。主语按事件名规定：``video.downloaded`` 必带 ``jobId``、不带 ``conversationId``。
+ */
+export const zTrackingEventIn = z.object({
+  conversationId: z.uuid().nullish(),
+  jobId: z.uuid().nullish(),
+  name: z.literal('video.downloaded'),
+})
+
+/**
  * TranscriptMeta
  */
 export const zTranscriptMeta = z.object({
@@ -1139,8 +1271,11 @@ export const zMetricsOut = z.object({
   cycleSeconds: zSpreadOut.nullable(),
   deliveredConversations: z.int(),
   deliveredOrphanConversations: z.int(),
+  deliveredShots: z.int(),
   deliveredTasks: z.int(),
   deliveries: z.int().readonly(),
+  effectiveRate: z.number().nullable(),
+  effectiveShots: z.int(),
   oneTakeRate: z.number().nullable(),
   oneTakeShots: z.int(),
   producers: z.int(),
@@ -1585,7 +1720,7 @@ export const zVideoShotTimelineItemIn = z.object({
 /**
  * VideoShotIn
  *
- * 结构化的镜头组：全局设定加逐镜时间线。发给模型的正文由服务端按 shot_prompt 的规则拼。
+ * 结构化的镜头组：全局设定加逐镜时间线。发给模型的正文由服务端按 common.shot_prompt 的规则拼。
  */
 export const zVideoShotIn = z.object({
   global_settings: z.string().max(4000),
@@ -2200,6 +2335,35 @@ export const zSearchVideosInspirationsVideosSearchPostBody = zVideoSearchIn
  */
 export const zSearchVideosInspirationsVideosSearchPostResponse = zVideoSearchOut
 
+/**
+ * Successful Response
+ */
+export const zAuthorsLibraryAuthorsGetResponse = zLibraryAuthorsOut
+
+export const zVideosLibraryVideosGetQuery = z.object({
+  userName: z.string().max(150).nullish(),
+  since: z.iso.datetime().nullish(),
+  until: z.iso.datetime().nullish(),
+  orientation: z.enum(['portrait', 'landscape']).nullish(),
+  q: z.string().max(100).nullish(),
+  limit: z.int().gte(1).lte(100).optional().default(20),
+  cursor: z.string().nullish(),
+})
+
+/**
+ * Successful Response
+ */
+export const zVideosLibraryVideosGetResponse = zLibraryVideosOut
+
+export const zVideoLibraryVideosVideoIdGetPath = z.object({
+  video_id: z.uuid(),
+})
+
+/**
+ * Successful Response
+ */
+export const zVideoLibraryVideosVideoIdGetResponse = zLibraryVideoDetailOut
+
 export const zListTasksTasksGetQuery = z.object({
   status: z.enum(['draft', 'published', 'confirmed', 'withdrawn']).nullish(),
   ids: z.array(z.uuid()).nullish(),
@@ -2275,6 +2439,13 @@ export const zWithdrawTaskTasksTaskIdWithdrawPostPath = z.object({
  * Successful Response
  */
 export const zWithdrawTaskTasksTaskIdWithdrawPostResponse = zTaskEnvelope
+
+export const zRecordEventTrackingEventsPostBody = zTrackingEventIn
+
+/**
+ * Successful Response
+ */
+export const zRecordEventTrackingEventsPostResponse = z.void()
 
 export const zSignUploadUploadsSignPostBody = zUploadSignIn
 

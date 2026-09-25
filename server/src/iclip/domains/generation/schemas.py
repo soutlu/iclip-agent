@@ -26,6 +26,7 @@ from pydantic.alias_generators import to_camel
 
 from iclip.common.errors import ValidationFailed
 from iclip.common.generation_vocab import GenerationKind, GenerationStatus
+from iclip.common.shot_prompt import format_seconds, format_shot_prompt
 from iclip.common.shot_rules import (
     MAX_REFERENCE_IMAGES,
     first_unavailable_image,
@@ -33,7 +34,6 @@ from iclip.common.shot_rules import (
     timeline_fault,
 )
 from iclip.common.urls import is_http_url
-from iclip.domains.generation.shot_prompt import format_seconds, format_shot_prompt
 
 if TYPE_CHECKING:  # 只为类型：真导入会和 models.py 成环
     from iclip.domains.generation.models import GenerationJob
@@ -186,7 +186,7 @@ class VideoShotTimelineItemIn(SnakeModel):
 
 
 class VideoShotIn(SnakeModel):
-    """结构化的镜头组：全局设定加逐镜时间线。发给模型的正文由服务端按 shot_prompt 的规则拼。"""
+    """结构化的镜头组：全局设定加逐镜时间线。发给模型的正文由服务端按 common.shot_prompt 的规则拼。"""
 
     global_settings: Annotated[str, Field(max_length=MAX_PROMPT_CHARS)]
     timeline: Annotated[list[VideoShotTimelineItemIn], Field(min_length=1)]

@@ -1,0 +1,167 @@
+/* 资料库卡片：压在画面上的角标与悬停层走 scrim 遮罩，明暗主题不变。 */
+
+.library-card-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: var(--control-height-xs);
+  padding: 0 8px;
+  border-radius: var(--radius-full);
+  background-color: color-mix(in srgb, var(--color-scrim) 48%, transparent);
+  color: var(--color-on-scrim);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  backdrop-filter: blur(8px);
+  transition: opacity var(--dur-s) var(--ease);
+}
+
+.library-card-badge-divider {
+  width: 1px;
+  height: 10px;
+  background-color: color-mix(in srgb, var(--color-on-scrim) 40%, transparent);
+}
+
+/* 封面到达后淡入；预览视频开始播放后才盖到封面上，缓冲期间仍是封面。 */
+.library-card-poster,
+.library-card-preview {
+  opacity: 0;
+  transition: opacity var(--dur-m) var(--ease);
+}
+
+.library-card-poster-loaded,
+.library-card-preview-playing {
+  opacity: 1;
+}
+
+.library-card-media {
+  box-shadow: var(--shadow-1);
+  transition:
+    box-shadow var(--dur-m) var(--ease),
+    translate var(--dur-m) var(--ease);
+}
+
+.library-card-hover {
+  background-image: var(--media-scrim-photo-strong);
+  opacity: 0;
+  translate: 0 6px;
+  transition:
+    opacity var(--dur-m) var(--ease),
+    translate var(--dur-m) var(--ease);
+}
+
+.library-card-hover-button {
+  color: var(--color-on-scrim);
+  background-color: color-mix(in srgb, var(--color-on-scrim) 18%, transparent);
+  border-radius: var(--radius-full);
+}
+
+.library-card-hover-button:hover {
+  background-color: color-mix(in srgb, var(--color-on-scrim) 30%, transparent);
+}
+
+.library-card:focus-within .library-card-hover {
+  opacity: 1;
+  translate: 0 0;
+}
+
+.library-card:focus-within .library-card-hide-on-hover {
+  opacity: 0;
+}
+
+@media (hover: hover) {
+  .library-card:hover .library-card-media {
+    box-shadow: var(--shadow-3);
+    translate: 0 -2px;
+  }
+
+  .library-card:hover .library-card-hover {
+    opacity: 1;
+    translate: 0 0;
+  }
+
+  .library-card:hover .library-card-hide-on-hover {
+    opacity: 0;
+  }
+}
+
+/* 故事板角标：悬停或展开时压深一档并描边，提示它能点。 */
+.library-storyboard-badge {
+  transition:
+    background-color var(--dur-s) var(--ease),
+    box-shadow var(--dur-s) var(--ease);
+}
+
+.library-storyboard-badge:hover,
+.library-storyboard-badge[aria-expanded='true'] {
+  background-color: color-mix(in srgb, var(--color-scrim) 72%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-on-scrim) 50%, transparent);
+}
+
+/* 帧条只在条内横向滚：不吸附（吸附会和滚轮抢位置来回跳），滚到头也不带动页面。 */
+.library-storyboard,
+.library-storyboard-strip {
+  overscroll-behavior: contain;
+}
+
+.library-storyboard-strip {
+  scrollbar-width: thin;
+}
+
+.library-storyboard-thumb {
+  transition: box-shadow var(--dur-s) var(--ease);
+}
+
+.library-storyboard-frame:hover .library-storyboard-thumb,
+.library-storyboard-frame[data-current] .library-storyboard-thumb {
+  box-shadow: 0 0 0 2px var(--color-on-surface);
+}
+
+/* 详情的放映区：明暗主题下都是深底，上面的按钮与文字走 on-scrim。 */
+.library-viewer-stage {
+  background-color: color-mix(in srgb, var(--color-scrim) 92%, var(--color-on-scrim));
+  color: var(--color-on-scrim);
+}
+
+.library-viewer-faint {
+  color: color-mix(in srgb, var(--color-on-scrim) 55%, transparent);
+}
+
+.library-viewer-glass {
+  color: var(--color-on-scrim);
+  background-color: color-mix(in srgb, var(--color-on-scrim) 12%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.library-viewer-glass:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--color-on-scrim) 24%, transparent);
+}
+
+.library-viewer-version {
+  color: color-mix(in srgb, var(--color-on-scrim) 78%, transparent);
+  background-color: color-mix(in srgb, var(--color-on-scrim) 6%, transparent);
+  border: 1px solid transparent;
+  transition: background-color var(--dur-s) var(--ease);
+}
+
+.library-viewer-version:hover {
+  background-color: color-mix(in srgb, var(--color-on-scrim) 12%, transparent);
+}
+
+.library-viewer-version[aria-pressed='true'] {
+  color: var(--color-on-scrim);
+  background-color: color-mix(in srgb, var(--color-on-scrim) 16%, transparent);
+  border-color: color-mix(in srgb, var(--color-on-scrim) 50%, transparent);
+}
+
+/* 读取中的占位用原生多列排版，列宽与真卡的列数档位相近。 */
+.library-skeleton-grid {
+  columns: 5 220px;
+  column-gap: 16px;
+}
+
+/* 触屏没有悬停，悬停层不出现，点开详情看。 */
+@media (hover: none) {
+  .library-card-hover {
+    display: none;
+  }
+}

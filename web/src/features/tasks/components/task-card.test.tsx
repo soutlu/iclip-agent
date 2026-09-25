@@ -126,6 +126,23 @@ describe('TaskCard', () => {
     ).toHaveAccessibleDescription(/SHOE-01 等 3 款/)
   })
 
+  it('OSS 图按显示尺寸取缩略图，参考条仍按原图地址排除封面', async () => {
+    const oss = (name: string) => `https://bkt.oss-cn-shenzhen.aliyuncs.com/tasks/${name}.jpg`
+    const task = makeTask([
+      product('SHOE-01', [oss('cover'), oss('side')]),
+      product('SHOE-02', [oss('cover')]),
+    ])
+    await renderWithProviders(<TaskCard onClick={() => {}} task={task} />)
+
+    expect(screen.getAllByRole('img').map((image) => image.getAttribute('src'))).toEqual([
+      `${oss('cover')}?x-oss-process=image/resize,m_mfit,w_400,h_360/format,webp`,
+      `${oss('side')}?x-oss-process=image/resize,h_56/format,webp`,
+      'https://example.com/model.jpg',
+      'https://example.com/outfit.jpg',
+      'https://example.com/prop.jpg',
+    ])
+  })
+
   it('保留完整原始标题，展示发布平台、视频类型、内容类型和创建时间', async () => {
     const task = makeTask([product('FRE')])
     task.title = '[AMZ][FRE] Listing 口播视频'

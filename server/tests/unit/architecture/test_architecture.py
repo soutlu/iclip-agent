@@ -21,6 +21,8 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
         "domains/collections/api.py",
         "domains/tasks/api.py",
         "domains/audit/api.py",
+        "domains/library/api.py",
+        "domains/tracking/api.py",
         "domains/uploads/api.py",
         "domains/identity/middleware.py",
         "domains/identity/accounts.py",
@@ -39,8 +41,9 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
         "harness/jobs.py",
         # 外部只读表使用独立适配器；infra_sql.py 仅表示模块自有表。
         "domains/products/catalog_pg.py",
-        # 审计报表跨模块只读聚合，同样不是模块自有表。
+        # 审计报表与资料库跨模块只读聚合，同样不是模块自有表。
         "domains/audit/reports_pg.py",
+        "domains/library/reports_pg.py",
     ),
     ("fastapi_users", "fastapi_users_db_sqlalchemy"): ("domains/identity/",),
     ("openai",): ("harness/models.py",),
