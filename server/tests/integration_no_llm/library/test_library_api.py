@@ -9,7 +9,7 @@ import httpx
 from sqlalchemy import text
 
 from iclip.domains.generation.models import STATUS_COMPLETED
-from iclip.domains.generation.schemas import KIND_VIDEO
+from iclip.domains.generation.schemas import KIND_VIDEO, OPERATION_GENERATE
 from tests.helpers.auth import register_and_login, set_roles_in_db
 from tests.helpers.pg import connected
 
@@ -39,15 +39,18 @@ async def plant_video(pg_url: str, *, owner: uuid.UUID, user_name: str) -> uuid.
         await conn.execute(
             text(
                 "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind,"
-                " provider, request, status, metadata, output_url, created_at, updated_at)"
-                " VALUES (:id, :owner, :conversation_id, :kind, 'test', CAST(:request AS jsonb),"
-                " :status, '{\"shot\": 1}'::jsonb, 'https://oss.example.test/v.mp4', now(), now())"
+                " operation, provider, request, status, metadata, output_url, created_at,"
+                " updated_at)"
+                " VALUES (:id, :owner, :conversation_id, :kind, :operation, 'test',"
+                " CAST(:request AS jsonb), :status, '{\"shot\": 1}'::jsonb,"
+                " 'https://oss.example.test/v.mp4', now(), now())"
             ),
             {
                 "id": video_id,
                 "owner": owner,
                 "conversation_id": conversation_id,
                 "kind": KIND_VIDEO,
+                "operation": OPERATION_GENERATE,
                 "request": json.dumps(
                     {"model": "m", "prompt": "模特走向镜头。", "user_name": user_name}
                 ),
