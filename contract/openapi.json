@@ -1998,6 +1998,17 @@
             ],
             "title": "Rootjobid"
           },
+          "shotIndex": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shotindex"
+          },
           "sourceJobId": {
             "anyOf": [
               {
@@ -10003,7 +10014,7 @@
     },
     "/generations": {
       "get": {
-        "description": "给了 ``conversationId`` / ``taskId`` / ``rootJobId`` / ``sourceJobId`` 就只列那段对话、\n那张需求单下、以那条为原作或直接来源的记录；``kind`` / ``operation`` 按种类与操作筛。\n按对话列时含这段对话经分叉继承的记录（调用方读得到这段对话才算），其余可见性口径不变。\n\n``metadata`` 在查询串里是一段 JSON 对象，按包含匹配筛（分镜页拿它按镜头组、按帧查）。",
+        "description": "给了 ``conversationId`` / ``taskId`` / ``shotIndex`` / ``rootJobId`` / ``sourceJobId`` 就\n只列那段对话、那张需求单下、那个镜号、以那条为原作或直接来源的记录；``kind`` /\n``operation`` 按种类与操作筛。按对话列时含这段对话经分叉继承的记录（调用方读得到这段\n对话才算），其余可见性口径不变。\n\n``metadata`` 在查询串里是一段 JSON 对象，按包含匹配筛（分镜页拿它按镜头组与帧查图片）。",
         "operationId": "list_generations_generations_get",
         "parameters": [
           {
@@ -10050,6 +10061,25 @@
                 }
               ],
               "title": "Taskid"
+            }
+          },
+          {
+            "description": "只列这个镜头组编号的视频记录",
+            "in": "query",
+            "name": "shotIndex",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "只列这个镜头组编号的视频记录",
+              "title": "Shotindex"
             }
           },
           {
@@ -10131,7 +10161,7 @@
             }
           },
           {
-            "description": "JSON 对象；只列坐标包含这些键值的记录，服务端只认其中的 shot",
+            "description": "JSON 对象；只列 metadata 包含这些键值的记录，服务端不解释其中的键",
             "in": "query",
             "name": "metadata",
             "required": false,
@@ -10144,7 +10174,7 @@
                   "type": "null"
                 }
               ],
-              "description": "JSON 对象；只列坐标包含这些键值的记录，服务端只认其中的 shot",
+              "description": "JSON 对象；只列 metadata 包含这些键值的记录，服务端不解释其中的键",
               "title": "Metadata"
             }
           },
@@ -10287,7 +10317,7 @@
     },
     "/generations/video": {
       "post": {
-        "description": "提交一次视频生成。请求体照上游异步接口，外加 conversation_id / task_id / metadata。\n\n正文可以直接给 ``prompt``，也可以给结构化的 ``shot`` 由服务端拼成 ``prompt``；记录里\n两者都存，``shot`` 不发上游。``user_name``：API key 调用方必填、照收；浏览器会话可\n省略，填登录用户名。",
+        "description": "提交一次视频生成。请求体照上游异步接口，外加 conversation_id / task_id / shot_index /\nmetadata。\n\n正文可以直接给 ``prompt``，也可以给结构化的 ``shot`` 由服务端拼成 ``prompt``；记录里\n两者都存，``shot`` 不发上游。``shot_index`` 是镜头组编号，落记录的列。``user_name``：\nAPI key 调用方必填、照收；浏览器会话可省略，填登录用户名。",
         "operationId": "submit_video_generations_video_post",
         "requestBody": {
           "content": {

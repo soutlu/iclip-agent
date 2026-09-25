@@ -27,7 +27,7 @@ Productor 的后端与 Web 前端。产品定位、业务术语和不变量见 [
 
 ### 1. 准备依赖
 
-需要 Python、uv、Node.js、pnpm，以及可连接的 PostgreSQL；版本以 [server/pyproject.toml](server/pyproject.toml)、[web/package.json](web/package.json) 与各自 lockfile 为准。Agent 挂载 `shot_video` 或启用视频裁剪拼接时，PATH 中还需有 `ffmpeg` 和 `ffprobe`。
+需要 Python、uv、Node.js、pnpm，以及可连接的 PostgreSQL；版本以 [server/pyproject.toml](server/pyproject.toml)、[web/package.json](web/package.json) 与各自 lockfile 为准。Agent 挂载 `shot_video` 或启用视频编辑（编辑段切片与合成）时，PATH 中还需有 `ffmpeg` 和 `ffprobe`。
 
 ```bash
 make setup

@@ -1083,6 +1083,10 @@ export type GenerationOut = {
    */
   rootJobId: string | null
   /**
+   * Shotindex
+   */
+  shotIndex?: number | null
+  /**
    * Sourcejobid
    */
   sourceJobId?: string | null
@@ -5123,6 +5127,12 @@ export type ListGenerationsGenerationsGetData = {
      */
     taskId?: string | null
     /**
+     * Shotindex
+     *
+     * 只列这个镜头组编号的视频记录
+     */
+    shotIndex?: number | null
+    /**
      * Kind
      */
     kind?: 'video' | 'image' | null
@@ -5145,7 +5155,7 @@ export type ListGenerationsGenerationsGetData = {
     /**
      * Metadata
      *
-     * JSON 对象；只列坐标包含这些键值的记录，服务端只认其中的 shot
+     * JSON 对象；只列 metadata 包含这些键值的记录，服务端不解释其中的键
      */
     metadata?: string | null
     /**
