@@ -144,6 +144,8 @@ class GenerationChangedPayload(_Envelope):
     kind: GenerationKind
     operation: GenerationOperation
     status: GenerationStatus
+    shot_index: int | None = None
+    """镜头组编号，只有视频有；没有就整项省略。"""
     metadata: dict[str, Any] | None = None
 
 

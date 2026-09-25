@@ -176,6 +176,7 @@ class AnnouncingGenerationRepository:
             kind=job.kind,
             operation=job.operation,
             status=job.status,
+            shot_index=job.shot_index,
             metadata=job.metadata,
         )
         return job
