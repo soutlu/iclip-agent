@@ -114,7 +114,7 @@
 - 新增编辑段、合成两个入口（见 §5）；帧图编辑请求加可选的 `sourceUrl`。
 - 上传确认落行，请求加可选的 `userName`。
 - `GenerationOut` 加 `operation`、`shotIndex`、`sourceJobId`、`sourceUrl`、区间；时长改读列，字段不变。`kind` 不再有 `clip`：带它的只有前端发起的本地加工记录，迁移后改记 video / compose。
-- 列表筛选加 `operation`、`shotIndex`、`sourceJobId`；`event.generation.changed` 帧加带 `operation`、`shotIndex`。
+- 列表筛选加 `operation`、`shotIndex`、`sourceJobId`；`event.generation.changed` 帧加带 `operation`、`shot_index`（帧沿用协议的 snake_case）。
 - `/generations/clips` 只有前端用，随编辑段、合成入口上线下线。改合同的 PR 同时带上前端重新生成的类型。
 
 ### 12. 存量按切片迁移
