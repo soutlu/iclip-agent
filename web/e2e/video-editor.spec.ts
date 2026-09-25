@@ -3,7 +3,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { openConversation } from './helpers'
 
-/** mock 受理后 3 秒出结果；切片、编辑、合成三步串起来要等三轮。 */
+/** mock 受理后 3 秒出结果；编辑段与合成各等一轮。 */
 const STEP_TIMEOUT = 15_000
 const SHOT_DIR = '../.artifacts/design-qa/video-editor'
 
@@ -207,30 +207,26 @@ test('从生成记录打开编辑器：切段、生成、预览、合成成为�
   await expect(reference).toBeVisible()
   const referenceUrl = await reference.getAttribute('src')
 
-  const clipRequest = page.waitForRequest(
-    (request) => request.url().endsWith('/api/generations/clips') && request.method() === 'POST',
-  )
   const editRequest = page.waitForRequest(
-    (request) => request.url().endsWith('/api/generations/video') && request.method() === 'POST',
-    { timeout: STEP_TIMEOUT },
+    (request) =>
+      request.url().endsWith('/api/generations/video-edits') && request.method() === 'POST',
   )
   await dialog.getByRole('button', { name: '生成', exact: true }).click()
 
-  expect((await clipRequest).postDataJSON()).toMatchObject({
-    purpose: 'reference',
-    segments: [{ start: 1, end: 4 }],
-    metadata: { editStart: 1, editEnd: 4 },
-  })
-  // 参考片段切好后自动发编辑任务：结果跟着片段时长走，起点按片段实际时长反算（mock 片段 3 秒，恰好等长）。
-  const edit = (await editRequest).postDataJSON() as Record<string, unknown>
+  // 一次提交：基底是正在编辑的那条出片，区间按毫秒给；参考片段由服务端切，请求里不带参考视频。
+  const editSent = await editRequest
+  const edit = editSent.postDataJSON() as Record<string, unknown>
   expect(edit).toMatchObject({
+    source_job_id: new URL(page.url()).searchParams.get('video'),
+    range_start_ms: 1000,
+    range_end_ms: 4000,
     model: 'wan3.0-video',
     prompt: '编辑视频，换成浅灰背景，保留运镜。',
     seconds: -1,
-    metadata: { editStart: 1, editEnd: 4 },
+    reference_image_urls: [referenceUrl],
   })
-  expect(edit['reference_video_urls']).toEqual([expect.stringContaining('.webm')])
-  expect(edit['reference_image_urls']).toEqual([referenceUrl])
+  expect(edit).not.toHaveProperty('reference_video_urls')
+  const accepted = (await (await editSent.response())?.json()) as { generation: { id: string } }
 
   const summary = dialog.getByRole('status', { name: '视频编辑进度' })
   await expect(summary).toHaveText(/正在生成视频/, { timeout: STEP_TIMEOUT })
@@ -291,21 +287,18 @@ test('从生成记录打开编辑器：切段、生成、预览、合成成为�
   await expect(dialog.getByRole('button', { name: '暂停', exact: true })).toBeVisible()
   await dialog.getByRole('button', { name: '暂停', exact: true }).click()
 
-  const masterRequest = page.waitForRequest(
-    (request) => request.url().endsWith('/api/generations/clips') && request.method() === 'POST',
+  const compositeRequest = page.waitForRequest(
+    (request) =>
+      request.url().endsWith('/api/generations/video-composites') && request.method() === 'POST',
   )
   // 看着哪一条，工具栏那个按钮就管哪一条：看的是待预览的编辑，它就是「合成成片」。
   const compose = dialog.getByRole('button', { name: '合成成片', exact: true })
   await expect(compose).toBeEnabled({ timeout: STEP_TIMEOUT })
   await compose.click()
-  const master = (await masterRequest).postDataJSON() as { purpose: string; segments: unknown[] }
-  expect(master.purpose).toBe('master')
-  // 基底前段、编辑结果整条、基底后段。
-  expect(master.segments).toEqual([
-    expect.objectContaining({ start: 0, end: 1 }),
-    expect.objectContaining({ start: 0, end: 3 }),
-    expect.objectContaining({ start: 4, end: 6 }),
-  ])
+  // 合成只给编辑段：各段由服务端按它的基底与实际区间算。
+  expect((await compositeRequest).postDataJSON()).toMatchObject({
+    sourceJobId: accepted.generation.id,
+  })
 
   // 成片落地后 V2 成为新版本，选中态不跳走，同一个位置的按钮从「合成成片」翻成「下载」。
   const downloadButton = dialog.getByRole('button', { name: '下载', exact: true })
