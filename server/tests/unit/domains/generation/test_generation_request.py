@@ -9,14 +9,15 @@ import pytest
 from iclip.common.errors import ValidationFailed
 from iclip.domains.generation.schemas import (
     IMAGE_MAX_REFERENCES,
-    KIND_CLIP,
     KIND_IMAGE,
     KIND_VIDEO,
     MAX_METADATA_CHARS,
     OPERATION_COMPOSE,
     OPERATION_GENERATE,
-    ClipIn,
+    ComposeSegment,
     ImageGenerationIn,
+    VideoComposeRequest,
+    VideoEditIn,
     VideoGenerationIn,
     request_from_payload,
     request_to_payload,
@@ -24,7 +25,7 @@ from iclip.domains.generation.schemas import (
 from tests.helpers.generation import (
     SHOT_IMAGE_URLS,
     SHOT_PROMPT,
-    clip_request,
+    compose_request,
     image_request,
     video_request,
     video_shot,
@@ -104,21 +105,96 @@ def test_a_stored_request_reads_back_without_its_origin_columns() -> None:
     assert restored.metadata is None, "坐标落列，读回的请求里没有它"
 
     video = request_to_payload(
-        video_request(
-            conversation_id=uuid.uuid4(),
-            task_id=task_id,
-            metadata={"shot": 3},
-            root_job_id=uuid.uuid4(),
-        )
+        video_request(conversation_id=uuid.uuid4(), task_id=task_id, metadata={"shot": 3})
     )
-    assert {"conversation_id", "metadata", "task_id", "root_job_id"}.isdisjoint(video)
+    assert {"conversation_id", "metadata", "task_id"}.isdisjoint(video)
 
-    # clip 受理时原作号必填，但它落列不落 JSON，所以读回时必须允许它为空。
-    clip = request_to_payload(clip_request())
-    assert "rootJobId" not in clip
-    restored_clip = request_from_payload(KIND_CLIP, OPERATION_COMPOSE, clip)
-    assert isinstance(restored_clip, ClipIn)
-    assert restored_clip.root_job_id is None
+
+def test_a_composite_round_trips_and_keeps_open_ends_open() -> None:
+    """合成落库的是各段与对账名；取到结尾的段存成 null，读回仍是开放的。"""
+
+    original = compose_request()
+    payload = request_to_payload(original)
+
+    assert payload["segments"][1] == {
+        "url": "https://example.com/edited.mp4",
+        "start": 0,
+        "end": None,
+    }
+    assert payload["userName"] == "luke"
+    assert request_from_payload(KIND_VIDEO, OPERATION_COMPOSE, payload) == original
+
+
+def test_a_legacy_master_payload_reads_back_as_a_composite() -> None:
+    """迁移前拼好的成片只存了各段，去掉 purpose 后原样读回，没有对账名。"""
+
+    legacy = {
+        "segments": [
+            {"url": "https://example.com/base.mp4", "start": 0, "end": 4},
+            {"url": "https://example.com/edited.mp4", "start": 0, "end": 4.3},
+            {"url": "https://example.com/base.mp4", "start": 8, "end": 15},
+        ]
+    }
+
+    restored = request_from_payload(KIND_VIDEO, OPERATION_COMPOSE, legacy)
+
+    assert isinstance(restored, VideoComposeRequest)
+    assert [segment.end for segment in restored.segments] == [4, 4.3, 15]
+    assert restored.user_name is None
+
+
+def test_the_stored_shape_is_chosen_by_kind_and_operation() -> None:
+    """同是 video，调模型的读成上游请求，本地拼接的读成合成；对不上的组合直接拒。"""
+
+    video = request_to_payload(video_request())
+    assert isinstance(
+        request_from_payload(KIND_VIDEO, OPERATION_GENERATE, video), VideoGenerationIn
+    )
+    with pytest.raises(ValidationFailed, match="形状不合法"):
+        request_from_payload(KIND_VIDEO, OPERATION_COMPOSE, video)
+    with pytest.raises(ValidationFailed, match="未知的生成类型"):
+        request_from_payload(KIND_IMAGE, OPERATION_COMPOSE, request_to_payload(image_request()))
+    with pytest.raises(ValidationFailed, match="未知的生成类型"):
+        request_from_payload("clip", OPERATION_COMPOSE, request_to_payload(compose_request()))
+
+
+@pytest.mark.parametrize(
+    "segment",
+    [
+        {"url": "file:///etc/passwd", "start": 0, "end": 1},
+        {"url": "https:///a.mp4", "start": 0},
+        {"url": "https://example.com/a.mp4", "start": -1},
+        {"url": "https://example.com/a.mp4", "start": 2, "end": 2},
+    ],
+    ids=["不是 http", "没有主机名", "起点为负", "结尾不晚于起点"],
+)
+def test_a_composite_segment_must_be_a_downloadable_forward_span(
+    segment: dict[str, object],
+) -> None:
+    with pytest.raises(ValueError):
+        ComposeSegment.model_validate(segment)
+
+
+def test_an_edit_takes_a_forward_range_and_none_of_the_fields_the_server_fills() -> None:
+    """编辑段只收区间与正文；参考视频由服务端切，原作由基底定，结构化镜头组不收。"""
+
+    base = {
+        "source_job_id": str(uuid.uuid4()),
+        "range_start_ms": 1000,
+        "range_end_ms": 4000,
+        "model": "m",
+        "prompt": "换成编织凉鞋",
+    }
+    assert VideoEditIn.model_validate(base).range_end_ms == 4000
+    for flaw in (
+        {"range_start_ms": -1},
+        {"range_end_ms": 1000},
+        {"reference_video_urls": ["https://example.com/ref.mp4"]},
+        {"root_job_id": str(uuid.uuid4())},
+        {"shot": video_shot()},
+    ):
+        with pytest.raises(ValueError):
+            VideoEditIn.model_validate({**base, **flaw})
 
 
 def test_shot_index_is_an_alias_for_metadata_shot() -> None:

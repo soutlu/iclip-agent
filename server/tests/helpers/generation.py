@@ -38,7 +38,6 @@ from iclip.domains.generation.provider import (
 from iclip.domains.generation.queue import GenerationQueue, GenerationQueueSettings, ProviderLane
 from iclip.domains.generation.schemas import (
     KIND_VIDEO,
-    ClipIn,
     GenerationRequest,
     ImageGenerationIn,
     VideoComposeRequest,
@@ -63,18 +62,6 @@ def video_request(**overrides: Any) -> VideoGenerationIn:
     }
     fields.update(overrides)
     return VideoGenerationIn(**fields)
-
-
-def clip_request(**overrides: Any) -> ClipIn:
-    """默认是一次参考片段：在一条完整视频上裁一段。"""
-
-    fields: dict[str, Any] = {
-        "purpose": "reference",
-        "segments": [{"url": "https://example.com/base.mp4", "start": 4, "end": 8}],
-        "root_job_id": uuid.uuid4(),
-    }
-    fields.update(overrides)
-    return ClipIn(**fields)
 
 
 def edit_request(**overrides: Any) -> VideoGenerationIn:
@@ -557,7 +544,6 @@ __all__ = [
     "MemoryObjectStore",
     "ScriptedProvider",
     "build_queue",
-    "clip_request",
     "compose_request",
     "config_with_media",
     "edit_request",

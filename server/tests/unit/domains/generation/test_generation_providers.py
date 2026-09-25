@@ -20,14 +20,19 @@ from iclip.domains.generation.nano_banana import NANO_BANANA_PRO
 from iclip.domains.generation.provider import GenerationProvider, ProviderError
 from iclip.domains.generation.schemas import ClipStage
 from iclip.domains.generation.seedream import SEEDREAM_V5_PRO
-from iclip.domains.generation.video import HttpVideoProvider, VideoProviderSettings
+from iclip.domains.generation.video import (
+    HttpVideoProvider,
+    PrepareReference,
+    VideoProviderSettings,
+)
 from iclip.platform.object_store.layout import MEDIA_PATHS
 from tests.helpers.generation import (
     SHOT_IMAGE_URLS,
     SHOT_PROMPT,
     MemoryObjectStore,
-    clip_request,
+    compose_request,
     image_request,
+    make_edit,
     make_job,
     video_request,
     video_shot,
@@ -78,10 +83,19 @@ def seedream_ok(request: httpx.Request) -> httpx.Response:
     return httpx.Response(200, content=b"JPGDATA", headers={"content-type": "image/jpeg"})
 
 
-def video_provider(handler: object) -> HttpVideoProvider:
+async def no_reference(job: GenerationJob) -> str:
+    """出片不该要参考片段；被调到就说明把出片当成了编辑段。"""
+
+    raise AssertionError(f"出片 {job.id} 不该切参考片段")
+
+
+def video_provider(
+    handler: object, *, prepare_reference: PrepareReference = no_reference
+) -> HttpVideoProvider:
     assert callable(handler)
     return HttpVideoProvider(
         VIDEO_SETTINGS,
+        prepare_reference=prepare_reference,
         transport=httpx.MockTransport(handler),  # type: ignore[arg-type]
     )
 
@@ -179,6 +193,55 @@ async def test_video_submit_passes_provider_options_and_resolution_through() -> 
     )
     assert (sent["resolution"], sent["seconds"]) == ("1440p-SR", -1)
     assert sent["provider_options"] == {"output_format": "mov"}
+
+
+CLIP_URL = "https://cdn.test/video-clips/edit.mp4"
+
+
+async def test_an_edit_sends_the_prepared_reference_clip_to_upstream() -> None:
+    """编辑段交上游前先要一份参考片段，地址只进这一次请求，落库的请求仍然没有它。"""
+
+    sent: list[dict[str, object]] = []
+    prepared: list[GenerationJob] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(httpx.Response(200, content=request.content).json())
+        return httpx.Response(200, json={"task_id": "t-3"})
+
+    async def prepare(job: GenerationJob) -> str:
+        prepared.append(job)
+        return CLIP_URL
+
+    edit = make_edit(make_job(video_request()))
+    submission = await video_provider(handler, prepare_reference=prepare).submit(edit)
+
+    assert submission.provider_task_id == "t-3"
+    assert [job.id for job in prepared] == [edit.id]
+    (body,) = sent
+    assert body["reference_video_urls"] == [CLIP_URL]
+    assert (body["seconds"], body["prompt"]) == (-1, "一只猫跳上窗台")
+    assert edit.request.model_dump()["reference_video_urls"] == [], "片段地址不回写落库的请求"
+
+
+async def test_a_failed_preparation_never_reaches_upstream() -> None:
+    """切不出参考片段，这次编辑就是失败；付费上游一次都不调。"""
+
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={"task_id": "t-4"})
+
+    async def prepare(_job: GenerationJob) -> str:
+        raise ProviderError("起点在基底之外", code="EDIT_RANGE_OUT_OF_BOUNDS", retryable=False)
+
+    with pytest.raises(ProviderError) as refused:
+        await video_provider(handler, prepare_reference=prepare).submit(
+            make_edit(make_job(video_request()))
+        )
+
+    assert refused.value.code == "EDIT_RANGE_OUT_OF_BOUNDS"
+    assert calls == []
 
 
 async def test_video_submit_tells_unreachable_from_result_unknown() -> None:
@@ -600,7 +663,7 @@ async def _report_stage(_job_id: uuid.UUID, _stage: ClipStage) -> bool:
         (nano_provider(upstream_down), make_job(video_request())),
         (
             seedream_provider(upstream_down, store=MemoryObjectStore()),
-            make_job(clip_request()),
+            make_job(compose_request()),
         ),
         (
             FfmpegClipProvider(object_store=MemoryObjectStore(), report_stage=_report_stage),

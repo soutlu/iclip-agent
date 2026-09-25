@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Literal
 
-GenerationKind = Literal["video", "image", "clip"]
+GenerationKind = Literal["video", "image"]
+"""产出的是什么媒体；谁执行看 provider，不另立种类。"""
 
 GenerationOperation = Literal["generate", "compose"]
 """一行记录怎么执行：调模型（generate）或本地拼接（compose）。"""

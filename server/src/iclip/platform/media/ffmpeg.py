@@ -130,22 +130,41 @@ async def download(client: httpx.AsyncClient, url: str, dest: Path, *, max_bytes
         raise MediaError(f"取到的素材是空的: {url}")
 
 
+_PROBE_DURATION: Final = (
+    "-show_entries",
+    "format=duration",
+    "-of",
+    "default=noprint_wrappers=1:nokey=1",
+)
+
+
 async def probe_duration_ms(path: Path) -> int:
     """探测媒体时长（毫秒）。"""
 
     stdout = await run(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            str(path),
-        ],
-        timeout=PROBE_TIMEOUT_SECONDS,
+        ["ffprobe", "-v", "error", *_PROBE_DURATION, str(path)], timeout=PROBE_TIMEOUT_SECONDS
     )
+    return _duration_ms(stdout)
+
+
+async def probe_remote_duration_ms(url: str) -> int:
+    """按需读远程视频探时长（毫秒），只取索引所需的字节，不整份下载。
+
+    地址非法、取不到、超时或时长看不懂抛 MediaError；消息里的地址去掉查询串，签名不进日志。"""
+
+    if not is_http_url(url):
+        raise MediaError(f"要探的地址不是 http(s): {_safe_url(url)}")
+    try:
+        stdout = await run(
+            ["ffprobe", "-v", "error", *_REMOTE_INPUT, *_PROBE_DURATION, url],
+            timeout=PROBE_TIMEOUT_SECONDS,
+        )
+    except MediaError as exc:
+        raise MediaError(str(exc).replace(url, _safe_url(url))) from exc
+    return _duration_ms(stdout)
+
+
+def _duration_ms(stdout: bytes) -> int:
     text = stdout.decode(errors="replace").strip()
     try:
         seconds = float(text)
@@ -387,6 +406,7 @@ __all__ = [
     "fetched",
     "ffmpeg_available",
     "probe_duration_ms",
+    "probe_remote_duration_ms",
     "probe_video",
     "run",
 ]

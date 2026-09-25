@@ -1,10 +1,12 @@
 """视频异步接口的适配器。提交拿 task_id，之后按固定间隔查状态。
 
 请求字段照上游原样转发，只去掉我们自己加的归属字段与结构化 shot；成功时上游给的是它自己
-发布好的两个稳定地址（原片与水印版），直接存，不再转存。"""
+发布好的两个稳定地址（原片与水印版），直接存，不再转存。编辑段提交前多一步：向装配注入的
+前置步骤要一份参考片段地址，只放进发给上游的这一次请求。"""
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Final
 from urllib.parse import quote
@@ -41,6 +43,12 @@ class VideoProviderSettings:
     api_key: str
 
 
+PrepareReference = Callable[[GenerationJob], Awaitable[str]]
+"""编辑段交上游前要一份参考片段地址；实现负责切、存、记实际区间。
+
+失败抛 ``ProviderError``，这次提交随之判失败、不发上游。"""
+
+
 class HttpVideoProvider:
     """``GenerationProvider`` 的视频实现。"""
 
@@ -48,10 +56,13 @@ class HttpVideoProvider:
         self,
         settings: VideoProviderSettings,
         *,
+        prepare_reference: PrepareReference,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
+        """``prepare_reference`` 只在编辑段（有来源的行）提交时调用。"""
 
         self._settings = settings
+        self._prepare_reference = prepare_reference
         self._transport = transport
 
     @property
@@ -63,6 +74,8 @@ class HttpVideoProvider:
         user_name_of(request)
         # 没给的可选字段不发，上游的模型默认值才能生效；归属字段与 shot 是我们自己的，不发。
         payload = request.model_dump(exclude_none=True, exclude=set(NOT_FORWARDED_FIELDS))
+        if job.source_job_id is not None:
+            payload["reference_video_urls"] = [await self._prepare_reference(job)]
         body = await self._request(
             "POST",
             self._settings.submit_url,
@@ -252,4 +265,4 @@ def _error_fields(error: Any) -> tuple[str | None, str | None]:
     return None, None
 
 
-__all__ = ["PROVIDER_NAME", "HttpVideoProvider", "VideoProviderSettings"]
+__all__ = ["PROVIDER_NAME", "HttpVideoProvider", "PrepareReference", "VideoProviderSettings"]

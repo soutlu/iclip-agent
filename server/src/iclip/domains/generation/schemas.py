@@ -1,8 +1,9 @@
 """生成请求的 HTTP 与持久化类型定义。
 
-两种生成各有自己的请求形状：视频照抄上游异步接口（snake_case），图片是本系统自己的
-（camelCase）。持久化存的就是请求自己的字段名，读取时经 request_from_payload 重新校验，
-非法数据直接报错。"""
+落库的请求有三种形状：视频（出片与编辑段）照抄上游异步接口（snake_case），图片与合成是本系统
+自己的（camelCase）。持久化存的就是请求自己的字段名，读取时按 (kind, operation) 经
+request_from_payload 重新校验，非法数据直接报错。编辑段与合成的受理输入另有自己的类型，受理时
+换成落库的那一种。"""
 
 from __future__ import annotations
 
@@ -51,33 +52,22 @@ STATUS_FAILED: Final = "failed"
 
 KIND_VIDEO: Final = "video"
 KIND_IMAGE: Final = "image"
-KIND_CLIP: Final = "clip"
-"""本地 ffmpeg 加工出来的视频：编辑用的参考片段与拼出来的成片，不经任何外部 provider。"""
 
 OPERATION_GENERATE: Final = "generate"
 """调模型：出片、编辑段、图片生成都是它。"""
 OPERATION_COMPOSE: Final = "compose"
 """本地拼接：合成出一条新的成片，不经外部服务。"""
 
-ClipPurpose = Literal["reference", "master"]
-
-CLIP_REFERENCE: Final = "reference"
-"""只有它要分支判断（裁一段、不重编码）；另一个取值由 ClipPurpose 声明。"""
-
-MAX_CLIP_SEGMENTS: Final = 50
-"""一条成片最多由多少段拼成。编辑链里一条成片只有基底前段、编辑片段、基底后段三段，这个上限
-只是挡畸形请求。"""
-
 ClipStage = Literal["fetching", "processing", "uploading"]
-"""clip 任务在途时跑到哪一步，加工时上报，落在 provider_status 上。
+"""本地加工（合成、编辑段提交上游前的切片）在途时跑到哪一步，加工时上报，落在 provider_status 上。
 
-排队由 ``status == "pending"`` 表达，终态由 status 表达，都不另给词。参考片段没有取素材
+排队由 ``status == "pending"`` 表达，终态由 status 表达，都不另给词。切参考片段没有取素材
 这一步——它是边读边切的。"""
 
 CLIP_FETCHING: Final = "fetching"
 """取素材：下载各段的源，以及探它们的规格。"""
 CLIP_PROCESSING: Final = "processing"
-"""加工：裁一段，或者拼起来重编码。"""
+"""加工：切一段，或者拼起来重编码。"""
 CLIP_UPLOADING: Final = "uploading"
 """上传：把产物交给对象存储。"""
 
@@ -101,15 +91,13 @@ MAX_METADATA_CHARS: Final = 2000
 MAX_URL_CHARS: Final = 2000
 """服务端要拿去下载的单个地址的长度上限。"""
 
-ORIGIN_FIELDS: Final = frozenset(
-    {"conversation_id", "task_id", "metadata", "shot_index", "root_job_id"}
-)
+ORIGIN_FIELDS: Final = frozenset({"conversation_id", "task_id", "metadata", "shot_index"})
 """归属字段：落表上自己的列，不进 ``request`` JSON。
 
 它们不是发给 provider 的参数，而是「这一行属于谁、为谁出的」：对话与需求单按索引查；
-``root_job_id`` 说这一行是哪条独立记录的衍生；``metadata`` 是调用方自带的坐标，服务端
-原样存、按包含匹配筛，只认 ``shot`` 一个键；``shot_index`` 是 ``metadata.shot`` 的别名，
-受理时折进 ``metadata``，本身不落任何地方。"""
+``metadata`` 是调用方自带的坐标，服务端原样存、按包含匹配筛，只认 ``shot`` 一个键；
+``shot_index`` 是 ``metadata.shot`` 的别名，受理时折进 ``metadata``，本身不落任何地方。
+来源、原作与区间也落列，但不是请求字段：受理时由服务端按基底定。"""
 
 NOT_FORWARDED_FIELDS: Final = ORIGIN_FIELDS | frozenset({"shot"})
 """发给上游时去掉的字段：归属字段是我们自己的；``shot`` 已经拼成 ``prompt``，上游只认正文。
@@ -278,9 +266,6 @@ class VideoGenerationIn(SnakeModel):
 
     下界跟着分镜文件走：那里的 ``shots[].index`` 就是从 1 数的。收下 0 只会落一条读不出
     镜头组的记录——服务端不报错，分镜页永远不显示。"""
-    root_job_id: uuid.UUID | None = None
-    """原作号。视频编辑的结果填最初那条出片的 id，出片本身不填；受理时核对它是同一段对话里
-    的独立记录。"""
 
     _check_urls = field_validator(
         "reference_image_urls", "reference_video_urls", "reference_audio_urls"
@@ -339,60 +324,54 @@ class ImageGenerationIn(CamelModel):
     conversation_id: uuid.UUID | None = None
     task_id: uuid.UUID | None = None
     metadata: Metadata | None = None
-    root_job_id: uuid.UUID | None = None
-    """原作号。分镜页的图片生成与图片编辑都是独立记录，不填；从某条出片上抽出来的图才填它。"""
 
     _check_urls = field_validator("reference_image_urls")(_http_only)
 
 
-class ClipSegmentIn(CamelModel):
-    """从一条视频里取 ``[start, end)`` 这一段，单位秒。"""
+class VideoEditIn(SnakeModel):
+    """一次编辑段的受理输入：在一条成片上改 ``[range_start_ms, range_end_ms)`` 这一段。
 
-    url: Annotated[str, Field(min_length=1, max_length=MAX_URL_CHARS)]
-    start: float = Field(ge=0)
-    end: float
+    与出片同族，转发给上游的字段照上游命名。不收参考视频：服务端提交上游前按区间从基底上切
+    一段交给模型。不收 ``shot`` 与原作：编辑段只有正文，原作由基底定。受理后落库的是一条
+    ``VideoGenerationIn``，来源、原作与区间落列。"""
 
-    @field_validator("url")
-    @classmethod
-    def _downloadable(cls, url: str) -> str:
-        if not is_http_url(url):
-            raise ValueError("必须是 http:// 或 https:// 地址")
-        return url
-
-    @model_validator(mode="after")
-    def _end_after_start(self) -> ClipSegmentIn:
-        if self.end <= self.start:
-            raise ValueError("end 必须大于 start")
-        return self
-
-
-class ClipIn(CamelModel):
-    """一次本地视频加工：按顺序裁出各段拼成一条，产物是本系统桶里的公开地址。
-
-    ``reference`` 是编辑时切给模型看的参考片段，只能在一条完整视频上裁一段，不重编码
-    （起点因此落在最近的关键帧上，产物可能比区间略长）；``master`` 是拼出来的成片，各段
-    参数互不相同，一律重编码对齐。两者存在不同前缀下，成片不进过期规则。"""
-
-    kind: ClassVar[GenerationKind] = KIND_CLIP
-    operation: ClassVar[GenerationOperation] = OPERATION_COMPOSE
-
-    purpose: ClipPurpose
-    segments: Annotated[list[ClipSegmentIn], Field(min_length=1, max_length=MAX_CLIP_SEGMENTS)]
+    source_job_id: uuid.UUID
+    """基底：一条已完成的成片（出片或合成），这段对话自己的或继承来的。"""
+    range_start_ms: Annotated[int, Field(ge=0)]
+    range_end_ms: int
+    """要改的那一段，毫秒。结束超出基底时长按基底时长截；起点落在基底之外，这次编辑判失败。"""
+    model: ModelName
+    prompt: Prompt
+    user_name: UserName | None = None
+    """规则同出片的 ``user_name``。"""
+    reference_image_urls: MediaUrls = []
+    seconds: Annotated[int, Field(ge=-1)] | None = None
+    provider_options: dict[str, Any] | None = None
 
     conversation_id: uuid.UUID | None = None
     task_id: uuid.UUID | None = None
     metadata: Metadata | None = None
-    root_job_id: uuid.UUID | None = None
-    """原作号，受理时必填：本地加工的产物一律是某条出片的衍生记录，填最初那条出片的 id。
 
-    模型上可空，因为它是归属字段、落自己的列，持久化的 ``request`` JSON 里没有它，读回时
-    还要过这份校验。"""
+    _check_urls = field_validator("reference_image_urls")(_http_only)
 
     @model_validator(mode="after")
-    def _reference_is_one_cut(self) -> ClipIn:
-        if self.purpose == CLIP_REFERENCE and len(self.segments) != 1:
-            raise ValueError("参考片段只能在一条完整视频上裁一段")
+    def _end_after_start(self) -> VideoEditIn:
+        if self.range_end_ms <= self.range_start_ms:
+            raise ValueError("range_end_ms 必须大于 range_start_ms")
         return self
+
+
+class VideoComposeIn(CamelModel):
+    """一次合成的受理输入：只给编辑段，服务端按它的基底与实际区间算出前段、编辑段、后段再拼。"""
+
+    source_job_id: uuid.UUID
+    """一条已完成的编辑段，这段对话自己的或继承来的。"""
+    user_name: UserName | None = None
+    """规则同出片的 ``user_name``。"""
+
+    conversation_id: uuid.UUID | None = None
+    task_id: uuid.UUID | None = None
+    metadata: Metadata | None = None
 
 
 class ComposeSegment(CamelModel):
@@ -429,7 +408,7 @@ class VideoComposeRequest(CamelModel):
     user_name: UserName | None = None
 
 
-GenerationRequest = VideoGenerationIn | ImageGenerationIn | ClipIn | VideoComposeRequest
+GenerationRequest = VideoGenerationIn | ImageGenerationIn | VideoComposeRequest
 
 _ADAPTERS: Final[Mapping[tuple[str, str], TypeAdapter[Any]]] = {
     (KIND_VIDEO, OPERATION_GENERATE): TypeAdapter(VideoGenerationIn),
@@ -467,48 +446,59 @@ class GenerationOut(CamelModel):
 
     id: uuid.UUID
     kind: GenerationKind
+    operation: GenerationOperation
     status: GenerationStatus
     request: dict[str, Any]
     metadata: dict[str, Any] | None
     task_id: uuid.UUID | None
     root_job_id: uuid.UUID | None
-    """原作号；空即独立记录。链查询按它筛（``GET /generations?rootJobId=``）。"""
+    """原作：编辑段与合成指最初那条出片，出片与图片为空。按它筛（``rootJobId``）拿到整条编辑链。"""
+    source_job_id: uuid.UUID | None = None
+    """直接来源：编辑段指它的基底成片，合成指它的编辑段，别的为空。"""
+    range_start_ms: int | None = None
+    range_end_ms: int | None = None
+    """编辑段在基底上改的那一段，毫秒；参考片段切好之后是实际切点。只有编辑段有。"""
     output_url: str | None
     watermark_output_url: str | None
-    """视频的水印版地址；图片没有这一份，恒为空。"""
+    """视频的水印版地址；图片与合成没有这一份，恒为空。"""
     error_message: str | None
     duration_ms: int | None
-    """产物实际多长；只有本系统自己加工出来的视频知道，别的恒为空。
-
-    参考片段按关键帧下刀，产物比请求的区间长，长多少只有量产物才知道。调用方要靠它反算
-    实际起点，所以由服务端量好交出来，不必在浏览器里再开一个播放器去探。"""
+    """产物实际多长；只有合成知道（本系统自己拼出来、量过），别的恒为空。"""
     clip_stage: ClipStage | None
-    """在途的本地加工跑到哪一步；排队中、已有结论、以及别的 kind 都为空。"""
+    """在途的本地加工跑到哪一步：合成的取素材、拼接、上传，编辑段交上游之前的切片、上传。
+    排队中、已有结论、交给上游之后都为空。"""
     created_at: datetime
+    finished_at: datetime | None = None
+    """到终态的时刻（数据库时钟）；同一原作下的成片按它排版本。"""
 
 
 def generation_out(job: GenerationJob) -> GenerationOut:
     return GenerationOut(
         id=job.id,
         kind=job.kind,
+        operation=job.operation,
         status=job.status,
         request=request_to_payload(job.request),
         metadata=job.metadata,
         task_id=job.task_id,
         root_job_id=job.root_job_id,
+        source_job_id=job.source_job_id,
+        range_start_ms=job.range_start_ms,
+        range_end_ms=job.range_end_ms,
         output_url=job.output_url,
         watermark_output_url=job.watermark_output_url,
         error_message=job.error_message,
         duration_ms=_duration_ms(job),
         clip_stage=_clip_stage(job),
         created_at=job.created_at,
+        finished_at=job.finished_at,
     )
 
 
 def _duration_ms(job: GenerationJob) -> int | None:
-    """从快照里取产物时长。快照整份都是 provider 自己的形状，只认这一个键。"""
+    """从快照里取合成的产物时长。快照整份都是 provider 自己的形状，只认这一个键。"""
 
-    if job.kind != KIND_CLIP:
+    if job.operation != OPERATION_COMPOSE:
         return None
     value = (job.provider_snapshot or {}).get("durationMs")
     return value if isinstance(value, int) and not isinstance(value, bool) else None
@@ -518,9 +508,10 @@ def _clip_stage(job: GenerationJob) -> ClipStage | None:
     """在途的本地加工跑到哪一步。
 
     只在 submitting 时认：收尾写终态时不带 provider_status，那一列会留着最后上报的阶段词，
-    照它读会让一条已失败的记录看着还在上传。"""
+    照它读会让一条已失败的记录看着还在上传。交给上游之后 provider_status 是上游的状态词，
+    不在阶段词里，自然为空。"""
 
-    if job.kind != KIND_CLIP or job.status != STATUS_SUBMITTING:
+    if job.status != STATUS_SUBMITTING:
         return None
     return next((stage for stage in CLIP_STAGES if stage == job.provider_status), None)
 
@@ -622,13 +613,10 @@ class GenerationsPageOut(CamelModel):
 __all__ = [
     "CLIP_FETCHING",
     "CLIP_PROCESSING",
-    "CLIP_REFERENCE",
     "CLIP_UPLOADING",
     "IMAGE_MAX_REFERENCES",
-    "KIND_CLIP",
     "KIND_IMAGE",
     "KIND_VIDEO",
-    "MAX_CLIP_SEGMENTS",
     "MAX_METADATA_CHARS",
     "MAX_MODEL_CHARS",
     "MAX_PROMPT_CHARS",
@@ -643,9 +631,6 @@ __all__ = [
     "STATUS_PENDING",
     "STATUS_SUBMITTED",
     "STATUS_SUBMITTING",
-    "ClipIn",
-    "ClipPurpose",
-    "ClipSegmentIn",
     "ClipStage",
     "ComposeSegment",
     "GenerationEnvelope",
@@ -659,7 +644,9 @@ __all__ = [
     "ImageModelOut",
     "ImageModelsOut",
     "Metadata",
+    "VideoComposeIn",
     "VideoComposeRequest",
+    "VideoEditIn",
     "VideoGenerationIn",
     "VideoModelsOut",
     "VideoShotIn",
