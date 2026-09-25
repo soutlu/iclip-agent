@@ -59,8 +59,7 @@ class GenerationJob:
     conversation_id: uuid.UUID | None = None
     """生成来源对话。无对话上下文时为空；不设外键，删除对话后仍保留来源。"""
     metadata: dict[str, Any] | None = None
-    """调用方自带的坐标标签（分镜页写 ``{"shot", "frame"}``）。服务端只认 ``shot`` 一个键，
-    审计按它数镜；其余键不读、不校验。"""
+    """调用方自己的键（分镜页给图片记 ``{"shot", "frame"}``）；服务端不读不写、不校验，原样存取。"""
     task_id: uuid.UUID | None = None
     """需求单 id，调用方给的归属标签；不设外键，只做筛选。"""
     shot_index: int | None = None

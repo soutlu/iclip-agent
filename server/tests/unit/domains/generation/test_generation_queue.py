@@ -33,6 +33,7 @@ from tests.helpers.generation import (
     InMemoryGenerationRepository,
     ScriptedProvider,
     build_queue,
+    compose_request,
     image_request,
     make_job,
     video_request,
@@ -79,6 +80,31 @@ async def test_sync_submit_completes_in_one_step() -> None:
     assert stored.output_url == "https://cdn.test/out.png"
     assert image.poll_calls == [], "同步接口不该被轮询"
     assert connector.jobs == {}, "已经终态了，别再排一次轮询"
+
+
+async def test_a_sync_result_lands_its_measured_duration_on_the_record() -> None:
+    """本地加工一次出结果，量出来的时长随完成落进记录；快照照 provider 给的写。"""
+
+    job = make_job(compose_request())
+    repo = InMemoryGenerationRepository([job])
+    local = ScriptedProvider(
+        submission=ProviderSubmission(
+            provider_task_id=str(job.id),
+            provider_status="completed",
+            output_url="https://cdn.test/master.mp4",
+            duration_ms=7040,
+        )
+    )
+
+    queue, _ = build_queue(repo, video=local)
+    await queue.run_submit(str(job.id))
+
+    stored = repo.jobs[job.id]
+    assert (stored.status, stored.duration_ms, stored.provider_snapshot) == (
+        STATUS_COMPLETED,
+        7040,
+        {},
+    )
 
 
 async def test_marks_submitting_before_calling_provider() -> None:

@@ -94,10 +94,9 @@ MAX_URL_CHARS: Final = 2000
 ORIGIN_FIELDS: Final = frozenset({"conversation_id", "task_id", "metadata", "shot_index"})
 """归属字段：落表上自己的列，不进 ``request`` JSON。
 
-它们不是发给 provider 的参数，而是「这一行属于谁、为谁出的」：对话与需求单按索引查；
-``metadata`` 是调用方自带的坐标，服务端原样存、按包含匹配筛，只认 ``shot`` 一个键；
-``shot_index`` 是 ``metadata.shot`` 的别名，受理时折进 ``metadata``，本身不落任何地方。
-来源、原作与区间也落列，但不是请求字段：受理时由服务端按基底定。"""
+它们不是发给 provider 的参数，而是「这一行属于谁、为谁出的」：对话与需求单按索引查；视频的
+镜头组编号落 ``shot_index`` 列；``metadata`` 是调用方自己的键，服务端不读不写、原样存、按包含
+匹配筛。来源、原作与区间也落列，但不是请求字段：受理时由服务端按基底定。"""
 
 NOT_FORWARDED_FIELDS: Final = ORIGIN_FIELDS | frozenset({"shot"})
 """发给上游时去掉的字段：归属字段是我们自己的；``shot`` 已经拼成 ``prompt``，上游只认正文。
@@ -142,8 +141,8 @@ def _bounded_metadata(value: dict[str, Any]) -> dict[str, Any]:
 
 
 Metadata = Annotated[dict[str, Any], AfterValidator(_bounded_metadata)]
-"""调用方自己的坐标标签。分镜页写 ``{"shot", "frame"}``，形状归前端定；服务端只认 ``shot``
-一个键（审计按它数镜），其余键不读、不校验。"""
+"""调用方自己的键，形状归调用方定（分镜页给图片记 ``{"shot", "frame"}``）；服务端不读不写、
+不校验，只拦超长。视频的镜号在 ``shot_index``，不在这里。"""
 
 
 def _nonblank(text: str) -> str:
@@ -262,7 +261,7 @@ class VideoGenerationIn(SnakeModel):
     """需求单 id。只做归属与筛选，不校验它与对话的挂载关系。"""
     metadata: Metadata | None = None
     shot_index: Annotated[int, Field(ge=1)] | None = None
-    """第几镜，从 1 起。外部调用方不写 ``metadata``，给这个数就等于写了 ``metadata.shot``。
+    """镜头组编号，从 1 起。落记录自己的列，不进 ``request``、不发上游；不给就是一条没有镜号的出片。
 
     下界跟着分镜文件走：那里的 ``shots[].index`` 就是从 1 数的。收下 0 只会落一条读不出
     镜头组的记录——服务端不报错，分镜页永远不显示。"""
@@ -270,12 +269,6 @@ class VideoGenerationIn(SnakeModel):
     _check_urls = field_validator(
         "reference_image_urls", "reference_video_urls", "reference_audio_urls"
     )(_http_only)
-
-    @model_validator(mode="after")
-    def _fold_shot_index_into_metadata(self) -> VideoGenerationIn:
-        if self.shot_index is not None:
-            object.__setattr__(self, "metadata", {**(self.metadata or {}), "shot": self.shot_index})
-        return self
 
     @model_validator(mode="after")
     def _assemble_prompt_from_shot(self) -> VideoGenerationIn:
@@ -451,6 +444,8 @@ class GenerationOut(CamelModel):
     request: dict[str, Any]
     metadata: dict[str, Any] | None
     task_id: uuid.UUID | None
+    shot_index: int | None = None
+    """镜头组编号，只有视频有：出片由调用方给，编辑段与合成抄原作的；图片恒为空。"""
     root_job_id: uuid.UUID | None
     """原作：编辑段与合成指最初那条出片，出片与图片为空。按它筛（``rootJobId``）拿到整条编辑链。"""
     source_job_id: uuid.UUID | None = None
@@ -463,7 +458,7 @@ class GenerationOut(CamelModel):
     """视频的水印版地址；图片与合成没有这一份，恒为空。"""
     error_message: str | None
     duration_ms: int | None
-    """产物实际多长；只有合成知道（本系统自己拼出来、量过），别的恒为空。"""
+    """产物实际多长，毫秒；只有合成知道（本系统自己拼出来、量过），完成后才有，别的恒为空。"""
     clip_stage: ClipStage | None
     """在途的本地加工跑到哪一步：合成的取素材、拼接、上传，编辑段交上游之前的切片、上传。
     排队中、已有结论、交给上游之后都为空。"""
@@ -481,6 +476,7 @@ def generation_out(job: GenerationJob) -> GenerationOut:
         request=request_to_payload(job.request),
         metadata=job.metadata,
         task_id=job.task_id,
+        shot_index=job.shot_index,
         root_job_id=job.root_job_id,
         source_job_id=job.source_job_id,
         range_start_ms=job.range_start_ms,
@@ -488,20 +484,11 @@ def generation_out(job: GenerationJob) -> GenerationOut:
         output_url=job.output_url,
         watermark_output_url=job.watermark_output_url,
         error_message=job.error_message,
-        duration_ms=_duration_ms(job),
+        duration_ms=job.duration_ms,
         clip_stage=_clip_stage(job),
         created_at=job.created_at,
         finished_at=job.finished_at,
     )
-
-
-def _duration_ms(job: GenerationJob) -> int | None:
-    """从快照里取合成的产物时长。快照整份都是 provider 自己的形状，只认这一个键。"""
-
-    if job.operation != OPERATION_COMPOSE:
-        return None
-    value = (job.provider_snapshot or {}).get("durationMs")
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def _clip_stage(job: GenerationJob) -> ClipStage | None:

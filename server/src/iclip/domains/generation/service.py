@@ -111,14 +111,15 @@ class GenerationService:
             conversation_id=request.conversation_id,
             task_id=request.task_id,
             metadata=request.metadata,
+            shot_index=request.shot_index,
         )
 
     async def submit_video_edit(self, principal: Principal, request: VideoEditIn) -> GenerationJob:
         """受理一次编辑段：在一条成片上改一段，走视频上游。
 
-        基底必须是这段对话看得到的一条已完成成片；原作随基底，基底是出片就是它自己。区间先按
-        请求记，提交上游前服务端切参考片段时改记实际切点。落库的请求不带参考视频，片段地址只进
-        发给上游的那一次请求。"""
+        基底必须是这段对话看得到的一条已完成成片；原作与镜号随基底，基底是出片就是它自己。区间
+        先按请求记，提交上游前服务端切参考片段时改记实际切点。落库的请求不带参考视频，片段地址
+        只进发给上游的那一次请求。"""
 
         self._require_video_model(request.model)
         _require_user_name(request.user_name)
@@ -140,6 +141,7 @@ class GenerationService:
             conversation_id=request.conversation_id,
             task_id=request.task_id,
             metadata=request.metadata,
+            shot_index=base.shot_index,
             root_job_id=base.root_job_id or base.id,
             source_job_id=base.id,
             range_start_ms=request.range_start_ms,
@@ -149,7 +151,7 @@ class GenerationService:
     async def submit_video_compose(
         self, principal: Principal, request: VideoComposeIn
     ) -> GenerationJob:
-        """受理一次合成：把编辑段夹回它的基底，拼成同一原作下的新一版成片。
+        """受理一次合成：把编辑段夹回它的基底，拼成同一原作下的新一版成片，镜号随编辑段。
 
         段按编辑段上记的实际区间算：基底从头到起点（起点为 0 时没有这段）、编辑段产物整条、
         基底从终点到结尾。后两段取到结尾，执行方按下载下来的素材补齐。不经外部服务。"""
@@ -180,6 +182,7 @@ class GenerationService:
             conversation_id=request.conversation_id,
             task_id=request.task_id,
             metadata=request.metadata,
+            shot_index=edit.shot_index,
             root_job_id=edit.root_job_id,
             source_job_id=edit.id,
         )
@@ -223,6 +226,8 @@ class GenerationService:
             conversation_id=request.conversation_id,
             task_id=request.task_id,
             metadata=request.metadata,
+            # 图片的镜与帧只有分镜页自己用来找格子，是调用方的 metadata，不落镜号列。
+            shot_index=None,
         )
 
     async def _accept(
@@ -234,6 +239,7 @@ class GenerationService:
         conversation_id: uuid.UUID | None,
         task_id: uuid.UUID | None,
         metadata: dict[str, Any] | None,
+        shot_index: int | None,
         root_job_id: uuid.UUID | None = None,
         source_job_id: uuid.UUID | None = None,
         range_start_ms: int | None = None,
@@ -241,8 +247,9 @@ class GenerationService:
     ) -> GenerationJob:
         """保存 pending 记录并排队。入库与排队分属不同事务，排队失败时标记失败并抛出错误。
 
-        kind 与 operation 随落库请求的类型定；归属、来源与区间由各入口显式给，不从请求上抄。
-        两步之间进程中断会留下未排队的 pending 记录，需要人工确认后重新发起。"""
+        kind 与 operation 随落库请求的类型定；归属、镜号、来源与区间由各入口显式给，不从请求上抄。
+        镜号没有默认值：漏传就会静默落成一条没有镜号的记录。两步之间进程中断会留下未排队的
+        pending 记录，需要人工确认后重新发起。"""
 
         now = datetime.now(UTC)
         job = GenerationJob(
@@ -252,6 +259,7 @@ class GenerationService:
             conversation_id=conversation_id,
             metadata=metadata,
             task_id=task_id,
+            shot_index=shot_index,
             root_job_id=root_job_id,
             source_job_id=source_job_id,
             range_start_ms=range_start_ms,
@@ -375,6 +383,7 @@ class GenerationService:
         operation: GenerationOperation | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
+        shot_index: int | None = None,
         root_job_id: uuid.UUID | None = None,
         source_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
@@ -392,6 +401,7 @@ class GenerationService:
             operation=operation,
             metadata=metadata,
             task_id=task_id,
+            shot_index=shot_index,
             root_job_id=root_job_id,
             source_job_id=source_job_id,
             before=before,
