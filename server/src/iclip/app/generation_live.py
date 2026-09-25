@@ -12,6 +12,7 @@ from iclip.domains.generation.models import (
     GenerationKind,
     GenerationStatus,
     InFlightPhase,
+    Inheritance,
 )
 from iclip.domains.generation.repository import GenerationRepository
 
@@ -31,8 +32,10 @@ class AnnouncingGenerationRepository:
     async def create(self, job: GenerationJob) -> GenerationJob:
         return self._announce(await self._inner.create(job))
 
-    async def get(self, job_id: uuid.UUID, *, owner: uuid.UUID | None) -> GenerationJob:
-        return await self._inner.get(job_id, owner=owner)
+    async def get(
+        self, job_id: uuid.UUID, *, owner: uuid.UUID | None, inherited: Inheritance = ()
+    ) -> GenerationJob:
+        return await self._inner.get(job_id, owner=owner, inherited=inherited)
 
     async def list_for_owner(
         self,
@@ -45,6 +48,7 @@ class AnnouncingGenerationRepository:
         task_id: uuid.UUID | None = None,
         root_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
+        inherited: Inheritance = (),
     ) -> tuple[GenerationJob, ...]:
         return await self._inner.list_for_owner(
             owner=owner,
@@ -55,22 +59,7 @@ class AnnouncingGenerationRepository:
             task_id=task_id,
             root_job_id=root_job_id,
             before=before,
-        )
-
-    async def copy_completed_to_fork(
-        self,
-        *,
-        source_conversation_id: uuid.UUID,
-        target_conversation_id: uuid.UUID,
-        owner: uuid.UUID,
-        task_id: uuid.UUID | None,
-    ) -> int:
-        # 不发帧：副本的对话行还没落库，这一刻没人订阅得了它。
-        return await self._inner.copy_completed_to_fork(
-            source_conversation_id=source_conversation_id,
-            target_conversation_id=target_conversation_id,
-            owner=owner,
-            task_id=task_id,
+            inherited=inherited,
         )
 
     async def mark_submitting(self, job_id: uuid.UUID) -> GenerationJob:

@@ -1,11 +1,15 @@
-"""对话分叉端口的适配：把用例要的三个端口接到 agent 引擎、文件存储与生成域上。"""
+"""对话分叉的适配：分叉用例的两个端口接到 agent 引擎与文件存储上；生成域读副本继承的出片
+要的血缘接到对话域上。"""
 
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
+from datetime import datetime
 
 from iclip.capabilities.workspace.scope import namespace_for
-from iclip.domains.generation.module import GenerationModule
+from iclip.domains.conversations.infra_sql import SqlConversationRepository
+from iclip.domains.identity.public import Principal
 from iclip.harness.jobs import JobQueue
 from iclip.harness.transcript.history import TranscriptHistory
 from iclip.platform.file_store.store import FileStore
@@ -66,28 +70,27 @@ class WorkspaceCopier:
         await self._ledger.record(target, await self._ledger.list_all(source))
 
 
-class GenerationsCopier:
-    """副本的结果条来自这一步；没开媒体生成就没有出片记录可拷。"""
-
-    def __init__(self, generation: GenerationModule | None) -> None:
-        self._generation = generation
-
-    async def __call__(
-        self,
-        *,
-        source_id: uuid.UUID,
-        target_id: uuid.UUID,
-        owner: uuid.UUID,
-        task_id: uuid.UUID | None,
-    ) -> int:
-        if self._generation is None:
-            return 0
-        return await self._generation.service.copy_to_fork(
-            source_conversation_id=source_id,
-            target_conversation_id=target_id,
-            owner=owner,
-            task_id=task_id,
-        )
+ConversationReadable = Callable[[Principal, uuid.UUID], Awaitable[bool]]
+"""主体读不读得到这段对话；由组合根接到对话服务上。"""
 
 
-__all__ = ["ForkTranscriptAdapter", "GenerationsCopier", "WorkspaceCopier"]
+class ForkLineageAdapter:
+    """生成域的 ``ConversationLineage``：祖先与边界问对话的 Postgres 仓储，读不读得到问对话服务。
+
+    递归查询只在具体仓储上，不进对话仓储协议。对话服务在生成模块之后才装配，可读判断由组合根
+    以闭包在调用时才取。"""
+
+    def __init__(
+        self, *, conversations: SqlConversationRepository, readable: ConversationReadable
+    ) -> None:
+        self._conversations = conversations
+        self._readable = readable
+
+    async def ancestry(self, conversation_id: uuid.UUID) -> tuple[tuple[uuid.UUID, datetime], ...]:
+        return await self._conversations.ancestry(conversation_id)
+
+    async def readable(self, principal: Principal, conversation_id: uuid.UUID) -> bool:
+        return await self._readable(principal, conversation_id)
+
+
+__all__ = ["ForkLineageAdapter", "ForkTranscriptAdapter", "WorkspaceCopier"]

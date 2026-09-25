@@ -835,8 +835,8 @@ async def test_anomaly_counts_share_the_anomaly_judgement(
 async def test_forks_do_not_count_toward_any_metric(
     reports: PgAuditReports, seed: Seed, engine: AsyncEngine
 ) -> None:
-    """副本带着源对话拷来的出片记录，算进去会把原作者的产量重计一遍；它自己跑的也是试验数据。
-    在副本里下载也不让任何一镜变有效。"""
+    """副本继承的出片记在源对话名下、源那边已经数过；副本自己跑的是试验数据，一律不计。
+    下载副本自己出的片也不让任何一镜变有效。"""
 
     before = await reports.overall(Scope())
     fork_id, fork_video = uuid.uuid4(), uuid.uuid4()

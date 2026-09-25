@@ -6,6 +6,7 @@ import json
 import uuid
 from collections.abc import Mapping
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -32,6 +33,7 @@ from tests.helpers.app import app_with_principal
 from tests.helpers.generation import (
     SHOT_IMAGE_URLS,
     SHOT_PROMPT,
+    FixedLineage,
     InMemoryGenerationRepository,
     build_queue,
     clip_request,
@@ -93,6 +95,7 @@ def build_test_app(
     granted: Principal | None,
     broken_queue: bool = False,
     image_models: Mapping[str, ImageModelSpec] | None = None,
+    lineage: FixedLineage | None = None,
 ) -> FastAPI:
     app = app_with_principal(granted)
     cleared = ClearedCompletions()
@@ -115,6 +118,7 @@ def build_test_app(
         image_models=image_models if image_models is not None else IMAGE_MODELS,
         image_default_model="nano_banana_pro",
         clear_completion=cleared.record,
+        lineage=lineage or FixedLineage(),
     )
     app.include_router(create_generations_router(service, act_as=ActAs(InMemoryUserRepository())))
     return app
@@ -553,6 +557,70 @@ async def test_list_can_be_filtered_by_root_job() -> None:
 
     (item,) = response.json()["items"]
     assert (item["id"], item["rootJobId"]) == (str(on_chain.id), str(root.id))
+
+
+def fork_of_someone_elses_take(
+    forker: uuid.UUID, *, readable: bool
+) -> tuple[InMemoryGenerationRepository, uuid.UUID, GenerationJob, GenerationJob, FixedLineage]:
+    """别人在源对话里出成的一条，和分叉的人在副本里自己的一条；主体读不读得到副本由调用方定。"""
+
+    source, fork = uuid.uuid4(), uuid.uuid4()
+    forked_at = datetime.now(UTC)
+    inherited = make_job(
+        video_request(),
+        status=STATUS_COMPLETED,
+        conversation_id=source,
+        created_at=forked_at - timedelta(minutes=2),
+        finished_at=forked_at - timedelta(minutes=1),
+        output_url="https://example.com/source.mp4",
+    )
+    own = make_job(video_request(), owner_user_id=forker, conversation_id=fork)
+    return (
+        InMemoryGenerationRepository([inherited, own]),
+        fork,
+        inherited,
+        own,
+        FixedLineage({fork: ((source, forked_at),)}, readable=readable),
+    )
+
+
+@pytest.mark.parametrize("readable", [True, False], ids=["读得到副本", "读不到副本"])
+async def test_listing_a_fork_adds_what_it_inherited_only_for_those_who_can_read_it(
+    readable: bool,
+) -> None:
+    """按对话列副本：读得到副本就连同继承的一起给；读不到只按属主口径，不另报 404。"""
+
+    forker = uuid.uuid4()
+    repo, fork, inherited, own, lineage = fork_of_someone_elses_take(forker, readable=readable)
+    app = build_test_app(
+        repo, granted=principal("generation:read", user_id=forker), lineage=lineage
+    )
+    async with client(app) as http:
+        response = await http.get(f"/generations?conversationId={fork}")
+
+    assert response.status_code == 200, response.text
+    listed = {item["id"] for item in response.json()["items"]}
+    assert listed == ({str(own.id), str(inherited.id)} if readable else {str(own.id)})
+
+
+@pytest.mark.parametrize("readable", [True, False], ids=["读得到副本", "读不到副本"])
+async def test_an_inherited_root_counts_only_for_those_who_can_read_the_fork(
+    readable: bool,
+) -> None:
+    """拿着读不到的副本 id，挂不上源对话里别人的出片，也探不出它在不在。"""
+
+    forker = uuid.uuid4()
+    repo, fork, inherited, _, lineage = fork_of_someone_elses_take(forker, readable=readable)
+    app = build_test_app(
+        repo, granted=principal("generation:submit", user_id=forker), lineage=lineage
+    )
+    async with client(app) as http:
+        response = await http.post(
+            "/generations/clips",
+            json={**CLIP_BODY, "conversationId": str(fork), "rootJobId": str(inherited.id)},
+        )
+
+    assert response.status_code == (202 if readable else 422), response.text
 
 
 async def test_list_rejects_out_of_range_limit() -> None:

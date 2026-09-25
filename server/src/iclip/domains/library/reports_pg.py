@@ -31,9 +31,9 @@ from iclip.domains.library.schemas import (
 # ---------------------------------------------------------------------------
 # 收录口径，一段 CTE 供所有查询共用：
 # roots  成功的独立视频记录，已删对话里的不收；
-# takes  按地址去重——分叉会把出片连同地址原样拷进副本，非分叉的、早的那条留下；
-#        镜的身份是（对话，镜号），没有镜号或不挂对话的一条自成一镜；
-# masters 成片按它的根的地址对回留下的那次出片，拷进分叉的成片同样按地址去重；
+# takes  每条都是一次出片；镜的身份是（对话，镜号），没有镜号或不挂对话的一条自成一镜；
+# masters 成片按原作号挂到那次出片上：分叉副本里剪继承来的出片，成片也挂在源那一镜；
+#        成片所在的对话删了就不收；
 # master_lists 每次出片名下的全部成片与最新那条，一次分组算完，不逐行子查询；
 # faces  每次出片带上名下成片与画幅朝向；
 # cards  一镜一张卡，卡面取这一镜最新的成片，没有成片就取最新一次出片。
@@ -44,7 +44,7 @@ WITH roots AS (
     SELECT g.id, g.request, g.output_url, g.watermark_output_url, g.created_at,
            COALESCE(NULLIF(g.request->>'user_name', ''), u.username) AS user_name,
            c.id AS conversation_id, c.owner_user_id AS conversation_owner, c.title,
-           c.agent_id, c.task_id, c.forked_from,
+           c.agent_id, c.task_id,
            CASE WHEN c.id IS NOT NULL AND jsonb_typeof(g.metadata->'shot') = 'number'
                 THEN (g.metadata->>'shot')::int END AS shot_index
     FROM iclip.generation_jobs g
@@ -54,24 +54,20 @@ WITH roots AS (
       AND g.output_url IS NOT NULL AND c.deleted_at IS NULL
 ),
 takes AS (
-    SELECT DISTINCT ON (r.output_url) r.*,
+    SELECT r.*,
            CASE WHEN r.shot_index IS NULL THEN r.id::text
                 ELSE r.conversation_id::text || '#' || r.shot_index END AS shot_key
     FROM roots r
-    ORDER BY r.output_url, r.forked_from IS NOT NULL, r.created_at, r.id
 ),
 masters AS (
-    SELECT DISTINCT ON (m.output_url)
-           t.id AS take_id, m.id, m.output_url, m.created_at,
+    SELECT t.id AS take_id, m.id, m.output_url, m.created_at,
            CASE WHEN jsonb_typeof(m.provider_snapshot->'durationMs') = 'number'
                 THEN (m.provider_snapshot->>'durationMs')::bigint END AS duration_ms
     FROM iclip.generation_jobs m
-    JOIN iclip.generation_jobs r ON r.id = m.root_job_id
-    JOIN takes t ON t.output_url = r.output_url
+    JOIN takes t ON t.id = m.root_job_id
     LEFT JOIN iclip.conversations mc ON mc.id = m.conversation_id
     WHERE m.kind = 'clip' AND m.request->>'purpose' = 'master' AND m.status = 'completed'
       AND m.output_url IS NOT NULL AND mc.deleted_at IS NULL
-    ORDER BY m.output_url, mc.forked_from IS NOT NULL, m.created_at, m.id
 ),
 master_lists AS (
     SELECT m.take_id,

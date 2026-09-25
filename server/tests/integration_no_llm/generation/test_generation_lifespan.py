@@ -9,44 +9,7 @@ import httpx
 import pytest
 
 from iclip.app.bootstrap import build_app
-from iclip.config import (
-    ImageGenerationSection,
-    ImageModelSection,
-    MediaGenerationSection,
-    RuntimeConfig,
-    VideoGenerationSection,
-)
-from tests.helpers.app import make_runtime_config
-from tests.helpers.generation import MemoryObjectStore
-
-MEDIA_ENVS = {
-    "OSS_BUCKET": "iclip-test",
-    "OSS_ENDPOINT": "oss-cn-hangzhou.aliyuncs.com",
-    "OSS_ACCESS_KEY_ID": "ak",
-    "OSS_ACCESS_KEY_SECRET": "sk",
-    "OSS_PUBLIC_URL_BASE": "https://cdn.example.test",
-    "VIDEO_SUBMIT_URL": "https://video.test/submit",
-    "VIDEO_STATUS_BASE_URL": "https://video.test/status",
-    "VIDEO_API_KEY": "vk",
-    "IMAGE_API_BASE": "https://image.test/atlas",
-}
-
-
-def config_with_media() -> RuntimeConfig:
-    return make_runtime_config().model_copy(
-        update={
-            "media_generation": MediaGenerationSection(
-                video=VideoGenerationSection(model="seedance", allowed_models=("seedance",)),
-                image=ImageGenerationSection(
-                    env="test",
-                    default="nano_banana_pro",
-                    models={
-                        "nano_banana_pro": ImageModelSection(route="nano-banana-pro", concurrency=4)
-                    },
-                ),
-            ),
-        }
-    )
+from tests.helpers.generation import MEDIA_ENVS, MemoryObjectStore, config_with_media
 
 
 async def test_app_with_generation_starts_and_stops_cleanly(

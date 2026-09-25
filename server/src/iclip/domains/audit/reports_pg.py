@@ -43,9 +43,9 @@ from iclip.domains.audit.schemas import (
 # 公共 CTE。videos 是全部口径的基础：只认带数字 metadata.shot 且挂着对话的视频行，
 # 需求单从对话取；person 给每段对话定一个人：最近一轮运行的 user_name，没有运行
 # 就取最近一条视频的。
-# 分叉出来的副本一律不进报表（``forked_from`` 非空）：它带着源对话拷来的出片记录，
-# 算进去会把原作者的产量重计一遍，副本自己跑的也是试验数据。挡在 videos / person / runs
-# 三个根 CTE 上，其余口径都从它们派生。
+# 分叉出来的副本一律不进报表（``forked_from`` 非空）：它继承的出片记在源对话名下，源那边
+# 已经数过；副本自己跑的是试验数据。挡在 videos / person / runs 三个根 CTE 上，其余口径都
+# 从它们派生。
 # SQL 里的 'video' / 'completed' / 'submitted' 镜像生成域的 KIND_VIDEO / STATUS_COMPLETED /
 # STATUS_SUBMITTED，'video.downloaded' 镜像埋点的 VIDEO_DOWNLOADED（报表按表名直接查，
 # 不 import 业务模块）；集成测试的种子取自那些常量，改词这里的用例就红。

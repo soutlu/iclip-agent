@@ -21,6 +21,7 @@ from iclip.domains.generation.video import VideoProviderSettings
 from iclip.domains.identity.acting import ActAs
 from iclip.domains.identity.models import Principal
 from tests.helpers.generation import (
+    FixedLineage,
     InMemoryGenerationRepository,
     MemoryObjectStore,
     image_request,
@@ -61,6 +62,7 @@ def build(
         repo,
         act_as=ActAs(InMemoryUserRepository()),
         clear_completion=_keep_completion,
+        lineage=FixedLineage(),
         video=VideoProviderSettings(
             submit_url="https://video.test/generate",
             status_base_url="https://video.test/tasks",
