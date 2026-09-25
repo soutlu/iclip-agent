@@ -169,7 +169,7 @@ class Seed:
                 self.c2,
                 owner=self.leo,
                 user_name=LEO,
-                shot=None,
+                shot=1,
                 created_at=at(42),
                 url_name="e-edit",
                 edit_of=self.e,
@@ -275,11 +275,11 @@ class Seed:
         await conn.execute(
             text(
                 "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind,"
-                " operation, provider, request, status, metadata, source_job_id, root_job_id,"
+                " operation, provider, request, status, shot_index, source_job_id, root_job_id,"
                 " range_start_ms, range_end_ms, output_url, watermark_output_url, created_at,"
                 " updated_at, finished_at)"
                 " VALUES (:id, :owner, :conversation_id, :kind, :operation, 'test',"
-                " CAST(:request AS jsonb), :status, CAST(:metadata AS jsonb), :edit_of, :edit_of,"
+                " CAST(:request AS jsonb), :status, :shot, :edit_of, :edit_of,"
                 " :range_start_ms, :range_end_ms, :output_url, :watermark_url, :created_at,"
                 " :created_at, :created_at)"
             ),
@@ -291,7 +291,7 @@ class Seed:
                 "operation": OPERATION_GENERATE,
                 "request": json.dumps(body),
                 "status": status,
-                "metadata": None if shot is None else json.dumps({"shot": shot}),
+                "shot": shot,
                 "edit_of": edit_of,
                 "range_start_ms": None if edit_of is None else 1000,
                 "range_end_ms": None if edit_of is None else 4000,
@@ -313,17 +313,17 @@ class Seed:
         duration_ms: int | None = None,
     ) -> None:
         """在 ``base`` 那次出片上剪一段再合成：先落编辑段，合成以它为来源、原作是基底；
-        两条的属主都照基底的。"""
+        两条的属主与镜号都照基底的。"""
 
         edit_id = uuid.uuid4()
         await conn.execute(
             text(
                 "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind,"
-                " operation, provider, request, status, source_job_id, root_job_id,"
+                " operation, provider, request, status, shot_index, source_job_id, root_job_id,"
                 " range_start_ms, range_end_ms, output_url, created_at, updated_at, finished_at)"
                 " SELECT :id, owner_user_id, :conversation_id, :kind, :operation, 'test',"
-                " CAST(:request AS jsonb), :status, :base, :base, 1000, 4000, :output_url,"
-                " :created_at, :created_at, :created_at"
+                " CAST(:request AS jsonb), :status, shot_index, :base, :base, 1000, 4000,"
+                " :output_url, :created_at, :created_at, :created_at"
                 " FROM iclip.generation_jobs WHERE id = :base"
             ),
             {
@@ -341,11 +341,11 @@ class Seed:
         await conn.execute(
             text(
                 "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind,"
-                " operation, provider, request, status, source_job_id, root_job_id, output_url,"
-                " provider_snapshot, created_at, updated_at, finished_at)"
+                " operation, provider, request, status, shot_index, source_job_id, root_job_id,"
+                " output_url, provider_snapshot, duration_ms, created_at, updated_at, finished_at)"
                 " SELECT :id, owner_user_id, :conversation_id, :kind, :operation, 'local',"
-                " CAST(:request AS jsonb), :status, :edit, :base, :output_url,"
-                " CAST(:snapshot AS jsonb), :created_at, :created_at, :created_at"
+                " CAST(:request AS jsonb), :status, shot_index, :edit, :base, :output_url,"
+                " '{}'::jsonb, :duration_ms, :created_at, :created_at, :created_at"
                 " FROM iclip.generation_jobs WHERE id = :base"
             ),
             {
@@ -360,7 +360,7 @@ class Seed:
                 "edit": edit_id,
                 "base": base,
                 "output_url": url(url_name),
-                "snapshot": json.dumps({} if duration_ms is None else {"durationMs": duration_ms}),
+                "duration_ms": duration_ms,
                 "created_at": created_at,
             },
         )

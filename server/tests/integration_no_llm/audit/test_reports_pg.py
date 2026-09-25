@@ -140,20 +140,22 @@ class Seed:
                 finished_at: datetime | None = None,
                 video_id: uuid.UUID | None = None,
                 edit_of: uuid.UUID | None = None,
+                metadata: dict[str, object] | None = None,
             ) -> uuid.UUID:
-                """一条出片；给了 ``edit_of`` 就是那次出片上的一段编辑（来源与原作都是它）。"""
+                """一条出片；给了 ``edit_of`` 就是那次出片上的一段编辑（来源与原作都是它，镜号由
+                调用方照原作给）。"""
 
                 job_id = video_id or uuid.uuid4()
                 await conn.execute(
                     text(
                         "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id,"
-                        " kind, operation, provider, request, status, metadata, source_job_id,"
-                        " root_job_id, range_start_ms, range_end_ms, created_at, updated_at,"
-                        " submitted_at, finished_at)"
+                        " kind, operation, provider, request, status, shot_index, metadata,"
+                        " source_job_id, root_job_id, range_start_ms, range_end_ms, created_at,"
+                        " updated_at, submitted_at, finished_at)"
                         " VALUES (:id, :owner, :conversation_id, :kind, :operation, 'test',"
-                        " CAST(:request AS jsonb), :status, CAST(:metadata AS jsonb), :edit_of,"
-                        " :edit_of, :range_start_ms, :range_end_ms, :created_at, :created_at,"
-                        " :submitted_at, :finished_at)"
+                        " CAST(:request AS jsonb), :status, :shot, CAST(:metadata AS jsonb),"
+                        " :edit_of, :edit_of, :range_start_ms, :range_end_ms, :created_at,"
+                        " :created_at, :submitted_at, :finished_at)"
                     ),
                     {
                         "id": job_id,
@@ -165,7 +167,8 @@ class Seed:
                             {"model": "m", "prompt": "p", "user_name": user_name}
                         ),
                         "status": status,
-                        "metadata": None if shot is None else json.dumps({"shot": shot}),
+                        "shot": shot,
+                        "metadata": None if metadata is None else json.dumps(metadata),
                         "edit_of": edit_of,
                         "range_start_ms": None if edit_of is None else 1000,
                         "range_end_ms": None if edit_of is None else 4000,
@@ -181,14 +184,16 @@ class Seed:
                 conversation_id: uuid.UUID,
                 *,
                 root: uuid.UUID,
+                shot: int,
                 created_at: datetime,
             ) -> None:
-                """视频编辑确认合成的成片：先在 ``root`` 那次出片上有一段编辑，合成以它为来源。"""
+                """视频编辑确认合成的成片：先在 ``root`` 那次出片上有一段编辑，合成以它为来源；
+                两条都抄着原作的镜号 ``shot``。"""
 
                 edit = await video(
                     conversation_id,
                     user_name=SHAN,
-                    shot=None,
+                    shot=shot,
                     status=STATUS_COMPLETED,
                     created_at=created_at - timedelta(minutes=1),
                     finished_at=created_at - timedelta(seconds=30),
@@ -197,10 +202,11 @@ class Seed:
                 await conn.execute(
                     text(
                         "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id,"
-                        " kind, operation, provider, request, status, source_job_id, root_job_id,"
-                        " output_url, created_at, updated_at, submitted_at, finished_at)"
+                        " kind, operation, provider, request, status, shot_index, source_job_id,"
+                        " root_job_id, output_url, created_at, updated_at, submitted_at,"
+                        " finished_at)"
                         " VALUES (:id, :owner, :conversation_id, :kind, :operation, 'test',"
-                        " CAST(:request AS jsonb), :status, :edit, :root,"
+                        " CAST(:request AS jsonb), :status, :shot, :edit, :root,"
                         " 'https://example.test/master.mp4', :at, :at, :at, :at)"
                     ),
                     {
@@ -217,6 +223,7 @@ class Seed:
                             }
                         ),
                         "status": STATUS_COMPLETED,
+                        "shot": shot,
                         "edit": edit,
                         "root": root,
                         "at": created_at,
@@ -324,6 +331,7 @@ class Seed:
                 submitted_at=ago(minutes=49),
                 finished_at=ago(minutes=40),
             )
+            # 调用方只在 metadata 里写了镜号、没给 shot_index：没有镜号，不算进镜 1，算漏标。
             await video(
                 self.c1,
                 user_name=SHAN,
@@ -332,6 +340,7 @@ class Seed:
                 created_at=ago(minutes=10),
                 finished_at=ago(minutes=5),
                 video_id=self.missing_shot_video,
+                metadata={"shot": 1},
             )
             # 编辑段：有来源、没有镜头组，不算出片、也不算缺坐标。
             await video(
@@ -345,7 +354,11 @@ class Seed:
             )
             # 镜 1 的出片被两个人各下载一次，仍只算一镜；镜 2 下载的是名下的成片，算回镜 2。
             await master(
-                self.c1_shot2_master, self.c1, root=self.c1_shot2_video, created_at=ago(minutes=30)
+                self.c1_shot2_master,
+                self.c1,
+                root=self.c1_shot2_video,
+                shot=2,
+                created_at=ago(minutes=30),
             )
             await download(self.c1_shot1_video, user_id=self.shan)
             await download(self.c1_shot1_video, user_id=self.donnie)
@@ -866,17 +879,16 @@ async def test_forks_do_not_count_toward_any_metric(
         )
         await conn.execute(
             text(
-                "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, metadata,"
+                "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, shot_index,"
                 " kind, operation, provider, request, status, output_url, created_at, updated_at,"
                 " submitted_at, finished_at)"
-                " VALUES (:id, :owner, :conversation_id, :metadata, :kind, :operation, 'p',"
+                " VALUES (:id, :owner, :conversation_id, 1, :kind, :operation, 'p',"
                 " :request, :status, 'https://example.test/copy.mp4', :at, :at, :at, :at)"
             ),
             {
                 "id": fork_video,
                 "owner": seed.shan,
                 "conversation_id": fork_id,
-                "metadata": json.dumps({"shot": 1}),
                 "kind": KIND_VIDEO,
                 "operation": OPERATION_GENERATE,
                 "status": STATUS_COMPLETED,
