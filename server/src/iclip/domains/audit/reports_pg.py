@@ -40,7 +40,7 @@ from iclip.domains.audit.schemas import (
 )
 
 # ---------------------------------------------------------------------------
-# 公共 CTE。videos 是全部口径的基础：只认带数字 metadata.shot 且挂着对话的视频行，
+# 公共 CTE。videos 是全部口径的基础：只认有镜号（shot_index 列）且挂着对话的出片，
 # 需求单从对话取；person 给每段对话定一个人：最近一轮运行的 user_name，没有运行
 # 就取最近一条视频的。
 # 分叉出来的副本一律不进报表（``forked_from`` 非空）：它继承的出片记在源对话名下，源那边
@@ -65,14 +65,14 @@ videos AS (
                JOIN iclip.generation_jobs d ON d.id = t.job_id
                WHERE t.name = 'video.downloaded'
            ) AS downloaded,
-           (g.metadata->>'shot')::int AS shot,
+           g.shot_index AS shot,
            g.request->>'user_name' AS user_name,
            c.task_id
     FROM iclip.generation_jobs g
     JOIN iclip.conversations c ON c.id = g.conversation_id
-    -- 出片 = 没有来源的视频 generate，且带数字镜号；编辑段与合成一律不算。
+    -- 出片 = 没有来源的视频 generate，且有镜号；编辑段与合成抄了原作的镜号，也一律不算。
     WHERE g.kind = 'video' AND g.operation = 'generate' AND g.source_job_id IS NULL
-      AND jsonb_typeof(g.metadata->'shot') = 'number'
+      AND g.shot_index IS NOT NULL
       AND c.forked_from IS NULL
 )"""
 
@@ -478,8 +478,8 @@ missing_shot AS (
            g.conversation_id, c.task_id, g.request->>'user_name', NULL::int, g.id
     FROM iclip.generation_jobs g
     LEFT JOIN iclip.conversations c ON c.id = g.conversation_id
-    WHERE g.kind = 'video' AND jsonb_typeof(g.metadata->'shot') IS DISTINCT FROM 'number'
-      -- 只有出片才谈漏标；编辑段与合成本来就不带镜号。
+    WHERE g.kind = 'video' AND g.shot_index IS NULL
+      -- 只有出片才谈漏标；编辑段与合成的镜号抄自原作，不是调用方给的。
       AND g.operation = 'generate' AND g.source_job_id IS NULL
       -- 挂在副本下的记录不算异常；没挂对话的孤儿记录照旧要算，所以放过 c 整行为空的。
       AND c.forked_from IS NULL

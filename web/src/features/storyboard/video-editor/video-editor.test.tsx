@@ -12,7 +12,7 @@ const CONVERSATION = 'conversation-1'
 const ROOT_URL = 'https://example.com/root.mp4'
 const EDITED_URL = 'https://example.com/edited.mp4'
 const ROOT_ID = '0f6a2c9e-8d4b-4c1e-9a7f-3b5d6e8f1a2b'
-const root = makeGenerationJob({ id: ROOT_ID, outputUrl: ROOT_URL, metadata: { shot: 1 } })
+const root = makeGenerationJob({ id: ROOT_ID, outputUrl: ROOT_URL, shotIndex: 1 })
 
 const renderEditor = () =>
   renderWithProviders(

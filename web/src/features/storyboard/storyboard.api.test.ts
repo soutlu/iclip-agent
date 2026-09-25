@@ -56,7 +56,7 @@ const shot: Shot = {
 }
 
 describe('submitVideoGeneration', () => {
-  it('照上游形状发到视频端点：镜头组按分镜文件的形状原样发出、参考图取整组，回执只取任务号', async () => {
+  it('照上游形状发到视频端点：镜头组按分镜文件的形状原样发出、镜号只走 shot_index、参考图取整组，回执只取任务号', async () => {
     let body: unknown
     server.use(
       http.post('*/api/generations/video', async ({ request }) => {
@@ -92,7 +92,7 @@ describe('submitVideoGeneration', () => {
           { image_indexes: [1, 2], prompt: '走向镜头 @Image1，停下 @Image2。', timestamps: [0, 6] },
         ],
       },
-      metadata: { shot: 2 },
+      shot_index: 2,
     })
   })
 
@@ -120,7 +120,7 @@ describe('historyShotOf', () => {
     makeGenerationJob({
       createdAt: '2026-09-01T10:00:00Z',
       id: 'e5b1c0de-6c1e-4f1a-9b3d-8c0a1f2e3d40',
-      metadata: { shot: 2 },
+      shotIndex: 2,
       request,
     })
 

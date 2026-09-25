@@ -332,6 +332,17 @@ describe('TranscriptConnection', () => {
       type: 'event.generation.changed',
       payload: { id: 'job-2', kind: 'video', operation: 'compose', status: 'failed' },
     })
+    socket.deliver({
+      type: 'event.generation.changed',
+      session_id: 'c9',
+      payload: {
+        id: 'job-3',
+        kind: 'video',
+        operation: 'generate',
+        status: 'pending',
+        shot_index: 2,
+      },
+    })
 
     expect(seen).toEqual([
       { conversationId: 'c9', kind: 'title', title: '夜景延时素材生成' },
@@ -364,6 +375,14 @@ describe('TranscriptConnection', () => {
         kind: 'generation',
         metadata: null,
         status: 'failed',
+      },
+      {
+        conversationId: 'c9',
+        jobId: 'job-3',
+        jobKind: 'video',
+        kind: 'generation',
+        metadata: null,
+        status: 'pending',
       },
     ])
   })

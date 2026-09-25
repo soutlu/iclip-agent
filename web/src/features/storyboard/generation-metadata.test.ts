@@ -6,8 +6,7 @@ import {
 } from './generation-metadata'
 
 describe('storyboardMetadata', () => {
-  it('视频按镜头组，图片多一个帧号', () => {
-    expect(storyboardMetadata(2)).toEqual({ shot: 2 })
+  it('图片任务记下镜头组与帧号', () => {
     expect(storyboardMetadata(2, 3)).toEqual({ frame: 3, shot: 2 })
   })
 })
@@ -18,10 +17,6 @@ describe('readStoryboardMetadata', () => {
       frame: 2,
       shot: 1,
     })
-  })
-
-  it('只发 shot_index 的调用方，服务端折出来的坐标也读得出来', () => {
-    expect(readStoryboardMetadata({ metadata: { shot: 3 } })).toEqual({ shot: 3 })
   })
 
   it.each([

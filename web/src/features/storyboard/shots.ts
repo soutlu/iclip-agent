@@ -1,9 +1,13 @@
-/** 分镜共用的文件路径、参考图上限、画幅与生成状态。 */
+/** 分镜共用的文件路径、参考图上限、画幅、生成状态与按镜头组认出片。 */
 
+import type { z } from 'zod'
 import type { GenerationOut } from '@/shared/api/generated/types.gen'
 import { zGenerationOut } from '@/shared/api/generated/zod.gen'
 
 type GenerationStatus = GenerationOut['status']
+
+/** 按 zod 解析后的记录形状；可选字段比生成的 TS 类型多带 `undefined`。 */
+type GenerationRecord = z.infer<typeof zGenerationOut>
 
 export const SHOTS_PATH = 'video_shot.json'
 
@@ -39,3 +43,14 @@ const IN_FLIGHT: ReadonlySet<GenerationStatus> = new Set(
 )
 
 export const isRunningStatus = (status: GenerationStatus): boolean => IN_FLIGHT.has(status)
+
+/** 出片（take）：无来源的视频 generate。编辑段有来源，合成是 compose，都不算。 */
+export const isTake = (
+  job: Pick<GenerationRecord, 'kind' | 'operation' | 'sourceJobId'>,
+): boolean => job.kind === 'video' && job.operation === 'generate' && job.sourceJobId == null
+
+/** 这条记录是这一组的出片。编辑段与合成抄了原作的镜号，靠 `isTake` 排除。 */
+export const isShotVideo = (
+  job: Pick<GenerationRecord, 'kind' | 'operation' | 'shotIndex' | 'sourceJobId'>,
+  shotIndex: number,
+): boolean => isTake(job) && job.shotIndex === shotIndex

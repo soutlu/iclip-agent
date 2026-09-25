@@ -542,6 +542,59 @@ async def test_origin_lands_on_columns_not_in_the_stored_request() -> None:
     )
 
 
+async def test_the_shot_number_is_shot_index_alone_and_metadata_stays_the_callers() -> None:
+    """镜号只认 ``shot_index``：落记录的列、回显在 ``shotIndex``；metadata 原样存取，里面的 shot 不当镜号。"""
+
+    repo = InMemoryGenerationRepository()
+    caller = principal("generation:submit", "generation:read")
+    async with client(build_test_app(repo, granted=caller)) as http:
+        numbered = await http.post(
+            "/generations/video", json={**VIDEO_BODY, "shot_index": 3, "metadata": {"frame": 1}}
+        )
+        tagged = await http.post("/generations/video", json={**VIDEO_BODY, "metadata": {"shot": 9}})
+        records = [
+            (await http.get(f"/generations/{response.json()['task_id']}")).json()["generation"]
+            for response in (numbered, tagged)
+        ]
+
+    assert [(record["shotIndex"], record["metadata"]) for record in records] == [
+        (3, {"frame": 1}),
+        (None, {"shot": 9}),
+    ]
+    assert "shot_index" not in records[0]["request"], "镜号不进发给上游的请求"
+    assert {job.shot_index for job in repo.jobs.values()} == {3, None}
+
+
+async def test_list_filters_by_shot_index_and_stacks_with_metadata() -> None:
+    """按镜号筛与按坐标筛叠加收窄；坐标里写的 shot 不算镜号；镜号从 1 起。"""
+
+    owner_id = uuid.uuid4()
+
+    def take(shot_index: int | None, metadata: dict[str, object] | None) -> GenerationJob:
+        return make_job(
+            video_request(), owner_user_id=owner_id, shot_index=shot_index, metadata=metadata
+        )
+
+    first_frame, second_frame = take(3, {"frame": 1}), take(3, {"frame": 2})
+    repo = InMemoryGenerationRepository(
+        [first_frame, second_frame, take(4, {"frame": 1}), take(None, {"shot": 3})]
+    )
+    app = build_test_app(repo, granted=principal("generation:read", user_id=owner_id))
+    async with client(app) as http:
+        by_shot = await http.get("/generations", params={"shotIndex": 3})
+        stacked = await http.get(
+            "/generations", params={"shotIndex": 3, "metadata": json.dumps({"frame": 1})}
+        )
+        zero = await http.get("/generations", params={"shotIndex": 0})
+
+    assert {item["id"] for item in by_shot.json()["items"]} == {
+        str(first_frame.id),
+        str(second_frame.id),
+    }
+    assert [item["id"] for item in stacked.json()["items"]] == [str(first_frame.id)]
+    assert zero.status_code == 422
+
+
 async def test_list_can_be_filtered_by_conversation_and_by_task() -> None:
 
     owner_id = uuid.uuid4()
@@ -702,16 +755,18 @@ def a_composite(**fields: object) -> GenerationJob:
     return make_composite(make_edit(make_job(video_request())), **fields)
 
 
-async def test_only_a_composite_reports_the_probed_duration_from_its_snapshot() -> None:
-    """合成是本系统自己拼的，量过的时长交出来；上游的快照里有同名键也不认。"""
+async def test_the_duration_comes_from_its_column_not_from_any_snapshot() -> None:
+    """合成是本系统自己拼的，量过的时长记在列上交出来；快照里有同名键也不认。"""
 
-    composite = a_composite(status=STATUS_COMPLETED, provider_snapshot={"durationMs": 7040})
+    composite = a_composite(status=STATUS_COMPLETED, duration_ms=7040, provider_snapshot={})
     take = make_job(video_request(), provider_snapshot={"durationMs": 5000})
+    unmeasured = a_composite(status=STATUS_COMPLETED, provider_snapshot={"durationMs": 7040})
 
     body = await read_back(composite)
     assert body["durationMs"] == 7040
-    assert "providerSnapshot" not in body, "只挑这一个键出来，快照本身仍不外露"
+    assert "providerSnapshot" not in body, "快照本身仍不外露"
     assert (await read_back(take))["durationMs"] is None
+    assert (await read_back(unmeasured))["durationMs"] is None
 
 
 async def test_a_record_reads_back_with_its_operation_source_range_and_finish() -> None:
@@ -769,12 +824,6 @@ async def test_clip_stage_is_empty_unless_it_is_a_known_in_flight_stage(
     body = await read_back(replace(a_composite(status=status), provider_status=provider_status))
 
     assert body["clipStage"] is None, why
-
-
-async def test_a_composite_without_a_probed_duration_reports_nothing() -> None:
-    """在途的、以及这个键出现之前留下的记录：给空，不猜。"""
-
-    assert (await read_back(a_composite(provider_snapshot={})))["durationMs"] is None
 
 
 async def test_failing_to_enqueue_fails_the_row_instead_of_leaving_it_pending() -> None:
@@ -969,6 +1018,7 @@ def seed_take(
     *,
     owner: uuid.UUID,
     conversation: uuid.UUID | None = None,
+    shot_index: int | None = None,
 ) -> GenerationJob:
     """先放一条已完成的出片进去当基底。"""
 
@@ -977,6 +1027,7 @@ def seed_take(
         status=STATUS_COMPLETED,
         owner_user_id=owner,
         conversation_id=conversation,
+        shot_index=shot_index,
         output_url=BASE_URL,
         watermark_output_url="https://example.com/base-wm.mp4",
         finished_at=datetime.now(UTC) - timedelta(minutes=10),
@@ -1085,6 +1136,39 @@ async def test_an_edit_on_a_composite_keeps_the_original_take_as_its_root() -> N
     assert response.status_code == 202, response.text
     stored = only_new(repo, seeded)
     assert (stored.source_job_id, stored.root_job_id) == (composite.id, take.id)
+
+
+async def test_edits_and_composites_take_the_shot_index_of_their_original() -> None:
+    """编辑段与合成的镜号不由调用方给，抄基底的；在合成上再剪，仍是原作那一镜。"""
+
+    repo = InMemoryGenerationRepository()
+    owner = uuid.uuid4()
+    take = seed_take(repo, owner=owner, shot_index=4)
+    edit = seed_edit(repo, take)
+    composite = make_composite(
+        edit, status=STATUS_COMPLETED, owner_user_id=owner, output_url=BASE_URL
+    )
+    repo.jobs[composite.id] = composite
+    app = build_test_app(repo, granted=principal("generation:submit", user_id=owner))
+    async with client(app) as http:
+        on_take = await http.post(
+            "/generations/video-edits", json={**EDIT_BODY, "source_job_id": str(take.id)}
+        )
+        on_composite = await http.post(
+            "/generations/video-edits", json={**EDIT_BODY, "source_job_id": str(composite.id)}
+        )
+        composed = await http.post(
+            "/generations/video-composites", json={"sourceJobId": str(edit.id)}
+        )
+        named = await http.post(
+            "/generations/video-edits",
+            json={**EDIT_BODY, "source_job_id": str(take.id), "shot_index": 1},
+        )
+
+    assert [
+        response.json()["generation"]["shotIndex"] for response in (on_take, on_composite, composed)
+    ] == [4, 4, 4]
+    assert named.status_code == 422, "编辑段不收镜号"
 
 
 @pytest.mark.parametrize("flaw", ["不存在", "别人的", "别的对话", "分叉之后才完成"])

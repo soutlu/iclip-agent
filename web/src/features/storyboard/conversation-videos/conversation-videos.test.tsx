@@ -15,7 +15,7 @@ const job = (index: number, overrides: Partial<GenerationJob> = {}): GenerationJ
     id: `a82db548-d093-4f54-b71b-${index.toString(16).padStart(12, '0')}`,
     createdAt: '2026-09-01T10:00:00Z',
     outputUrl: `https://videos.example.test/take-${index}.mp4`,
-    metadata: { shot: 1 },
+    shotIndex: 1,
     ...overrides,
   })
 
@@ -91,7 +91,7 @@ describe('ConversationVideos', () => {
     const pause = vi.mocked(HTMLMediaElement.prototype.pause)
     server.use(
       http.get('*/api/generations', () =>
-        HttpResponse.json({ items: [job(1), job(2, { metadata: { shot: 2 } })] }),
+        HttpResponse.json({ items: [job(1), job(2, { shotIndex: 2 })] }),
       ),
     )
     await renderWithProviders(<ConversationVideos conversationId={conversationId} />)
@@ -188,7 +188,7 @@ describe('ConversationVideos', () => {
         kind: 'video',
         operation: 'generate',
         status: 'completed',
-        metadata: { shot: 1 },
+        shot_index: 1,
       },
     })
 

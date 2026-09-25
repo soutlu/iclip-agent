@@ -13,6 +13,7 @@ export const makeGenerationJob = (overrides: Partial<GenerationJob> = {}): Gener
   outputUrl: null,
   request: {},
   taskId: null,
+  shotIndex: null,
   rootJobId: null,
   sourceJobId: null,
   rangeStartMs: null,

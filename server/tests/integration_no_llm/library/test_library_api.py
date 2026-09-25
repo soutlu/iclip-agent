@@ -39,11 +39,11 @@ async def plant_video(pg_url: str, *, owner: uuid.UUID, user_name: str) -> uuid.
         await conn.execute(
             text(
                 "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind,"
-                " operation, provider, request, status, metadata, output_url, created_at,"
+                " operation, provider, request, status, shot_index, output_url, created_at,"
                 " updated_at)"
                 " VALUES (:id, :owner, :conversation_id, :kind, :operation, 'test',"
-                " CAST(:request AS jsonb), :status, '{\"shot\": 1}'::jsonb,"
-                " 'https://oss.example.test/v.mp4', now(), now())"
+                " CAST(:request AS jsonb), :status, 1, 'https://oss.example.test/v.mp4', now(),"
+                " now())"
             ),
             {
                 "id": video_id,

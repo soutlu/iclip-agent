@@ -45,8 +45,7 @@ WITH roots AS (
            COALESCE(NULLIF(g.request->>'user_name', ''), u.username) AS user_name,
            c.id AS conversation_id, c.owner_user_id AS conversation_owner, c.title,
            c.agent_id, c.task_id,
-           CASE WHEN c.id IS NOT NULL AND jsonb_typeof(g.metadata->'shot') = 'number'
-                THEN (g.metadata->>'shot')::int END AS shot_index
+           CASE WHEN c.id IS NOT NULL THEN g.shot_index END AS shot_index
     FROM iclip.generation_jobs g
     JOIN iclip.users u ON u.id = g.owner_user_id
     LEFT JOIN iclip.conversations c ON c.id = g.conversation_id
@@ -60,9 +59,7 @@ takes AS (
     FROM roots r
 ),
 masters AS (
-    SELECT t.id AS take_id, m.id, m.output_url, m.created_at,
-           CASE WHEN jsonb_typeof(m.provider_snapshot->'durationMs') = 'number'
-                THEN (m.provider_snapshot->>'durationMs')::bigint END AS duration_ms
+    SELECT t.id AS take_id, m.id, m.output_url, m.created_at, m.duration_ms
     FROM iclip.generation_jobs m
     JOIN takes t ON t.id = m.root_job_id
     LEFT JOIN iclip.conversations mc ON mc.id = m.conversation_id

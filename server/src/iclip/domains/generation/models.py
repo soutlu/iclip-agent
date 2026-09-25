@@ -59,10 +59,11 @@ class GenerationJob:
     conversation_id: uuid.UUID | None = None
     """生成来源对话。无对话上下文时为空；不设外键，删除对话后仍保留来源。"""
     metadata: dict[str, Any] | None = None
-    """调用方自带的坐标标签（分镜页写 ``{"shot", "frame"}``）。服务端只认 ``shot`` 一个键，
-    审计按它数镜；其余键不读、不校验。"""
+    """调用方自己的键（分镜页给图片记 ``{"shot", "frame"}``）；服务端不读不写、不校验，原样存取。"""
     task_id: uuid.UUID | None = None
     """需求单 id，调用方给的归属标签；不设外键，只做筛选。"""
+    shot_index: int | None = None
+    """镜头组编号，只有视频有：出片由调用方给，可空；编辑段与合成抄原作的。"""
     root_job_id: uuid.UUID | None = None
     """原作：编辑段与合成都指最初那条出片，不管基于哪一版，所以链只有一层；出片自己为空。
 
@@ -74,6 +75,8 @@ class GenerationJob:
     """编辑段在基底上改的那一段，毫秒；只有编辑段有。受理时是请求的区间，切出参考片段后改记实际切点。"""
     watermark_output_url: str | None = None
     """视频成功时上游发布的水印版地址；图片没有这一份。"""
+    duration_ms: int | None = None
+    """产物实际多长，毫秒；只有本系统自己加工、量过的（合成）才有，完成时写入。"""
 
 
 def inherited_through(job: GenerationJob, inheritance: Inheritance) -> bool:

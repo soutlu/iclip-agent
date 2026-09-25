@@ -226,6 +226,7 @@ class GenerationQueue:
                     provider_status=submission.provider_status,
                     provider_snapshot=submission.raw,
                     provider_task_id=submission.provider_task_id,
+                    duration_ms=submission.duration_ms,
                     only_if_status=STATUS_SUBMITTING,
                 ),
             )

@@ -42,14 +42,16 @@ class GenerationRepository(Protocol):
         operation: GenerationOperation | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
+        shot_index: int | None = None,
         root_job_id: uuid.UUID | None = None,
         source_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
         inherited: Inheritance = (),
     ) -> tuple[GenerationJob, ...]:
         """按创建时间倒序列出；``conversation_id`` / ``task_id`` 给了就只要那段对话、那张需求单下面的，
-        ``root_job_id`` / ``source_job_id`` 给了就只要以那条为原作、为直接来源的，``kind`` /
-        ``operation`` 给了就只要那一种，``metadata`` 给了就只要坐标包含这些键值的（JSONB ``@>``）。
+        ``shot_index`` 给了就只要那个镜号的，``root_job_id`` / ``source_job_id`` 给了就只要以那条为
+        原作、为直接来源的，``kind`` / ``operation`` 给了就只要那一种，``metadata`` 给了就只要坐标
+        包含这些键值的（JSONB ``@>``）。
 
         ``inherited`` 是 ``conversation_id`` 那段对话的继承边界对：按属主收敛的那段对话自己的记录
         之外，再并上经它继承来的记录（不看属主）；其余筛选与 ``before`` 锚点对两者一视同仁。"""
@@ -79,9 +81,11 @@ class GenerationRepository(Protocol):
         provider_snapshot: dict[str, Any],
         provider_task_id: str | None = None,
         watermark_output_url: str | None = None,
+        duration_ms: int | None = None,
         only_if_status: GenerationStatus | None = None,
     ) -> GenerationJob | None:
-        """记录成功终态。同步生成在此保存回执 id，并补齐尚未写入的 submitted_at。
+        """记录成功终态。同步生成在此保存回执 id，并补齐尚未写入的 submitted_at；给了 ``duration_ms``
+        就记下产物时长。
 
         指定 only_if_status 时原子校验状态，不匹配返回 None，避免覆盖并发写入的结果。"""
         ...

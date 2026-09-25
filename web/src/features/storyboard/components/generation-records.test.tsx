@@ -10,7 +10,7 @@ import type { GenerationJob } from '../storyboard.api'
 import { GenerationRecords } from './generation-records'
 
 const job = (spec: Partial<GenerationJob> & { id: string }): GenerationJob =>
-  makeGenerationJob({ createdAt: '2026-09-01T10:00:00Z', metadata: { shot: 2 }, ...spec })
+  makeGenerationJob({ createdAt: '2026-09-01T10:00:00Z', shotIndex: 2, ...spec })
 
 /** 含这段文字的那张记录卡。 */
 const cardWith = (text: string): HTMLElement => {
@@ -45,15 +45,33 @@ const jobs: GenerationJob[] = [
   }),
   job({
     id: 'other-shot',
-    metadata: { shot: 3 },
+    shotIndex: 3,
     request: { prompt: '别的组。' },
+  }),
+  // 编辑段与合成抄了原作的镜号，也不是出片。
+  job({
+    id: 'edited',
+    outputUrl: 'edited.mp4',
+    rootJobId: 'a',
+    sourceJobId: 'a',
+    rangeStartMs: 0,
+    rangeEndMs: 3000,
+    request: { prompt: '编辑段。' },
+  }),
+  job({
+    id: 'composite',
+    operation: 'compose',
+    outputUrl: 'composite.mp4',
+    rootJobId: 'a',
+    sourceJobId: 'edited',
+    request: { prompt: '合成。' },
   }),
   job({
     createdAt: new Date(2026, 8, 1, 9, 30).toISOString(),
     id: 'img',
     kind: 'image',
     outputUrl: 'frame.png',
-    metadata: null,
+    shotIndex: null,
     request: { prompt: '出镜头帧：门厅全景。' },
   }),
 ]
@@ -81,13 +99,15 @@ afterEach(() => {
 })
 
 describe('GenerationRecords', () => {
-  it('只列本组视频，排除图片和其它组，保持接口给的新旧顺序', async () => {
+  it('只列本组出片，排除图片、其它组与编辑段、合成，保持接口给的新旧顺序', async () => {
     await renderRecords()
 
     expect(screen.getByRole('heading', { name: '当前镜头组 · 视频' })).toBeVisible()
     expect(screen.getAllByRole('article')).toHaveLength(3)
     expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
     expect(screen.queryByText('别的组。')).not.toBeInTheDocument()
+    expect(screen.queryByText('编辑段。')).not.toBeInTheDocument()
+    expect(screen.queryByText('合成。')).not.toBeInTheDocument()
     expect(screen.queryByText('出镜头帧：门厅全景。')).not.toBeInTheDocument()
 
     const prompts = screen.getAllByText(/第[一二三]版/).map((node) => node.textContent)

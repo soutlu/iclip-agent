@@ -196,8 +196,8 @@ class FfmpegClipProvider:
         return ProviderSubmission(
             provider_task_id=str(job.id),
             provider_status="completed",
-            raw={"durationMs": duration_ms},
             output_url=url,
+            duration_ms=duration_ms,
         )
 
     async def poll(self, job: GenerationJob) -> ProviderProgress:

@@ -445,6 +445,79 @@ async def test_operation_source_and_range_round_trip_and_filter(engine: AsyncEng
     assert await listed(operation="generate") == {take.id, edit.id, other_edit.id}
 
 
+async def test_shot_index_round_trips_and_filters_alongside_the_coordinates(
+    engine: AsyncEngine,
+) -> None:
+    """镜号落列读回；列表按镜号筛，可与坐标、对话叠加收窄，坐标里的同名键不算镜号。"""
+
+    repo = SqlGenerationRepository(engine)
+    owner = await make_user(engine)
+    conversation = uuid.uuid4()
+    take = await repo.create(
+        make_job(
+            video_request(),
+            owner_user_id=owner,
+            conversation_id=conversation,
+            shot_index=2,
+            metadata={"frame": 1},
+        )
+    )
+    edit = await repo.create(make_edit(take, owner_user_id=owner, conversation_id=conversation))
+    other_shot = await repo.create(
+        make_job(video_request(), owner_user_id=owner, conversation_id=conversation, shot_index=3)
+    )
+    tagged_only = await repo.create(
+        make_job(
+            video_request(), owner_user_id=owner, conversation_id=conversation, metadata={"shot": 2}
+        )
+    )
+
+    assert (await repo.get(take.id, owner=owner)).shot_index == 2
+    assert (await repo.get(edit.id, owner=owner)).shot_index == 2
+    assert (await repo.get(tagged_only.id, owner=owner)).shot_index is None
+
+    async def listed(**filters: Any) -> set[uuid.UUID]:
+        return {job.id for job in await repo.list_for_owner(owner=owner, limit=10, **filters)}
+
+    assert await listed(shot_index=2) == {take.id, edit.id}
+    assert await listed(shot_index=2, conversation_id=uuid.uuid4()) == set()
+    assert await listed(shot_index=2, metadata={"frame": 1}) == {take.id}
+    assert await listed(shot_index=3) == {other_shot.id}
+    assert await listed(shot_index=4) == set()
+
+
+async def test_duration_is_written_only_when_completion_brings_one(engine: AsyncEngine) -> None:
+    """时长落列，快照照给的写；完成时没给时长就不动这一列。"""
+
+    repo = SqlGenerationRepository(engine)
+    owner = await make_user(engine)
+    take = await repo.create(make_job(video_request(), owner_user_id=owner))
+    edit = await repo.create(make_edit(take, owner_user_id=owner))
+    composite = await repo.create(make_composite(edit, owner_user_id=owner))
+    image = await insert_job(repo, owner, image_request())
+
+    await repo.mark_submitting(composite.id)
+    measured = await repo.mark_completed(
+        composite.id,
+        output_url="https://cdn.test/master.mp4",
+        provider_status="completed",
+        provider_snapshot={},
+        duration_ms=7040,
+        only_if_status=STATUS_SUBMITTING,
+    )
+    await repo.mark_completed(
+        image.id,
+        output_url="https://cdn.test/out.png",
+        provider_status="succeeded",
+        provider_snapshot={},
+    )
+
+    assert measured is not None and measured.duration_ms == 7040
+    stored = await repo.get(composite.id, owner=owner)
+    assert (stored.duration_ms, stored.provider_snapshot) == (7040, {})
+    assert (await repo.get(image.id, owner=owner)).duration_ms is None
+
+
 _SHAPES = {
     "出片带来源": ("video", "generate", "take", None, None),
     "编辑段缺区间": ("video", "generate", "take", "take", None),

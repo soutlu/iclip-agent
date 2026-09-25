@@ -69,13 +69,13 @@ const jobs: GenerationJob[] = [
     createdAt: '2026-09-01T10:00:00Z',
     outputUrl: 'https://example.com/take.mp4',
     request: { prompt: '本组生成时使用的历史描述。' },
-    metadata: { shot: 1 },
+    shotIndex: 1,
   }),
   makeGenerationJob({
     id: 'cdf9d301-fe78-4c9b-a4f7-c936621179f0',
     createdAt: '2026-09-01T10:01:00Z',
     request: { prompt: '另一组的历史描述。' },
-    metadata: { shot: 2 },
+    shotIndex: 2,
   }),
 ]
 
@@ -102,7 +102,7 @@ const editableJob = makeGenerationJob({
   createdAt: '2026-09-01T10:02:00Z',
   outputUrl: 'https://example.com/history.mp4',
   request: { prompt: historyPrompt, shot: historyShot },
-  metadata: { shot: 1 },
+  shotIndex: 1,
 })
 
 /** 刚提交、还在跑的那一条，服务端刷新列表时才会出现。 */
@@ -110,7 +110,7 @@ const runningJob = makeGenerationJob({
   id: 'b7e0f4c2-3d1a-4e5b-9c6d-7e8f9a0b1c2d',
   createdAt: '2026-09-01T10:03:00Z',
   request: { prompt: '刚提交的这一版。' },
-  metadata: { shot: 1 },
+  shotIndex: 1,
   status: 'submitted',
 })
 
@@ -366,9 +366,9 @@ describe('StoryboardReader', () => {
     expect(within(records).queryByText('本组生成时使用的历史描述。')).not.toBeInTheDocument()
   })
 
-  it('只带镜头组坐标的记录（网关只发 shot_index）照样列在本组抽屉里', async () => {
+  it('接口提交的出片（只有镜号、正文不是结构化 shot）照样列在本组抽屉里', async () => {
     provide()
-    // 服务端把 shot_index 折进 metadata 之后就是这个形状：只有 shot，正文也不是结构化 shot。
+    // 网关只发 shot_index 与正文，记录上只有镜号。
     server.use(
       http.get('*/api/generations', () =>
         HttpResponse.json({
@@ -378,7 +378,7 @@ describe('StoryboardReader', () => {
               createdAt: '2026-09-01T10:02:00Z',
               outputUrl: 'https://example.com/task.mp4',
               request: { prompt: '需求单那边出的片。' },
-              metadata: { shot: 1 },
+              shotIndex: 1,
             }),
           ],
         }),
@@ -396,7 +396,7 @@ describe('StoryboardReader', () => {
   describe('视频记录超过一页', () => {
     // 第一页整页都是别的组更新的记录，本组唯一的出片落在第二页。
     const newer = Array.from({ length: 100 }, () =>
-      makeGenerationJob({ createdAt: '2026-09-02T10:00:00Z', metadata: { shot: 2 } }),
+      makeGenerationJob({ createdAt: '2026-09-02T10:00:00Z', shotIndex: 2 }),
     )
     const serveTwoPages = () =>
       server.use(
@@ -542,7 +542,7 @@ describe('StoryboardReader', () => {
           kind: 'video',
           operation: 'generate',
           status: 'completed',
-          metadata: { shot: 1 },
+          shot_index: 1,
         },
       })
     })
@@ -687,7 +687,7 @@ describe('StoryboardReader', () => {
         resolution: '720p',
         seconds: firstShot.seconds,
         shot: firstShot.prompt,
-        metadata: { shot: 1 },
+        shot_index: 1,
       },
     ])
     expect(await screen.findByText('生成中 1')).toBeVisible()

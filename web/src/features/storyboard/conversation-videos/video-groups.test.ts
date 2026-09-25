@@ -7,7 +7,7 @@ const job = (id: string, overrides: Partial<GenerationJob> = {}): GenerationJob 
   makeGenerationJob({
     id,
     outputUrl: `${id}.mp4`,
-    metadata: { shot: 1 },
+    shotIndex: 1,
     createdAt: '2026-09-01T10:00:00Z',
     ...overrides,
   })
@@ -21,7 +21,7 @@ describe('groupConversationVideos', () => {
       job('submitted', { status: 'submitted' }),
       job('empty', { outputUrl: null }),
       job('blank', { outputUrl: '  ' }),
-      // 坐标照样落在这一组上，靠来源认出它们不是出片。
+      // 镜号照样落在这一组上，靠来源认出它们不是出片。
       job('edited', {
         rootJobId: 'original',
         sourceJobId: 'original',
@@ -36,7 +36,7 @@ describe('groupConversationVideos', () => {
 
   it('按镜号归组排序，每组版本按创建时间与 id 稳定地从旧到新排列', () => {
     const records = [
-      job('second-shot', { metadata: { shot: 2 } }),
+      job('second-shot', { shotIndex: 2 }),
       job('c', { createdAt: '2026-09-01T11:00:00Z' }),
       job('b'),
       job('a'),
@@ -48,13 +48,13 @@ describe('groupConversationVideos', () => {
     expect(groupConversationVideos(records.toReversed())).toEqual(groups)
   })
 
-  it.each([null, {}, { shot: '1' }, { shot: 0 }, { shot: -1 }, { shot: 1.5 }])(
-    '坐标 %j 没有合法镜号时，每条视频独立展示',
-    (metadata) => {
-      const groups = groupConversationVideos([job('a', { metadata }), job('b', { metadata })])
+  it('没有镜号的出片每条独立展示', () => {
+    const groups = groupConversationVideos([
+      job('a', { shotIndex: null }),
+      job('b', { shotIndex: null }),
+    ])
 
-      expect(groups.map((group) => group.label)).toEqual(['视频 1', '视频 2'])
-      expect(groups.map((group) => group.videos.map((video) => video.id))).toEqual([['a'], ['b']])
-    },
-  )
+    expect(groups.map((group) => group.label)).toEqual(['视频 1', '视频 2'])
+    expect(groups.map((group) => group.videos.map((video) => video.id))).toEqual([['a'], ['b']])
+  })
 })

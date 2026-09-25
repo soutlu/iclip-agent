@@ -48,6 +48,7 @@ class AnnouncingGenerationRepository:
         operation: GenerationOperation | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
+        shot_index: int | None = None,
         root_job_id: uuid.UUID | None = None,
         source_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
@@ -61,6 +62,7 @@ class AnnouncingGenerationRepository:
             operation=operation,
             metadata=metadata,
             task_id=task_id,
+            shot_index=shot_index,
             root_job_id=root_job_id,
             source_job_id=source_job_id,
             before=before,
@@ -96,6 +98,7 @@ class AnnouncingGenerationRepository:
         provider_snapshot: dict[str, Any],
         provider_task_id: str | None = None,
         watermark_output_url: str | None = None,
+        duration_ms: int | None = None,
         only_if_status: GenerationStatus | None = None,
     ) -> GenerationJob | None:
         job = await self._inner.mark_completed(
@@ -105,6 +108,7 @@ class AnnouncingGenerationRepository:
             provider_snapshot=provider_snapshot,
             provider_task_id=provider_task_id,
             watermark_output_url=watermark_output_url,
+            duration_ms=duration_ms,
             only_if_status=only_if_status,
         )
         return None if job is None else self._announce(job)
@@ -172,6 +176,7 @@ class AnnouncingGenerationRepository:
             kind=job.kind,
             operation=job.operation,
             status=job.status,
+            shot_index=job.shot_index,
             metadata=job.metadata,
         )
         return job

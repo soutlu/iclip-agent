@@ -181,7 +181,7 @@ describe('需求单关联对话按全局帧重拉', () => {
       kind,
       operation: 'generate',
       status: 'pending',
-      metadata: { shot: 1 },
+      ...(kind === 'video' ? { shot_index: 1 } : {}),
     },
   })
 

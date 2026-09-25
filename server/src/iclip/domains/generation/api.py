@@ -50,11 +50,12 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
         body: VideoGenerationIn,
         principal: Annotated[Principal, require_permission("generation:submit")],
     ) -> VideoSubmitOut:
-        """提交一次视频生成。请求体照上游异步接口，外加 conversation_id / task_id / metadata。
+        """提交一次视频生成。请求体照上游异步接口，外加 conversation_id / task_id / shot_index /
+        metadata。
 
         正文可以直接给 ``prompt``，也可以给结构化的 ``shot`` 由服务端拼成 ``prompt``；记录里
-        两者都存，``shot`` 不发上游。``user_name``：API key 调用方必填、照收；浏览器会话可
-        省略，填登录用户名。
+        两者都存，``shot`` 不发上游。``shot_index`` 是镜头组编号，落记录的列。``user_name``：
+        API key 调用方必填、照收；浏览器会话可省略，填登录用户名。
         """
 
         user_name = resolve_user_name(principal, body.user_name)
@@ -119,6 +120,10 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
         limit: Annotated[int, Query(ge=1, le=MAX_LIST_LIMIT)] = DEFAULT_LIST_LIMIT,
         conversation_id: Annotated[uuid.UUID | None, Query(alias="conversationId")] = None,
         task_id: Annotated[uuid.UUID | None, Query(alias="taskId")] = None,
+        shot_index: Annotated[
+            int | None,
+            Query(alias="shotIndex", ge=1, description="只列这个镜头组编号的视频记录"),
+        ] = None,
         kind: GenerationKind | None = None,
         operation: GenerationOperation | None = None,
         root_job_id: Annotated[
@@ -131,15 +136,16 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
         ] = None,
         metadata: Annotated[
             str | None,
-            Query(description="JSON 对象；只列坐标包含这些键值的记录，服务端只认其中的 shot"),
+            Query(description="JSON 对象；只列 metadata 包含这些键值的记录，服务端不解释其中的键"),
         ] = None,
         before: uuid.UUID | None = None,
     ) -> GenerationsPageOut:
-        """给了 ``conversationId`` / ``taskId`` / ``rootJobId`` / ``sourceJobId`` 就只列那段对话、
-        那张需求单下、以那条为原作或直接来源的记录；``kind`` / ``operation`` 按种类与操作筛。
-        按对话列时含这段对话经分叉继承的记录（调用方读得到这段对话才算），其余可见性口径不变。
+        """给了 ``conversationId`` / ``taskId`` / ``shotIndex`` / ``rootJobId`` / ``sourceJobId`` 就
+        只列那段对话、那张需求单下、那个镜号、以那条为原作或直接来源的记录；``kind`` /
+        ``operation`` 按种类与操作筛。按对话列时含这段对话经分叉继承的记录（调用方读得到这段
+        对话才算），其余可见性口径不变。
 
-        ``metadata`` 在查询串里是一段 JSON 对象，按包含匹配筛（分镜页拿它按镜头组、按帧查）。
+        ``metadata`` 在查询串里是一段 JSON 对象，按包含匹配筛（分镜页拿它按镜头组与帧查图片）。
         """
 
         jobs = await service.list_recent(
@@ -150,6 +156,7 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
             operation=operation,
             metadata=_metadata_filter(metadata),
             task_id=task_id,
+            shot_index=shot_index,
             root_job_id=root_job_id,
             source_job_id=source_job_id,
             before=before,

@@ -1,8 +1,7 @@
-/** 分镜页写进生成任务 `metadata` 的坐标；形状在这里定义并校验。
- * 服务端只认其中的 `shot`（审计按它数镜），其余键只有本页读写。 */
+/** 分镜页写进图片生成任务 `metadata` 的坐标 `{shot, frame}`；形状在这里定义并校验。
+ * 服务端不读也不解释 `metadata`，这些键只有本页读写。视频的镜号在 `shotIndex` 上，不写这里。 */
 
 import { z } from 'zod'
-import type { GenerationOut } from '@/shared/api/generated/types.gen'
 
 const storyboardMetadataSchema = z.object({
   shot: z.int().positive(),
@@ -13,9 +12,11 @@ const storyboardMetadataSchema = z.object({
 
 export type StoryboardMetadata = z.infer<typeof storyboardMetadataSchema>
 
-/** 提交时写进请求体的坐标；视频出片按镜头组，不带 frame。 */
-export const storyboardMetadata = (shot: number, frame?: number): StoryboardMetadata =>
-  frame === undefined ? { shot } : { frame, shot }
+/** 图片任务落在哪一格：第几镜头组的第几帧。 */
+export const storyboardMetadata = (shot: number, frame: number): StoryboardMetadata => ({
+  frame,
+  shot,
+})
 
 /** 图片编辑的坐标：除了这一格，还记下这次改的是哪张图。
  *
@@ -34,12 +35,6 @@ export const readStoryboardMetadata = (job: {
   const parsed = storyboardMetadataSchema.safeParse(job.metadata)
   return parsed.success ? parsed.data : undefined
 }
-
-/** 这条记录是这一组的出片：视频、坐标落在这一组上。编辑段与合成提交时不带坐标，不算。 */
-export const isShotVideo = (
-  job: Pick<GenerationOut, 'kind' | 'metadata'>,
-  shotIndex: number,
-): boolean => job.kind === 'video' && readStoryboardMetadata(job)?.shot === shotIndex
 
 /** 列表接口的 `metadata` 查询参数：一段 JSON 对象，服务端按包含匹配筛。 */
 export const metadataFilterParam = (filter: Partial<StoryboardMetadata>): string =>

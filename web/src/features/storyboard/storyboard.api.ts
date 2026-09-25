@@ -10,7 +10,6 @@ import {
   zVideoSubmitOut,
 } from '@/shared/api/generated/zod.gen'
 import type { zGenerationOut } from '@/shared/api/generated/zod.gen'
-import { storyboardMetadata } from './generation-metadata'
 import type { Shot } from './shot-document'
 import { isRunningStatus } from './shots'
 
@@ -70,21 +69,21 @@ export const historyShotOf = (job: GenerationJob): Shot['prompt'] | undefined =>
 
 /** 提交一次出片：镜头组与参考图照分镜当前这一版，字段名照上游异步接口（snake_case）。
  *
- * shot 就是分镜文件里这一组的 prompt 原样，正文由服务端拼，这里不发 prompt。分辨率不跟分镜走，
- * 见 `VIDEO_RESOLUTION`。不带 user_name：浏览器会话由服务端填登录用户名。回执只有任务号，
- * 记录本身靠刷新列表拿到。 */
+ * shot 就是分镜文件里这一组的 prompt 原样，正文由服务端拼，这里不发 prompt；镜号只走 shot_index。
+ * 分辨率不跟分镜走，见 `VIDEO_RESOLUTION`。不带 user_name：浏览器会话由服务端填登录用户名。
+ * 回执只有任务号，记录本身靠刷新列表拿到。 */
 export const submitVideoGeneration = async (input: VideoGenerationInput): Promise<string> => {
   const shot: VideoShotIn = input.shot.prompt
   const body: VideoGenerationIn = {
     aspect_ratio: input.aspectRatio,
     conversation_id: input.conversationId,
     generate_audio: input.generateAudio,
-    metadata: storyboardMetadata(input.shot.index),
     model: input.model,
     reference_image_urls: [...input.shot.image_urls],
     resolution: VIDEO_RESOLUTION,
     seconds: input.shot.seconds,
     shot,
+    shot_index: input.shot.index,
   }
   const receipt = await apiFetch('/generations/video', zVideoSubmitOut, {
     body,

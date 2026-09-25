@@ -17,10 +17,12 @@ from tests.helpers.generation import (
     make_job,
 )
 
-Announced = tuple[uuid.UUID, uuid.UUID | None, uuid.UUID, str, str, str, Mapping[str, Any] | None]
-"""(属主, 对话, 任务, kind, operation, status, metadata)。"""
+Announced = tuple[
+    uuid.UUID, uuid.UUID | None, uuid.UUID, str, str, str, int | None, Mapping[str, Any] | None
+]
+"""(属主, 对话, 任务, kind, operation, status, 镜号, metadata)。"""
 
-SHOT = {"path": "video_shot.json", "shot": 2}
+TAG = {"frame": 1}
 FRAME = {"path": "video_shot.json", "shot": 1, "frame": 3}
 
 
@@ -40,16 +42,19 @@ class _RecordingConnections(LiveConnections):
         kind: str,
         operation: str,
         status: str,
+        shot_index: int | None,
         metadata: Mapping[str, Any] | None,
     ) -> None:
-        self.announced.append((owner, conversation_id, job_id, kind, operation, status, metadata))
+        self.announced.append(
+            (owner, conversation_id, job_id, kind, operation, status, shot_index, metadata)
+        )
 
 
 async def test_every_status_transition_of_a_video_job_is_announced_to_its_owner() -> None:
     live = _RecordingConnections()
     repo = AnnouncingGenerationRepository(InMemoryGenerationRepository(), live)
     owner, conversation_id = uuid.uuid4(), uuid.uuid4()
-    job = make_job(owner_user_id=owner, conversation_id=conversation_id, metadata=SHOT)
+    job = make_job(owner_user_id=owner, conversation_id=conversation_id, shot_index=2, metadata=TAG)
 
     await repo.create(job)
     await repo.mark_submitting(job.id)
@@ -65,11 +70,11 @@ async def test_every_status_transition_of_a_video_job_is_announced_to_its_owner(
         watermark_output_url="https://cdn.test/take-wm.mp4",
     )
 
-    assert [(status, metadata) for *_, status, metadata in live.announced] == [
-        ("pending", SHOT),
-        ("submitting", SHOT),
-        ("submitted", SHOT),
-        ("completed", SHOT),
+    assert [one[5:] for one in live.announced] == [
+        ("pending", 2, TAG),
+        ("submitting", 2, TAG),
+        ("submitted", 2, TAG),
+        ("completed", 2, TAG),
     ], "record_progress 只更新 provider 原始状态，不算一跳"
     assert {(one[0], one[1], one[2], one[3], one[4]) for one in live.announced} == {
         (owner, conversation_id, job.id, "video", "generate")
@@ -77,11 +82,12 @@ async def test_every_status_transition_of_a_video_job_is_announced_to_its_owner(
 
 
 async def test_a_composite_announces_its_operation_and_a_reference_cut_is_not_a_step() -> None:
-    """合成与出片同是 video，帧上靠 operation 分；编辑段记切点不改业务状态，不算一跳。"""
+    """合成与出片同是 video，帧上靠 operation 分、镜号是原作那一镜的；编辑段记切点不改业务状态，
+    不算一跳。"""
 
     live = _RecordingConnections()
     repo = AnnouncingGenerationRepository(InMemoryGenerationRepository(), live)
-    edit = make_edit(make_job())
+    edit = make_edit(make_job(shot_index=3))
     composite = make_composite(edit)
 
     await repo.create(edit)
@@ -91,10 +97,10 @@ async def test_a_composite_announces_its_operation_and_a_reference_cut_is_not_a_
     )
     await repo.create(composite)
 
-    assert [(one[2], one[4], one[5]) for one in live.announced] == [
-        (edit.id, "generate", "pending"),
-        (edit.id, "generate", "submitting"),
-        (composite.id, "compose", "pending"),
+    assert [(one[2], one[4], one[5], one[6]) for one in live.announced] == [
+        (edit.id, "generate", "pending", 3),
+        (edit.id, "generate", "submitting", 3),
+        (composite.id, "compose", "pending", 3),
     ]
 
 
@@ -116,10 +122,10 @@ async def test_an_image_job_carries_its_metadata_and_a_failure_is_announced_once
 
     assert missed is None
     assert failed is not None and failed.status == "failed"
-    assert [(status, metadata) for *_, status, metadata in live.announced] == [
-        ("submitted", FRAME),
-        ("failed", FRAME),
-    ], "状态守卫没命中的那次不发帧"
+    assert [one[5:] for one in live.announced] == [
+        ("submitted", None, FRAME),
+        ("failed", None, FRAME),
+    ], "状态守卫没命中的那次不发帧；图片的坐标原样带出，不算镜号"
 
 
 async def test_a_job_without_a_conversation_still_announces_to_its_owner() -> None:
@@ -130,5 +136,5 @@ async def test_a_job_without_a_conversation_still_announces_to_its_owner() -> No
     await repo.create(job)
 
     assert live.announced == [
-        (job.owner_user_id, None, job.id, "video", "generate", "pending", None)
+        (job.owner_user_id, None, job.id, "video", "generate", "pending", None, None)
     ]

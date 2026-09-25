@@ -197,17 +197,15 @@ def test_an_edit_takes_a_forward_range_and_none_of_the_fields_the_server_fills()
             VideoEditIn.model_validate({**base, **flaw})
 
 
-def test_shot_index_is_an_alias_for_metadata_shot() -> None:
-    """外部调用方不写 metadata，只给第几镜；受理时折进坐标，落表与分镜页写的同一个键。"""
+def test_shot_index_stays_its_own_field_and_never_enters_metadata_or_the_payload() -> None:
+    """镜头组编号落记录自己的列：不折进 metadata、不进 request；metadata 里的 shot 不是镜号。"""
 
-    folded = video_request(shot_index=2)
-    assert folded.metadata == {"shot": 2}
-    assert "shot_index" not in request_to_payload(folded), "别名不落 request，坐标已在 metadata"
+    numbered = video_request(shot_index=2, metadata={"frame": 1})
+    assert (numbered.shot_index, numbered.metadata) == (2, {"frame": 1})
+    assert "shot_index" not in request_to_payload(numbered)
 
-    merged = video_request(shot_index=2, metadata={"path": "video_shot.json"})
-    assert merged.metadata == {"path": "video_shot.json", "shot": 2}
-
-    assert video_request(metadata={"shot": 3}).metadata == {"shot": 3}, "不传别名时坐标原样"
+    tagged = video_request(metadata={"shot": 3})
+    assert (tagged.shot_index, tagged.metadata) == (None, {"shot": 3})
     # 镜头组从 1 数：0 与负数都不是镜头号，收下只会落一条读不出镜头组的记录。
     for invalid in (0, -1):
         with pytest.raises(ValueError, match="shot_index"):

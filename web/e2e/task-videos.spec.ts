@@ -30,7 +30,7 @@ const submitMockVideo = (page: Page, conversationId: string) =>
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         conversation_id: id,
-        metadata: { shot: 2 },
+        shot_index: 2,
         model: 'wan3.0-video',
         prompt: '测试镜头组第二次生成',
         aspect_ratio: '9:16',

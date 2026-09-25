@@ -43,7 +43,7 @@ const composite = (id: string, source: string, spec: Partial<GenerationJob> = {}
 const root = job({
   id: 'root',
   outputUrl: ROOT_URL,
-  metadata: { shot: 2 },
+  shotIndex: 2,
   request: { prompt: '原片' },
 })
 
@@ -71,7 +71,7 @@ const chainJobs: GenerationJob[] = [
     errorMessage: '上游拒绝了这段素材',
   }),
   // 没有来源的视频不是编辑段，不算。
-  job({ id: 'stray', metadata: { shot: 2 } }),
+  job({ id: 'stray', shotIndex: 2 }),
 ]
 
 describe('projectEditChain', () => {

@@ -200,6 +200,8 @@ type MockJob = {
   prompt: string
   request?: Record<string, unknown>
   metadata?: Record<string, unknown>
+  /** 镜头组编号：出片照请求，编辑段与合成抄基底的；图片没有。 */
+  shotIndex?: number | null
   status: 'completed' | 'failed' | 'pending' | 'submitted'
   watermarkOutputUrl?: string
   /** 产物实际多长；只有合成有。 */
@@ -224,6 +226,7 @@ const job = (spec: MockJob) => ({
   metadata: spec.metadata ?? null,
   status: spec.status,
   taskId: null,
+  shotIndex: spec.shotIndex ?? null,
   rootJobId: spec.rootJobId ?? null,
   sourceJobId: spec.sourceJobId ?? null,
   rangeStartMs: spec.rangeStartMs ?? null,
@@ -263,6 +266,8 @@ type MockGenerationChange = {
   kind: string
   operation: string
   status: string
+  /** 与真实帧一样，没有镜号时整项省略。 */
+  shot_index?: number
   metadata: Record<string, unknown> | null
 }
 
@@ -276,9 +281,10 @@ export const watchMockGenerations = (watcher: (change: MockGenerationChange) => 
 
 const announceGeneration = (conversationId: string | null, record: MockRecord) => {
   if (conversationId === null) return
-  const { id, kind, operation, metadata, status } = record
+  const { id, kind, operation, metadata, shotIndex, status } = record
+  const shot = shotIndex === null ? {} : { shot_index: shotIndex }
   for (const watcher of generationWatchers)
-    watcher({ conversationId, id, kind, operation, metadata, status })
+    watcher({ conversationId, id, kind, operation, ...shot, metadata, status })
 }
 
 export const seedMockWorkspace = (
@@ -343,7 +349,7 @@ export const seedMockWorkspace = (
       id: '4a1e2f60-9a1e-4c2f-9c8b-1d2e3f4a5b6c',
       outputUrl: WIDE_VIDEO_URL,
       prompt: '模特走向镜头，停下微笑，暖光。',
-      metadata: { shot: 3 },
+      shotIndex: 3,
       status: 'completed',
       watermarkOutputUrl: WIDE_VIDEO_URL,
     }),
@@ -354,7 +360,7 @@ export const seedMockWorkspace = (
       // 带结构化 shot 的记录可以回填镜头组；纯描述的那两条只能看不能回填。
       prompt: assembleShotPrompt(HISTORY_SHOT),
       request: { prompt: assembleShotPrompt(HISTORY_SHOT), shot: HISTORY_SHOT },
-      metadata: { shot: 2 },
+      shotIndex: 2,
       status: 'completed',
       watermarkOutputUrl: VIDEO_URL,
     }),
@@ -363,14 +369,14 @@ export const seedMockWorkspace = (
       errorMessage: '上游返回了空结果，换个描述再试一次。',
       id: '6c304182-1c30-4e41-9eab-3f4a5b6c7d8e',
       prompt: '第 2 组第二版：加一个低头看包的动作。',
-      metadata: { shot: 2 },
+      shotIndex: 2,
       status: 'failed',
     }),
     job({
       createdAt: '2026-09-01T12:20:00Z',
       id: '7d415293-2d41-4f52-afbc-4a5b6c7d8e9f',
       prompt: '第 2 组第三版：脚步放慢，收尾停在微笑上。',
-      metadata: { shot: 2 },
+      shotIndex: 2,
       status: 'submitted',
     }),
     job({
@@ -710,6 +716,7 @@ export const workspaceHandlers = [
     let items = conversationId === null ? [] : (generations.get(conversationId) ?? [])
     const kind = params.get('kind')
     const operation = params.get('operation')
+    const shotIndex = params.get('shotIndex')
     const rootJobId = params.get('rootJobId')
     const sourceJobId = params.get('sourceJobId')
     const rawMetadata = params.get('metadata')
@@ -720,6 +727,7 @@ export const workspaceHandlers = [
       (item) =>
         (kind === null || item.kind === kind) &&
         (operation === null || item.operation === operation) &&
+        (shotIndex === null || item.shotIndex === Number(shotIndex)) &&
         (rootJobId === null || item.rootJobId === rootJobId) &&
         (sourceJobId === null || item.sourceJobId === sourceJobId) &&
         (metadata === null ||
@@ -760,6 +768,7 @@ export const workspaceHandlers = [
       request: { ...body, prompt },
       conversationId: body.conversation_id ?? null,
       metadata: body.metadata ?? null,
+      shotIndex: body.shot_index ?? null,
       outputUrl: VIDEO_URL,
       watermarkOutputUrl: VIDEO_URL,
     })
@@ -790,6 +799,7 @@ export const workspaceHandlers = [
       },
       conversationId: body.conversation_id ?? null,
       metadata: body.metadata ?? null,
+      shotIndex: base.shotIndex,
       rootJobId: base.sourceJobId === null ? base.id : base.rootJobId,
       sourceJobId: base.id,
       rangeStartMs: body.range_start_ms,
@@ -835,6 +845,7 @@ export const workspaceHandlers = [
       },
       conversationId: body.conversationId ?? null,
       metadata: body.metadata ?? null,
+      shotIndex: segment.shotIndex,
       rootJobId: segment.rootJobId,
       sourceJobId: segment.id,
       outputUrl: VIDEO_URL,
@@ -853,6 +864,7 @@ function acceptGeneration(spec: {
   request: Record<string, unknown>
   conversationId: string | null
   metadata: Record<string, unknown> | null
+  shotIndex?: number | null
   rootJobId?: string | null
   sourceJobId?: string
   rangeStartMs?: number
@@ -869,6 +881,7 @@ function acceptGeneration(spec: {
     prompt: spec.prompt,
     request: spec.request,
     ...(spec.metadata === null ? {} : { metadata: spec.metadata }),
+    shotIndex: spec.shotIndex ?? null,
     rootJobId: spec.rootJobId ?? null,
     sourceJobId: spec.sourceJobId ?? null,
     rangeStartMs: spec.rangeStartMs ?? null,
