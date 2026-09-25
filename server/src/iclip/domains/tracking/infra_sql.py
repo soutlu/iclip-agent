@@ -57,15 +57,16 @@ tracking_events_table = Table(
     Index("ix_tracking_events_name", "name", "occurred_at"),
 )
 
-# 可下载的视频：成功、有地址，且是独立视频或视频编辑确认合成的成片。按表名直接查，不 import
-# 生成域；'video' / 'clip' / 'completed' 镜像 KIND_VIDEO / KIND_CLIP / STATUS_COMPLETED，
-# 'master' 镜像 ClipPurpose 的取值，集成测试的种子取自那些常量，生成域改词这里的用例就红。
+# 可下载的视频就是成片：成功、有地址，且是出片（没有来源的 generate）或合成。按表名直接查，
+# 不 import 生成域；'video' / 'generate' / 'compose' / 'completed' 镜像 KIND_VIDEO /
+# OPERATION_GENERATE / OPERATION_COMPOSE / STATUS_COMPLETED，集成测试的种子取自那些常量，
+# 生成域改词这里的用例就红。
 _DOWNLOADABLE: Final = text("""
 SELECT EXISTS (
     SELECT 1 FROM iclip.generation_jobs g
     WHERE g.id = :job_id AND g.status = 'completed' AND g.output_url IS NOT NULL
-      AND ((g.kind = 'video' AND g.root_job_id IS NULL)
-           OR (g.kind = 'clip' AND g.request->>'purpose' = 'master'))
+      AND g.kind = 'video'
+      AND (g.operation = 'compose' OR (g.operation = 'generate' AND g.source_job_id IS NULL))
 )
 """)
 

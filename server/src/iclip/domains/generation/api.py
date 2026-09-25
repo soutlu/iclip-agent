@@ -1,7 +1,7 @@
 """媒体生成 HTTP 端点。提交返回 202，此时 pending 记录已落库，Provider 调用由后台执行。
 
-视频那一对端点（提交、查状态）是上游异步接口的镜像，字段 snake_case；其余端点是本系统
-自己的，camelCase。"""
+视频那一对端点（提交、查状态）是上游异步接口的镜像，编辑段转发上游字段、与它们同族，字段都是
+snake_case；其余端点是本系统自己的，camelCase。"""
 
 from __future__ import annotations
 
@@ -14,14 +14,16 @@ from pydantic import TypeAdapter, ValidationError
 
 from iclip.common.errors import ValidationFailed
 from iclip.domains.generation.schemas import (
-    ClipIn,
     GenerationEnvelope,
     GenerationKind,
+    GenerationOperation,
     GenerationsPageOut,
     ImageGenerationIn,
     ImageModelOut,
     ImageModelsOut,
     Metadata,
+    VideoComposeIn,
+    VideoEditIn,
     VideoGenerationIn,
     VideoModelsOut,
     VideoSubmitOut,
@@ -48,13 +50,11 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
         body: VideoGenerationIn,
         principal: Annotated[Principal, require_permission("generation:submit")],
     ) -> VideoSubmitOut:
-        """提交一次视频生成。请求体照上游异步接口，外加 conversation_id / task_id / metadata /
-        root_job_id。
+        """提交一次视频生成。请求体照上游异步接口，外加 conversation_id / task_id / metadata。
 
         正文可以直接给 ``prompt``，也可以给结构化的 ``shot`` 由服务端拼成 ``prompt``；记录里
         两者都存，``shot`` 不发上游。``user_name``：API key 调用方必填、照收；浏览器会话可
-        省略，填登录用户名。``root_job_id`` 只有视频编辑的结果才填：最初那条出片的 id，必须是
-        同一段对话里的独立记录。
+        省略，填登录用户名。
         """
 
         user_name = resolve_user_name(principal, body.user_name)
@@ -64,19 +64,39 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
         )
         return VideoSubmitOut(task_id=job.id)
 
-    @router.post("/clips", response_model=GenerationEnvelope, status_code=202)
-    async def submit_clip(
-        body: ClipIn,
+    @router.post("/video-edits", response_model=GenerationEnvelope, status_code=202)
+    async def submit_video_edit(
+        body: VideoEditIn,
         principal: Annotated[Principal, require_permission("generation:submit")],
     ) -> GenerationEnvelope:
-        """提交一次本地视频加工：按 ``segments`` 的顺序裁出各段拼成一条，产物存进本系统的桶。
+        """在一条成片上改一段：``source_job_id`` 是基底，``range_start_ms`` / ``range_end_ms`` 是区间。
 
-        ``purpose=reference`` 是编辑时切给模型看的参考片段，只能在一条完整视频上裁一段、
-        不重编码；``purpose=master`` 是拼出来的成片，一律重编码对齐参数。不经外部服务，
-        不计费，也没有 ``userName``。``rootJobId`` 必填：产物是最初那条出片的衍生记录。
+        服务端提交上游前按区间从基底上切参考片段交给模型，记录上的区间随之改记实际切点。基底
+        必须是这段对话自己的或继承来的一条已完成成片。``user_name`` 的规则同出片。
         """
 
-        job = await service.submit_clip(principal, body)
+        user_name = resolve_user_name(principal, body.user_name)
+        principal = await act_as(principal, user_name)
+        job = await service.submit_video_edit(
+            principal, body.model_copy(update={"user_name": user_name})
+        )
+        return GenerationEnvelope(generation=generation_out(job))
+
+    @router.post("/video-composites", response_model=GenerationEnvelope, status_code=202)
+    async def submit_video_composite(
+        body: VideoComposeIn,
+        principal: Annotated[Principal, require_permission("generation:submit")],
+    ) -> GenerationEnvelope:
+        """把一条编辑段夹回它的基底，合成同一原作下的新一版成片。不经外部服务。
+
+        ``sourceJobId`` 必须是这段对话自己的或继承来的一条已完成编辑段。``userName`` 的规则同出片。
+        """
+
+        user_name = resolve_user_name(principal, body.user_name)
+        principal = await act_as(principal, user_name)
+        job = await service.submit_video_compose(
+            principal, body.model_copy(update={"user_name": user_name})
+        )
         return GenerationEnvelope(generation=generation_out(job))
 
     @router.post("/image", response_model=GenerationEnvelope, status_code=202)
@@ -100,9 +120,14 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
         conversation_id: Annotated[uuid.UUID | None, Query(alias="conversationId")] = None,
         task_id: Annotated[uuid.UUID | None, Query(alias="taskId")] = None,
         kind: GenerationKind | None = None,
+        operation: GenerationOperation | None = None,
         root_job_id: Annotated[
             uuid.UUID | None,
-            Query(alias="rootJobId", description="只列这条出片名下的衍生记录（视频编辑链）"),
+            Query(alias="rootJobId", description="只列以这条出片为原作的记录（整条编辑链）"),
+        ] = None,
+        source_job_id: Annotated[
+            uuid.UUID | None,
+            Query(alias="sourceJobId", description="只列直接基于这一条的记录"),
         ] = None,
         metadata: Annotated[
             str | None,
@@ -110,9 +135,9 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
         ] = None,
         before: uuid.UUID | None = None,
     ) -> GenerationsPageOut:
-        """给了 ``conversationId`` / ``taskId`` / ``rootJobId`` 就只列那段对话、那张需求单、那条出片
-        名下的记录。按对话列时含这段对话经分叉继承的记录（调用方读得到这段对话才算），其余
-        可见性口径不变。
+        """给了 ``conversationId`` / ``taskId`` / ``rootJobId`` / ``sourceJobId`` 就只列那段对话、
+        那张需求单下、以那条为原作或直接来源的记录；``kind`` / ``operation`` 按种类与操作筛。
+        按对话列时含这段对话经分叉继承的记录（调用方读得到这段对话才算），其余可见性口径不变。
 
         ``metadata`` 在查询串里是一段 JSON 对象，按包含匹配筛（分镜页拿它按镜头组、按帧查）。
         """
@@ -122,9 +147,11 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
             limit=limit,
             conversation_id=conversation_id,
             kind=kind,
+            operation=operation,
             metadata=_metadata_filter(metadata),
             task_id=task_id,
             root_job_id=root_job_id,
+            source_job_id=source_job_id,
             before=before,
         )
         return GenerationsPageOut(items=[generation_out(job) for job in jobs])
@@ -167,7 +194,8 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
         task_id: uuid.UUID,
         principal: Annotated[Principal, require_permission("generation:read")],
     ) -> VideoTaskOut:
-        """视频任务快照，照上游任务查询的形状。只认视频记录，可见性与 ``GET /generations/{id}`` 相同。"""
+        """视频任务快照，照上游任务查询的形状。只认调上游的视频记录（出片与编辑段），可见性与
+        ``GET /generations/{id}`` 相同。"""
 
         return video_task_out(await service.get_video(principal, task_id))
 

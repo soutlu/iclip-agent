@@ -24,7 +24,7 @@ from iclip.domains.audit.models import (
 )
 from iclip.domains.audit.reports_pg import PgAuditReports
 from iclip.domains.generation.models import STATUS_COMPLETED, STATUS_FAILED, STATUS_SUBMITTED
-from iclip.domains.generation.schemas import KIND_CLIP, KIND_VIDEO
+from iclip.domains.generation.schemas import KIND_VIDEO, OPERATION_COMPOSE, OPERATION_GENERATE
 from iclip.domains.tracking.models import VIDEO_DOWNLOADED
 from tests.helpers.pg import reset_database
 
@@ -32,8 +32,6 @@ BASE = datetime.now(UTC).replace(microsecond=0)
 SHAN = "Shan.Hu"
 DONNIE = "Donnie.Liu"
 EDNA = "Edna.Li"
-MASTER = "master"
-"""ClipPurpose 的成片取值；生成域没有单独的常量。"""
 
 
 def ago(**delta: float) -> datetime:
@@ -141,36 +139,42 @@ class Seed:
                 submitted_at: datetime | None = None,
                 finished_at: datetime | None = None,
                 video_id: uuid.UUID | None = None,
-                metadata: dict[str, object] | None = None,
-                root_job_id: uuid.UUID | None = None,
-            ) -> None:
-                if metadata is None and shot is not None:
-                    metadata = {"shot": shot}
+                edit_of: uuid.UUID | None = None,
+            ) -> uuid.UUID:
+                """一条出片；给了 ``edit_of`` 就是那次出片上的一段编辑（来源与原作都是它）。"""
+
+                job_id = video_id or uuid.uuid4()
                 await conn.execute(
                     text(
                         "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id,"
-                        " kind, provider, request, status, metadata, root_job_id, created_at,"
-                        " updated_at, submitted_at, finished_at)"
-                        " VALUES (:id, :owner, :conversation_id, :kind, 'test',"
-                        " CAST(:request AS jsonb), :status, CAST(:metadata AS jsonb),"
-                        " :root_job_id, :created_at, :created_at, :submitted_at, :finished_at)"
+                        " kind, operation, provider, request, status, metadata, source_job_id,"
+                        " root_job_id, range_start_ms, range_end_ms, created_at, updated_at,"
+                        " submitted_at, finished_at)"
+                        " VALUES (:id, :owner, :conversation_id, :kind, :operation, 'test',"
+                        " CAST(:request AS jsonb), :status, CAST(:metadata AS jsonb), :edit_of,"
+                        " :edit_of, :range_start_ms, :range_end_ms, :created_at, :created_at,"
+                        " :submitted_at, :finished_at)"
                     ),
                     {
-                        "id": video_id or uuid.uuid4(),
+                        "id": job_id,
                         "kind": KIND_VIDEO,
+                        "operation": OPERATION_GENERATE,
                         "owner": self.shan,
                         "conversation_id": conversation_id,
                         "request": json.dumps(
                             {"model": "m", "prompt": "p", "user_name": user_name}
                         ),
                         "status": status,
-                        "metadata": None if metadata is None else json.dumps(metadata),
-                        "root_job_id": root_job_id,
+                        "metadata": None if shot is None else json.dumps({"shot": shot}),
+                        "edit_of": edit_of,
+                        "range_start_ms": None if edit_of is None else 1000,
+                        "range_end_ms": None if edit_of is None else 4000,
                         "created_at": created_at,
                         "submitted_at": submitted_at,
                         "finished_at": finished_at,
                     },
                 )
+                return job_id
 
             async def master(
                 master_id: uuid.UUID,
@@ -179,25 +183,41 @@ class Seed:
                 root: uuid.UUID,
                 created_at: datetime,
             ) -> None:
-                """视频编辑确认合成的成片：衍生记录，挂在 ``root`` 那次出片名下。"""
+                """视频编辑确认合成的成片：先在 ``root`` 那次出片上有一段编辑，合成以它为来源。"""
 
+                edit = await video(
+                    conversation_id,
+                    user_name=SHAN,
+                    shot=None,
+                    status=STATUS_COMPLETED,
+                    created_at=created_at - timedelta(minutes=1),
+                    finished_at=created_at - timedelta(seconds=30),
+                    edit_of=root,
+                )
                 await conn.execute(
                     text(
                         "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id,"
-                        " kind, provider, request, status, metadata, root_job_id, output_url,"
-                        " created_at, updated_at, submitted_at, finished_at)"
-                        " VALUES (:id, :owner, :conversation_id, :kind, 'test',"
-                        " CAST(:request AS jsonb), :status, CAST(:metadata AS jsonb),"
-                        " :root, 'https://example.test/master.mp4', :at, :at, :at, :at)"
+                        " kind, operation, provider, request, status, source_job_id, root_job_id,"
+                        " output_url, created_at, updated_at, submitted_at, finished_at)"
+                        " VALUES (:id, :owner, :conversation_id, :kind, :operation, 'test',"
+                        " CAST(:request AS jsonb), :status, :edit, :root,"
+                        " 'https://example.test/master.mp4', :at, :at, :at, :at)"
                     ),
                     {
                         "id": master_id,
                         "owner": self.shan,
                         "conversation_id": conversation_id,
-                        "kind": KIND_CLIP,
-                        "request": json.dumps({"purpose": MASTER, "segments": []}),
+                        "kind": KIND_VIDEO,
+                        "operation": OPERATION_COMPOSE,
+                        "request": json.dumps(
+                            {
+                                "segments": [
+                                    {"url": "https://example.test/e.mp4", "start": 0, "end": 3}
+                                ]
+                            }
+                        ),
                         "status": STATUS_COMPLETED,
-                        "metadata": json.dumps({"editId": "e1"}),
+                        "edit": edit,
                         "root": root,
                         "at": created_at,
                     },
@@ -313,7 +333,7 @@ class Seed:
                 finished_at=ago(minutes=5),
                 video_id=self.missing_shot_video,
             )
-            # 视频编辑的结果：衍生记录没有镜头组，不算出片、也不算缺坐标。
+            # 编辑段：有来源、没有镜头组，不算出片、也不算缺坐标。
             await video(
                 self.c1,
                 user_name=SHAN,
@@ -321,13 +341,7 @@ class Seed:
                 status=STATUS_COMPLETED,
                 created_at=ago(minutes=8),
                 finished_at=ago(minutes=4),
-                root_job_id=self.missing_shot_video,
-                metadata={
-                    "baseJob": str(self.missing_shot_video),
-                    "editId": "e1",
-                    "editStart": 1,
-                    "editEnd": 4,
-                },
+                edit_of=self.missing_shot_video,
             )
             # 镜 1 的出片被两个人各下载一次，仍只算一镜；镜 2 下载的是名下的成片，算回镜 2。
             await master(
@@ -853,9 +867,9 @@ async def test_forks_do_not_count_toward_any_metric(
         await conn.execute(
             text(
                 "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, metadata,"
-                " kind, provider, request, status, output_url, created_at, updated_at,"
+                " kind, operation, provider, request, status, output_url, created_at, updated_at,"
                 " submitted_at, finished_at)"
-                " VALUES (:id, :owner, :conversation_id, :metadata, :kind, 'p',"
+                " VALUES (:id, :owner, :conversation_id, :metadata, :kind, :operation, 'p',"
                 " :request, :status, 'https://example.test/copy.mp4', :at, :at, :at, :at)"
             ),
             {
@@ -864,6 +878,7 @@ async def test_forks_do_not_count_toward_any_metric(
                 "conversation_id": fork_id,
                 "metadata": json.dumps({"shot": 1}),
                 "kind": KIND_VIDEO,
+                "operation": OPERATION_GENERATE,
                 "status": STATUS_COMPLETED,
                 "request": json.dumps({"kind": "video", "user_name": SHAN}),
                 "at": at,

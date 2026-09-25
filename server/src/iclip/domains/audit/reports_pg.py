@@ -46,9 +46,10 @@ from iclip.domains.audit.schemas import (
 # 分叉出来的副本一律不进报表（``forked_from`` 非空）：它继承的出片记在源对话名下，源那边
 # 已经数过；副本自己跑的是试验数据。挡在 videos / person / runs 三个根 CTE 上，其余口径都
 # 从它们派生。
-# SQL 里的 'video' / 'completed' / 'submitted' 镜像生成域的 KIND_VIDEO / STATUS_COMPLETED /
-# STATUS_SUBMITTED，'video.downloaded' 镜像埋点的 VIDEO_DOWNLOADED（报表按表名直接查，
-# 不 import 业务模块）；集成测试的种子取自那些常量，改词这里的用例就红。
+# SQL 里的 'video' / 'generate' / 'completed' / 'submitted' 镜像生成域的 KIND_VIDEO /
+# OPERATION_GENERATE / STATUS_COMPLETED / STATUS_SUBMITTED，'video.downloaded' 镜像埋点的
+# VIDEO_DOWNLOADED（报表按表名直接查，不 import 业务模块）；集成测试的种子取自那些常量，
+# 改词这里的用例就红。
 # ---------------------------------------------------------------------------
 
 _VIDEOS: Final = """
@@ -56,7 +57,7 @@ videos AS (
     SELECT g.id, g.conversation_id, g.status, g.created_at, g.submitted_at, g.finished_at,
            -- 成片：出成了且有完成时刻；各口径只引用这一列。
            (g.status = 'completed' AND g.finished_at IS NOT NULL) AS delivered,
-           -- 有人下载过它或它名下的衍生记录：下载的那条沿原作号折回独立记录。子查询不相关，
+           -- 有人下载过它或以它为原作的合成：下载的那条沿原作折回出片。子查询不相关，
            -- 整个集合只算一遍，逐行只做成员判断。
            g.id IN (
                SELECT COALESCE(d.root_job_id, d.id)
@@ -69,8 +70,8 @@ videos AS (
            c.task_id
     FROM iclip.generation_jobs g
     JOIN iclip.conversations c ON c.id = g.conversation_id
-    -- 出片 = 独立记录（没有原作号）且带数字镜号；视频编辑的衍生记录一律不算。
-    WHERE g.kind = 'video' AND g.root_job_id IS NULL
+    -- 出片 = 没有来源的视频 generate，且带数字镜号；编辑段与合成一律不算。
+    WHERE g.kind = 'video' AND g.operation = 'generate' AND g.source_job_id IS NULL
       AND jsonb_typeof(g.metadata->'shot') = 'number'
       AND c.forked_from IS NULL
 )"""
@@ -478,8 +479,8 @@ missing_shot AS (
     FROM iclip.generation_jobs g
     LEFT JOIN iclip.conversations c ON c.id = g.conversation_id
     WHERE g.kind = 'video' AND jsonb_typeof(g.metadata->'shot') IS DISTINCT FROM 'number'
-      -- 只有独立记录才谈漏标；衍生记录本来就不带镜号。
-      AND g.root_job_id IS NULL
+      -- 只有出片才谈漏标；编辑段与合成本来就不带镜号。
+      AND g.operation = 'generate' AND g.source_job_id IS NULL
       -- 挂在副本下的记录不算异常；没挂对话的孤儿记录照旧要算，所以放过 c 整行为空的。
       AND c.forked_from IS NULL
     {_WINDOW.format(anchor="g.created_at")}

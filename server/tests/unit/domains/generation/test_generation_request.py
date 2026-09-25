@@ -9,12 +9,15 @@ import pytest
 from iclip.common.errors import ValidationFailed
 from iclip.domains.generation.schemas import (
     IMAGE_MAX_REFERENCES,
-    KIND_CLIP,
     KIND_IMAGE,
     KIND_VIDEO,
     MAX_METADATA_CHARS,
-    ClipIn,
+    OPERATION_COMPOSE,
+    OPERATION_GENERATE,
+    ComposeSegment,
     ImageGenerationIn,
+    VideoComposeRequest,
+    VideoEditIn,
     VideoGenerationIn,
     request_from_payload,
     request_to_payload,
@@ -22,7 +25,7 @@ from iclip.domains.generation.schemas import (
 from tests.helpers.generation import (
     SHOT_IMAGE_URLS,
     SHOT_PROMPT,
-    clip_request,
+    compose_request,
     image_request,
     video_request,
     video_shot,
@@ -36,7 +39,10 @@ def test_payload_round_trip_video() -> None:
         resolution="1080p",
         provider_options={"output_format": "mov"},
     )
-    assert request_from_payload(KIND_VIDEO, request_to_payload(original)) == original
+    assert (
+        request_from_payload(KIND_VIDEO, OPERATION_GENERATE, request_to_payload(original))
+        == original
+    )
 
 
 @pytest.mark.parametrize("generate_audio", [True, False, None])
@@ -46,12 +52,15 @@ def test_video_audio_choice_survives_payload_round_trip(generate_audio: bool | N
     payload = request_to_payload(original)
 
     assert payload["generate_audio"] is generate_audio
-    assert request_from_payload(KIND_VIDEO, payload) == original
+    assert request_from_payload(KIND_VIDEO, OPERATION_GENERATE, payload) == original
 
 
 def test_payload_round_trip_image() -> None:
     original = image_request(resolution="2k", reference_image_urls=["https://example.test/ref.png"])
-    assert request_from_payload(KIND_IMAGE, request_to_payload(original)) == original
+    assert (
+        request_from_payload(KIND_IMAGE, OPERATION_GENERATE, request_to_payload(original))
+        == original
+    )
 
 
 def test_stored_payload_keeps_each_kinds_own_field_names() -> None:
@@ -91,26 +100,101 @@ def test_a_stored_request_reads_back_without_its_origin_columns() -> None:
     coordinate = {"path": "video_shot.json", "shot": 1, "frame": 2}
     image = request_to_payload(image_request(metadata=coordinate, task_id=task_id))
     assert {"metadata", "taskId", "conversationId"}.isdisjoint(image)
-    restored = request_from_payload(KIND_IMAGE, image)
+    restored = request_from_payload(KIND_IMAGE, OPERATION_GENERATE, image)
     assert isinstance(restored, ImageGenerationIn)
     assert restored.metadata is None, "坐标落列，读回的请求里没有它"
 
     video = request_to_payload(
-        video_request(
-            conversation_id=uuid.uuid4(),
-            task_id=task_id,
-            metadata={"shot": 3},
-            root_job_id=uuid.uuid4(),
-        )
+        video_request(conversation_id=uuid.uuid4(), task_id=task_id, metadata={"shot": 3})
     )
-    assert {"conversation_id", "metadata", "task_id", "root_job_id"}.isdisjoint(video)
+    assert {"conversation_id", "metadata", "task_id"}.isdisjoint(video)
 
-    # clip 受理时原作号必填，但它落列不落 JSON，所以读回时必须允许它为空。
-    clip = request_to_payload(clip_request())
-    assert "rootJobId" not in clip
-    restored_clip = request_from_payload(KIND_CLIP, clip)
-    assert isinstance(restored_clip, ClipIn)
-    assert restored_clip.root_job_id is None
+
+def test_a_composite_round_trips_and_keeps_open_ends_open() -> None:
+    """合成落库的是各段与对账名；取到结尾的段存成 null，读回仍是开放的。"""
+
+    original = compose_request()
+    payload = request_to_payload(original)
+
+    assert payload["segments"][1] == {
+        "url": "https://example.com/edited.mp4",
+        "start": 0,
+        "end": None,
+    }
+    assert payload["userName"] == "luke"
+    assert request_from_payload(KIND_VIDEO, OPERATION_COMPOSE, payload) == original
+
+
+def test_a_legacy_master_payload_reads_back_as_a_composite() -> None:
+    """迁移前拼好的成片只存了各段，去掉 purpose 后原样读回，没有对账名。"""
+
+    legacy = {
+        "segments": [
+            {"url": "https://example.com/base.mp4", "start": 0, "end": 4},
+            {"url": "https://example.com/edited.mp4", "start": 0, "end": 4.3},
+            {"url": "https://example.com/base.mp4", "start": 8, "end": 15},
+        ]
+    }
+
+    restored = request_from_payload(KIND_VIDEO, OPERATION_COMPOSE, legacy)
+
+    assert isinstance(restored, VideoComposeRequest)
+    assert [segment.end for segment in restored.segments] == [4, 4.3, 15]
+    assert restored.user_name is None
+
+
+def test_the_stored_shape_is_chosen_by_kind_and_operation() -> None:
+    """同是 video，调模型的读成上游请求，本地拼接的读成合成；对不上的组合直接拒。"""
+
+    video = request_to_payload(video_request())
+    assert isinstance(
+        request_from_payload(KIND_VIDEO, OPERATION_GENERATE, video), VideoGenerationIn
+    )
+    with pytest.raises(ValidationFailed, match="形状不合法"):
+        request_from_payload(KIND_VIDEO, OPERATION_COMPOSE, video)
+    with pytest.raises(ValidationFailed, match="未知的生成类型"):
+        request_from_payload(KIND_IMAGE, OPERATION_COMPOSE, request_to_payload(image_request()))
+    with pytest.raises(ValidationFailed, match="未知的生成类型"):
+        request_from_payload("clip", OPERATION_COMPOSE, request_to_payload(compose_request()))
+
+
+@pytest.mark.parametrize(
+    "segment",
+    [
+        {"url": "file:///etc/passwd", "start": 0, "end": 1},
+        {"url": "https:///a.mp4", "start": 0},
+        {"url": "https://example.com/a.mp4", "start": -1},
+        {"url": "https://example.com/a.mp4", "start": 2, "end": 2},
+    ],
+    ids=["不是 http", "没有主机名", "起点为负", "结尾不晚于起点"],
+)
+def test_a_composite_segment_must_be_a_downloadable_forward_span(
+    segment: dict[str, object],
+) -> None:
+    with pytest.raises(ValueError):
+        ComposeSegment.model_validate(segment)
+
+
+def test_an_edit_takes_a_forward_range_and_none_of_the_fields_the_server_fills() -> None:
+    """编辑段只收区间与正文；参考视频由服务端切，原作由基底定，结构化镜头组不收。"""
+
+    base = {
+        "source_job_id": str(uuid.uuid4()),
+        "range_start_ms": 1000,
+        "range_end_ms": 4000,
+        "model": "m",
+        "prompt": "换成编织凉鞋",
+    }
+    assert VideoEditIn.model_validate(base).range_end_ms == 4000
+    for flaw in (
+        {"range_start_ms": -1},
+        {"range_end_ms": 1000},
+        {"reference_video_urls": ["https://example.com/ref.mp4"]},
+        {"root_job_id": str(uuid.uuid4())},
+        {"shot": video_shot()},
+    ):
+        with pytest.raises(ValueError):
+            VideoEditIn.model_validate({**base, **flaw})
 
 
 def test_shot_index_is_an_alias_for_metadata_shot() -> None:
@@ -142,7 +226,7 @@ def test_metadata_is_bounded_but_otherwise_opaque() -> None:
 
 def test_unknown_kind_is_rejected() -> None:
     with pytest.raises(ValidationFailed, match="未知的生成类型"):
-        request_from_payload("audio", {"prompt": "x"})
+        request_from_payload("audio", OPERATION_GENERATE, {"prompt": "x"})
 
 
 # --- 结构化镜头组 shot ------------------------------------------------------------
@@ -155,7 +239,9 @@ def test_shot_is_assembled_into_the_prompt_and_both_are_stored() -> None:
     payload = request_to_payload(original)
     assert payload["prompt"] == SHOT_PROMPT
     assert payload["shot"]["timeline"][0]["image_indexes"] == [1, 2]
-    assert request_from_payload(KIND_VIDEO, payload) == original, "读回时两者都在且一致"
+    assert request_from_payload(KIND_VIDEO, OPERATION_GENERATE, payload) == original, (
+        "读回时两者都在且一致"
+    )
 
 
 def test_image_indexes_follow_the_text_in_first_appearance_order() -> None:
@@ -373,7 +459,7 @@ def test_non_http_reference_url_is_rejected(url: str) -> None:
 def test_damaged_persisted_shape_fails_loudly(damaged: dict[str, object]) -> None:
 
     with pytest.raises(ValidationFailed, match="形状不合法"):
-        request_from_payload(KIND_VIDEO, damaged)
+        request_from_payload(KIND_VIDEO, OPERATION_GENERATE, damaged)
 
 
 def test_model_and_channel_are_part_of_the_stored_request() -> None:
@@ -381,11 +467,11 @@ def test_model_and_channel_are_part_of_the_stored_request() -> None:
 
     video = video_request(model="mmt-seedance-3-0")
     assert request_to_payload(video)["model"] == "mmt-seedance-3-0"
-    assert request_from_payload(KIND_VIDEO, request_to_payload(video)) == video
+    assert request_from_payload(KIND_VIDEO, OPERATION_GENERATE, request_to_payload(video)) == video
 
     image = image_request(channel="pro")
     assert request_to_payload(image)["channel"] == "pro"
-    assert request_from_payload(KIND_IMAGE, request_to_payload(image)) == image
+    assert request_from_payload(KIND_IMAGE, OPERATION_GENERATE, request_to_payload(image)) == image
 
 
 def test_image_model_and_channel_are_optional_on_the_wire_but_video_model_is_not() -> None:

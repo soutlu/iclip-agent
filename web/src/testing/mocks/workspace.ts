@@ -2,8 +2,9 @@
 
 import { http, HttpResponse } from 'msw'
 import type {
-  ClipIn,
   ImageGenerationIn,
+  VideoComposeIn,
+  VideoEditIn,
   VideoGenerationIn,
   VideoShotIn,
 } from '@/shared/api/generated/types.gen'
@@ -36,11 +37,13 @@ const httpFrames = (): MockFrames => {
   return { a: url('a'), b: url('b'), c: url('c') }
 }
 
-/** 出片与成片都放这条 6 秒的测试卡；编辑结果与参考片段放另一条 3 秒的彩条，切换时看得出来。
+/** 出片与合成都放这条 6 秒的测试卡；编辑段的结果放另一条 3 秒的彩条，切换时看得出来。
  *
  * 用 WebM 不用 MP4：Playwright 自带的 Chromium 没有 H.264 解码器，mp4 连时长都读不出来。 */
 const VIDEO_URL = sampleVideoUrl
 const EDITED_URL = sampleEditedUrl
+const VIDEO_MS = 6000
+const EDITED_MS = 3000
 /** 第 3 组那条成片改用同样 6 秒的横版测试卡：预览黑框是固定比例，横版才会露出上下黑边。 */
 const WIDE_VIDEO_URL = sampleWideUrl
 
@@ -190,17 +193,24 @@ type MockJob = {
   createdAt: string
   errorMessage?: string
   id: string
-  kind?: 'video' | 'image' | 'clip'
+  kind?: 'video' | 'image'
+  /** 省略即 generate；合成是 compose。 */
+  operation?: 'generate' | 'compose'
   outputUrl?: string
   prompt: string
   request?: Record<string, unknown>
   metadata?: Record<string, unknown>
   status: 'completed' | 'failed' | 'pending' | 'submitted'
   watermarkOutputUrl?: string
-  /** 产物实际多长；只有本系统自己加工出来的（clip）有。 */
+  /** 产物实际多长；只有合成有。 */
   durationMs?: number
-  /** 原作号：编辑链上的记录指最初那条出片，独立记录不填。 */
+  /** 原作号：编辑段与合成指最初那条出片，出片与图片不填。 */
   rootJobId?: string | null
+  /** 直接来源：编辑段指基底成片，合成指编辑段。 */
+  sourceJobId?: string | null
+  /** 编辑段改的区间，毫秒。 */
+  rangeStartMs?: number | null
+  rangeEndMs?: number | null
 }
 
 const job = (spec: MockJob) => ({
@@ -208,12 +218,18 @@ const job = (spec: MockJob) => ({
   errorMessage: spec.errorMessage ?? null,
   id: spec.id,
   kind: spec.kind ?? 'video',
+  operation: spec.operation ?? 'generate',
   outputUrl: spec.outputUrl ?? null,
   request: spec.request ?? { prompt: spec.prompt },
   metadata: spec.metadata ?? null,
   status: spec.status,
   taskId: null,
   rootJobId: spec.rootJobId ?? null,
+  sourceJobId: spec.sourceJobId ?? null,
+  rangeStartMs: spec.rangeStartMs ?? null,
+  rangeEndMs: spec.rangeEndMs ?? null,
+  // 种子记录没有单独的完成时刻，到了终态就记在创建那一刻。
+  finishedAt: spec.status === 'completed' || spec.status === 'failed' ? spec.createdAt : null,
   durationMs: spec.durationMs ?? null,
   // 这里的加工是瞬时的，没有在途阶段可报。
   clipStage: null,
@@ -222,7 +238,19 @@ const job = (spec: MockJob) => ({
 
 const workspaces = new Map<string, Map<string, MockFile>>()
 
-const generations = new Map<string, ReturnType<typeof job>[]>()
+type MockRecord = ReturnType<typeof job>
+
+const generations = new Map<string, MockRecord[]>()
+
+const findJob = (conversationId: string | null | undefined, id: string): MockRecord | undefined =>
+  generations.get(conversationId ?? '')?.find((item) => item.id === id)
+
+/** 成片：完成了的出片或合成，编辑段只能基于它。 */
+const isFinishedTake = (record: MockRecord): boolean =>
+  record.kind === 'video' &&
+  record.status === 'completed' &&
+  record.outputUrl !== null &&
+  (record.operation === 'compose' || record.sourceJobId === null)
 
 const VIDEO_DONE_MS = 3000
 
@@ -233,6 +261,7 @@ type MockGenerationChange = {
   conversationId: string
   id: string
   kind: string
+  operation: string
   status: string
   metadata: Record<string, unknown> | null
 }
@@ -245,10 +274,11 @@ export const watchMockGenerations = (watcher: (change: MockGenerationChange) => 
   return () => void generationWatchers.delete(watcher)
 }
 
-const announceGeneration = (conversationId: string | null, record: ReturnType<typeof job>) => {
+const announceGeneration = (conversationId: string | null, record: MockRecord) => {
   if (conversationId === null) return
-  const { id, kind, metadata, status } = record
-  for (const watcher of generationWatchers) watcher({ conversationId, id, kind, metadata, status })
+  const { id, kind, operation, metadata, status } = record
+  for (const watcher of generationWatchers)
+    watcher({ conversationId, id, kind, operation, metadata, status })
 }
 
 export const seedMockWorkspace = (
@@ -679,7 +709,9 @@ export const workspaceHandlers = [
     const conversationId = params.get('conversationId')
     let items = conversationId === null ? [] : (generations.get(conversationId) ?? [])
     const kind = params.get('kind')
+    const operation = params.get('operation')
     const rootJobId = params.get('rootJobId')
+    const sourceJobId = params.get('sourceJobId')
     const rawMetadata = params.get('metadata')
     // 与后端同一口径：metadata 是一段 JSON 对象，按顶层键包含匹配。
     const metadata =
@@ -687,7 +719,9 @@ export const workspaceHandlers = [
     items = items.filter(
       (item) =>
         (kind === null || item.kind === kind) &&
+        (operation === null || item.operation === operation) &&
         (rootJobId === null || item.rootJobId === rootJobId) &&
+        (sourceJobId === null || item.sourceJobId === sourceJobId) &&
         (metadata === null ||
           Object.entries(metadata).every(([key, value]) => item.metadata?.[key] === value)),
     )
@@ -707,7 +741,6 @@ export const workspaceHandlers = [
       request: { ...body },
       conversationId: body.conversationId ?? null,
       metadata: body.metadata ?? null,
-      rootJobId: body.rootJobId ?? null,
       outputUrl: (workspaceFrames.get(body.conversationId ?? '') ?? DATA_FRAMES).c,
     })
     return HttpResponse.json({ generation: created }, { status: 202 })
@@ -721,39 +754,92 @@ export const workspaceHandlers = [
     if (typeof prompt !== 'string') {
       return HttpResponse.json({ detail: 'prompt 与 shot 至少传一个' }, { status: 422 })
     }
-    // 带参考视频的是编辑：结果是另一条视频，与原片不同。
-    const editing = (body.reference_video_urls?.length ?? 0) > 0
     const created = acceptGeneration({
       kind: 'video',
       prompt,
       request: { ...body, prompt },
       conversationId: body.conversation_id ?? null,
       metadata: body.metadata ?? null,
-      rootJobId: body.root_job_id ?? null,
-      outputUrl: editing ? EDITED_URL : VIDEO_URL,
-      watermarkOutputUrl: editing ? EDITED_URL : VIDEO_URL,
+      outputUrl: VIDEO_URL,
+      watermarkOutputUrl: VIDEO_URL,
     })
     return HttpResponse.json({ task_id: created.id }, { status: 202 })
   }),
 
-  // 本地裁剪拼接：切参考片段与合成成片同一个端点，回执是整条记录。这里切不了视频，产物用现成的两条代替。
-  http.post('*/api/generations/clips', async ({ request }) => {
-    const body = (await request.json()) as ClipIn
-    if (!Array.isArray(body.segments) || body.segments.length === 0) {
-      return HttpResponse.json({ detail: 'segments 至少一段' }, { status: 422 })
+  // 编辑段：基底要是这段对话里一条完成的成片。这里切不了视频，编辑结果用现成的彩条代替，区间照请求记。
+  http.post('*/api/generations/video-edits', async ({ request }) => {
+    const body = (await request.json()) as VideoEditIn
+    const base = findJob(body.conversation_id, body.source_job_id)
+    if (base === undefined) {
+      return HttpResponse.json({ detail: '来源不存在或不在这段对话里' }, { status: 422 })
+    }
+    if (!isFinishedTake(base)) {
+      return HttpResponse.json({ detail: '基底必须是一条已完成的成片' }, { status: 422 })
     }
     const created = acceptGeneration({
-      kind: 'clip',
+      kind: 'video',
+      prompt: body.prompt,
+      // 片段地址只进发给上游的那一次请求，落库的参考视频为空。
+      request: {
+        model: body.model,
+        prompt: body.prompt,
+        reference_image_urls: body.reference_image_urls ?? [],
+        reference_video_urls: [],
+        seconds: body.seconds ?? null,
+        provider_options: body.provider_options ?? null,
+      },
+      conversationId: body.conversation_id ?? null,
+      metadata: body.metadata ?? null,
+      rootJobId: base.sourceJobId === null ? base.id : base.rootJobId,
+      sourceJobId: base.id,
+      rangeStartMs: body.range_start_ms,
+      rangeEndMs: body.range_end_ms,
+      outputUrl: EDITED_URL,
+      watermarkOutputUrl: EDITED_URL,
+    })
+    return HttpResponse.json({ generation: created }, { status: 202 })
+  }),
+
+  // 合成：来源要是一条完成的编辑段，各段按它的基底与区间算。这里拼不了视频，产物用现成的测试卡代替。
+  http.post('*/api/generations/video-composites', async ({ request }) => {
+    const body = (await request.json()) as VideoComposeIn
+    const segment = findJob(body.conversationId, body.sourceJobId)
+    if (segment === undefined) {
+      return HttpResponse.json({ detail: '来源不存在或不在这段对话里' }, { status: 422 })
+    }
+    const base =
+      segment.sourceJobId === null ? undefined : findJob(body.conversationId, segment.sourceJobId)
+    const { outputUrl, rangeStartMs, rangeEndMs } = segment
+    if (
+      segment.operation !== 'generate' ||
+      segment.status !== 'completed' ||
+      outputUrl === null ||
+      rangeStartMs === null ||
+      rangeEndMs === null ||
+      base?.outputUrl == null
+    ) {
+      return HttpResponse.json({ detail: '来源必须是一条已完成的编辑段' }, { status: 422 })
+    }
+    const created = acceptGeneration({
+      kind: 'video',
+      operation: 'compose',
       prompt: '',
-      request: { purpose: body.purpose, segments: body.segments },
+      request: {
+        segments: [
+          ...(rangeStartMs > 0
+            ? [{ url: base.outputUrl, start: 0, end: rangeStartMs / 1000 }]
+            : []),
+          { url: outputUrl, start: 0, end: null },
+          { url: base.outputUrl, start: rangeEndMs / 1000, end: null },
+        ],
+      },
       conversationId: body.conversationId ?? null,
       metadata: body.metadata ?? null,
-      rootJobId: body.rootJobId ?? null,
-      outputUrl: body.purpose === 'reference' ? EDITED_URL : VIDEO_URL,
-      // 真实后端裁完自己探一遍；这里切不了视频，按请求的区间算，关键帧多出来的几帧忽略。
-      durationMs: Math.round(
-        body.segments.reduce((total, segment) => total + (segment.end - segment.start), 0) * 1000,
-      ),
+      rootJobId: segment.rootJobId,
+      sourceJobId: segment.id,
+      outputUrl: VIDEO_URL,
+      // 真实后端拼完自己量；这里按样片时长推算：基底前段、编辑结果整条、基底后段。
+      durationMs: rangeStartMs + EDITED_MS + Math.max(0, VIDEO_MS - rangeEndMs),
     })
     return HttpResponse.json({ generation: created }, { status: 202 })
   }),
@@ -761,12 +847,16 @@ export const workspaceHandlers = [
 
 /** 受理一条生成记录并在固定延迟后把它标成完成，与真实后端的「先受理、后台出结果」同形。 */
 function acceptGeneration(spec: {
-  kind: 'image' | 'video' | 'clip'
+  kind: 'image' | 'video'
+  operation?: 'generate' | 'compose'
   prompt: string
   request: Record<string, unknown>
   conversationId: string | null
   metadata: Record<string, unknown> | null
-  rootJobId: string | null
+  rootJobId?: string | null
+  sourceJobId?: string
+  rangeStartMs?: number
+  rangeEndMs?: number
   outputUrl: string
   watermarkOutputUrl?: string
   durationMs?: number
@@ -775,10 +865,14 @@ function acceptGeneration(spec: {
     createdAt: new Date().toISOString(),
     id: crypto.randomUUID(),
     kind: spec.kind,
+    ...(spec.operation === undefined ? {} : { operation: spec.operation }),
     prompt: spec.prompt,
     request: spec.request,
     ...(spec.metadata === null ? {} : { metadata: spec.metadata }),
-    rootJobId: spec.rootJobId,
+    rootJobId: spec.rootJobId ?? null,
+    sourceJobId: spec.sourceJobId ?? null,
+    rangeStartMs: spec.rangeStartMs ?? null,
+    rangeEndMs: spec.rangeEndMs ?? null,
     status: 'submitted',
   })
   if (spec.conversationId !== null) {
@@ -787,8 +881,9 @@ function acceptGeneration(spec: {
   const timer = setTimeout(() => {
     created.outputUrl = spec.outputUrl
     created.watermarkOutputUrl = spec.watermarkOutputUrl ?? null
-    // 时长和产物地址一起落，与真实后端同一次写入。
+    // 时长、产物地址与完成时刻一起落，与真实后端同一次写入。
     created.durationMs = spec.durationMs ?? null
+    created.finishedAt = new Date().toISOString()
     created.status = 'completed'
     timers.delete(timer)
     announceGeneration(spec.conversationId, created)

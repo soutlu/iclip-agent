@@ -171,35 +171,6 @@ export const zBodyAuthCookieLoginAuthLoginPost = z.object({
 })
 
 /**
- * ClipSegmentIn
- *
- * 从一条视频里取 ``[start, end)`` 这一段，单位秒。
- */
-export const zClipSegmentIn = z.object({
-  end: z.number(),
-  start: z.number().gte(0),
-  url: z.string().min(1).max(2000),
-})
-
-/**
- * ClipIn
- *
- * 一次本地视频加工：按顺序裁出各段拼成一条，产物是本系统桶里的公开地址。
- *
- * ``reference`` 是编辑时切给模型看的参考片段，只能在一条完整视频上裁一段，不重编码
- * （起点因此落在最近的关键帧上，产物可能比区间略长）；``master`` 是拼出来的成片，各段
- * 参数互不相同，一律重编码对齐。两者存在不同前缀下，成片不进过期规则。
- */
-export const zClipIn = z.object({
-  conversationId: z.uuid().nullish(),
-  metadata: z.record(z.string(), z.unknown()).nullish(),
-  purpose: z.enum(['reference', 'master']),
-  rootJobId: z.uuid().nullish(),
-  segments: z.array(zClipSegmentIn).min(1).max(50),
-  taskId: z.uuid().nullish(),
-})
-
-/**
  * CollectionIn
  *
  * 新建或改名。名字必填——没名字的口袋没法认。
@@ -518,12 +489,17 @@ export const zGenerationOut = z.object({
   createdAt: z.iso.datetime(),
   durationMs: z.int().nullable(),
   errorMessage: z.string().nullable(),
+  finishedAt: z.iso.datetime().nullish(),
   id: z.uuid(),
-  kind: z.enum(['video', 'image', 'clip']),
+  kind: z.enum(['video', 'image']),
   metadata: z.record(z.string(), z.unknown()).nullable(),
+  operation: z.enum(['generate', 'compose']),
   outputUrl: z.string().nullable(),
+  rangeEndMs: z.int().nullish(),
+  rangeStartMs: z.int().nullish(),
   request: z.record(z.string(), z.unknown()),
   rootJobId: z.uuid().nullable(),
+  sourceJobId: z.uuid().nullish(),
   status: z.enum(['pending', 'submitting', 'submitted', 'completed', 'failed']),
   taskId: z.uuid().nullable(),
   watermarkOutputUrl: z.string().nullable(),
@@ -574,7 +550,6 @@ export const zImageGenerationIn = z.object({
   prompt: z.string().min(1).max(4000),
   referenceImageUrls: z.array(z.string()).max(10).optional().default([]),
   resolution: z.enum(['1k', '2k', '4k']).optional().default('1k'),
-  rootJobId: z.uuid().nullish(),
   taskId: z.uuid().nullish(),
   userName: z.string().min(1).max(200).nullish(),
 })
@@ -1431,6 +1406,19 @@ export const zUsersPageOut = z.object({
 })
 
 /**
+ * VideoComposeIn
+ *
+ * 一次合成的受理输入：只给编辑段，服务端按它的基底与实际区间算出前段、编辑段、后段再拼。
+ */
+export const zVideoComposeIn = z.object({
+  conversationId: z.uuid().nullish(),
+  metadata: z.record(z.string(), z.unknown()).nullish(),
+  sourceJobId: z.uuid(),
+  taskId: z.uuid().nullish(),
+  userName: z.string().min(1).max(200).nullish(),
+})
+
+/**
  * VideoContent
  */
 export const zVideoContent = z.object({
@@ -1669,6 +1657,30 @@ export const zOpsCatchup = z.object({
 })
 
 /**
+ * VideoEditIn
+ *
+ * 一次编辑段的受理输入：在一条成片上改 ``[range_start_ms, range_end_ms)`` 这一段。
+ *
+ * 与出片同族，转发给上游的字段照上游命名。不收参考视频：服务端提交上游前按区间从基底上切
+ * 一段交给模型。不收 ``shot`` 与原作：编辑段只有正文，原作由基底定。受理后落库的是一条
+ * ``VideoGenerationIn``，来源、原作与区间落列。
+ */
+export const zVideoEditIn = z.object({
+  conversation_id: z.uuid().nullish(),
+  metadata: z.record(z.string(), z.unknown()).nullish(),
+  model: z.string().min(1).max(200),
+  prompt: z.string().min(1).max(4000),
+  provider_options: z.record(z.string(), z.unknown()).nullish(),
+  range_end_ms: z.int(),
+  range_start_ms: z.int().gte(0),
+  reference_image_urls: z.array(z.string()).max(30).optional().default([]),
+  seconds: z.int().gte(-1).nullish(),
+  source_job_id: z.uuid(),
+  task_id: z.uuid().nullish(),
+  user_name: z.string().min(1).max(200).nullish(),
+})
+
+/**
  * VideoModelsOut
  *
  * 接入了哪几个视频模型。只有模型 id，下拉直接显示它。
@@ -1748,7 +1760,6 @@ export const zVideoGenerationIn = z.object({
   reference_image_urls: z.array(z.string()).max(30).optional().default([]),
   reference_video_urls: z.array(z.string()).max(30).optional().default([]),
   resolution: z.string().min(1).max(50).nullish(),
-  root_job_id: z.uuid().nullish(),
   seconds: z.int().gte(-1).nullish(),
   shot: zVideoShotIn.nullish(),
   shot_index: z.int().gte(1).nullish(),
@@ -2261,8 +2272,10 @@ export const zListGenerationsGenerationsGetQuery = z.object({
   limit: z.int().gte(1).lte(100).optional().default(20),
   conversationId: z.uuid().nullish(),
   taskId: z.uuid().nullish(),
-  kind: z.enum(['video', 'image', 'clip']).nullish(),
+  kind: z.enum(['video', 'image']).nullish(),
+  operation: z.enum(['generate', 'compose']).nullish(),
   rootJobId: z.uuid().nullish(),
+  sourceJobId: z.uuid().nullish(),
   metadata: z.string().nullish(),
   before: z.uuid().nullish(),
 })
@@ -2271,13 +2284,6 @@ export const zListGenerationsGenerationsGetQuery = z.object({
  * Successful Response
  */
 export const zListGenerationsGenerationsGetResponse = zGenerationsPageOut
-
-export const zSubmitClipGenerationsClipsPostBody = zClipIn
-
-/**
- * Successful Response
- */
-export const zSubmitClipGenerationsClipsPostResponse = zGenerationEnvelope
 
 export const zSubmitImageGenerationsImagePostBody = zImageGenerationIn
 
@@ -2297,6 +2303,20 @@ export const zSubmitVideoGenerationsVideoPostBody = zVideoGenerationIn
  * Successful Response
  */
 export const zSubmitVideoGenerationsVideoPostResponse = zVideoSubmitOut
+
+export const zSubmitVideoCompositeGenerationsVideoCompositesPostBody = zVideoComposeIn
+
+/**
+ * Successful Response
+ */
+export const zSubmitVideoCompositeGenerationsVideoCompositesPostResponse = zGenerationEnvelope
+
+export const zSubmitVideoEditGenerationsVideoEditsPostBody = zVideoEditIn
+
+/**
+ * Successful Response
+ */
+export const zSubmitVideoEditGenerationsVideoEditsPostResponse = zGenerationEnvelope
 
 /**
  * Successful Response

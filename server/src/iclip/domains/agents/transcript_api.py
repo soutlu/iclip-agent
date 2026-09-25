@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, Path, Query, WebSocket, WebSocketDisconn
 from pydantic import TypeAdapter, ValidationError
 
 from iclip.common.errors import DomainError
-from iclip.common.generation_vocab import GenerationKind, GenerationStatus
+from iclip.common.generation_vocab import GenerationKind, GenerationOperation, GenerationStatus
 from iclip.domains.identity.public import (
     MANAGE_PERMISSION,
     ActAs,
@@ -286,6 +286,7 @@ class LiveConnections:
         *,
         job_id: uuid.UUID,
         kind: GenerationKind,
+        operation: GenerationOperation,
         status: GenerationStatus,
         metadata: Mapping[str, Any] | None,
     ) -> None:
@@ -298,6 +299,7 @@ class LiveConnections:
                 payload=GenerationChangedPayload(
                     id=str(job_id),
                     kind=kind,
+                    operation=operation,
                     status=status,
                     metadata=None if metadata is None else dict(metadata),
                 ),

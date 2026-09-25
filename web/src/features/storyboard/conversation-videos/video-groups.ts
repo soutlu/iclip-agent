@@ -10,12 +10,13 @@ export type ConversationVideoGroup = {
   videos: ConversationVideo[]
 }
 
-/** 独立记录才是这段对话的出片；编辑链上的衍生记录挂在它的根下面，不单独成组。 */
+/** 没有来源的出片才是这段对话的出片；编辑段与合成挂在它下面，不单独成组。 */
 const isOriginalVideo = (job: GenerationJob): job is ConversationVideo =>
   job.kind === 'video' &&
+  job.operation === 'generate' &&
+  job.sourceJobId == null &&
   job.status === 'completed' &&
-  Boolean(job.outputUrl?.trim()) &&
-  job.rootJobId === null
+  Boolean(job.outputUrl?.trim())
 
 /** 只用正整数镜号归组；没有合法镜号的原始视频各自独立，不能据空坐标推成同一镜。 */
 export const groupConversationVideos = (

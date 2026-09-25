@@ -1,7 +1,5 @@
-/** 编辑链的投影：一串生成记录 → 可播放的版本 + 进行中的编辑。纯函数，不持有状态，刷新即恢复。 */
+/** 编辑链的投影：一条出片名下的编辑段与合成 → 可播放的版本 + 进行中的编辑。纯函数，不持有状态，刷新即恢复。 */
 
-import { zClipIn } from '@/shared/api/generated/zod.gen'
-import { readVideoEditMetadata, type VideoEditMetadata } from '../generation-metadata'
 import { isRunningStatus } from '../shots'
 import type { GenerationJob } from '../storyboard.api'
 
@@ -16,23 +14,25 @@ export type PlaySegment = {
 /** 排好时钟的一段：`at` 是它在整条预览里的起点。 */
 export type LaidOutSegment = PlaySegment & { at: number; duration: number; end: number }
 
-/** 一条完整视频：根出片或某条成片。切段只在它上面切。 */
+/** 编辑段改的那一段，单位秒；记的是服务端实际切下的区间，不是用户选的。 */
+export type EditRange = { start: number; end: number }
+
+/** 一条完整视频：根出片或某次合成。切段只在它上面切。 */
 export type ChainVersion = {
-  /** 根用记录 id；成片用 editId，和合成前那条编辑同键，选中态跨过合成不会跳走。 */
+  /** 根用记录 id；合成用它来源编辑段的 id，和合成前那条编辑同键，选中态跨过合成不会跳走。 */
   key: string
+  /** 这一版自己的记录：根就是根，合成是合成那行。下一次编辑以它为基底。 */
   jobId: string
   label: string
   mediaUrl: string
   createdAt: string
   /** 这版基于哪一版、改了哪一段；根没有。 */
-  edit: (VideoEditMetadata & { baseKey: string }) | undefined
+  edit: (EditRange & { baseKey: string }) | undefined
 }
 
 export type EditStage =
-  /** 参考片段在切。 */
+  /** 编辑段在排队，或服务端正在切参考片段、交给模型。 */
   | 'cutting'
-  /** 参考片段切好了，编辑任务还没发。只有发起它的这次会话记着草稿，别的会话看不到它。 */
-  | 'cut'
   | 'generating'
   /** 编辑结果回来了，可以预览、可以合成。 */
   | 'ready'
@@ -42,7 +42,6 @@ export type EditStage =
 /** 各阶段给人看的词；版本菜单里在途编辑的备注用它。 */
 export const EDIT_STAGE_LABEL: Record<EditStage, string> = {
   cutting: '切片中',
-  cut: '待生成',
   generating: '生成中',
   ready: '待预览',
   composing: '合成中',
@@ -50,17 +49,18 @@ export const EDIT_STAGE_LABEL: Record<EditStage, string> = {
 }
 
 export type PendingEdit = {
+  /** 编辑段的记录 id。 */
   key: string
   /** 合成后会成为第几版；提交时就先叫这个名，和以前的任务列表一致。 */
   label: string
   base: ChainVersion
   stage: EditStage
-  coords: VideoEditMetadata
+  range: EditRange
   prompt: string | undefined
   error: string | undefined
-  createdAt: string
-  reference: GenerationJob | undefined
-  video: GenerationJob | undefined
+  /** 这次编辑的编辑段。 */
+  video: GenerationJob
+  /** 它最新的那次合成；还没合成过就没有。 */
   master: GenerationJob | undefined
   /** 基底切开、夹进编辑结果；结果还没回来时没有。 */
   preview: PlaySegment[] | undefined
@@ -68,112 +68,93 @@ export type PendingEdit = {
 
 export type EditChain = { versions: ChainVersion[]; pending: PendingEdit[] }
 
-const clipRequestSchema = zClipIn.pick({ purpose: true, segments: true })
+type EditSegment = GenerationJob & { sourceJobId: string; rangeStartMs: number; rangeEndMs: number }
+type Composite = GenerationJob & { sourceJobId: string }
 
-/** 成片与参考片段的 `request`：只剩 purpose 与 segments，归属字段落表时已经剥掉。 */
-export const readClipRequest = (job: GenerationJob) => {
-  const parsed = clipRequestSchema.safeParse(job.request)
-  return parsed.success ? parsed.data : undefined
-}
+/** 编辑段：基于一条成片调模型改一段。来源与区间由服务端定、一定成对出现。 */
+export const isEditSegment = (job: GenerationJob): job is EditSegment =>
+  job.kind === 'video' &&
+  job.operation === 'generate' &&
+  job.sourceJobId != null &&
+  job.rangeStartMs != null &&
+  job.rangeEndMs != null
 
-const promptOf = (job: GenerationJob | undefined): string | undefined => {
-  const prompt = job?.request['prompt']
+/** 合成：把一条编辑段按它的基底与区间拼成新的一版，来源是那条编辑段。 */
+export const isComposite = (job: GenerationJob): job is Composite =>
+  job.operation === 'compose' && job.sourceJobId != null
+
+const rangeOf = (segment: EditSegment): EditRange => ({
+  start: segment.rangeStartMs / 1000,
+  end: segment.rangeEndMs / 1000,
+})
+
+const promptOf = (job: GenerationJob): string | undefined => {
+  const prompt = job.request['prompt']
   return typeof prompt === 'string' ? prompt : undefined
 }
 
-const coordsOf = (job: GenerationJob | undefined): VideoEditMetadata | undefined =>
-  job === undefined ? undefined : readVideoEditMetadata(job)
+const byCreation = (left: GenerationJob, right: GenerationJob): number =>
+  Date.parse(left.createdAt) - Date.parse(right.createdAt) || left.id.localeCompare(right.id)
 
-type EditGroup = {
-  coords: VideoEditMetadata
-  reference: GenerationJob | undefined
-  video: GenerationJob | undefined
-  master: GenerationJob | undefined
-}
+/** 成片按到终态的时刻排；缺了这个时刻就退回创建时刻。 */
+const byFinish = (left: GenerationJob, right: GenerationJob): number =>
+  Date.parse(left.finishedAt ?? left.createdAt) - Date.parse(right.finishedAt ?? right.createdAt) ||
+  left.id.localeCompare(right.id)
 
-/** 按 editId 分组，每种角色只认最新的一条：分桶只过滤不重排，桶里第一条就是。 */
-const groupEdits = (jobs: readonly GenerationJob[]): Map<string, EditGroup> => {
-  const buckets = new Map<
-    string,
-    {
-      coords: VideoEditMetadata
-      reference: GenerationJob[]
-      video: GenerationJob[]
-      master: GenerationJob[]
-    }
-  >()
+/** 每条编辑段只认最近发起的那次合成：重新合成过，之前那次就不再算数。按发起时刻比，
+ * 在跑的那次还没有完成时刻。 */
+const latestComposites = (jobs: readonly GenerationJob[]): ReadonlyMap<string, Composite> => {
+  const latest = new Map<string, Composite>()
   for (const job of jobs) {
-    const coords = readVideoEditMetadata(job)
-    if (coords === undefined) continue
-    const bucket = buckets.get(coords.editId) ?? { coords, reference: [], video: [], master: [] }
-    if (job.kind === 'video') bucket.video.push(job)
-    else if (job.kind === 'clip') {
-      const purpose = readClipRequest(job)?.purpose
-      if (purpose === 'reference') bucket.reference.push(job)
-      else if (purpose === 'master') bucket.master.push(job)
-    }
-    buckets.set(coords.editId, bucket)
+    if (!isComposite(job)) continue
+    const current = latest.get(job.sourceJobId)
+    if (current === undefined || byCreation(job, current) > 0) latest.set(job.sourceJobId, job)
   }
-  return new Map(
-    [...buckets].map(([editId, bucket]) => [
-      editId,
-      {
-        // 坐标以编辑结果为准：它记的 editStart 是按片段实际时长反算的，参考片段上是用户选的。
-        // 同一 editId 重发过就跟着展示的那条（最新的）取，别一条显示、一条给坐标。
-        coords: coordsOf(bucket.video[0]) ?? coordsOf(bucket.master[0]) ?? bucket.coords,
-        reference: bucket.reference[0],
-        video: bucket.video[0],
-        master: bucket.master[0],
-      },
-    ]),
-  )
+  return latest
 }
 
-const stageOf = (group: EditGroup): { stage: EditStage; error: string | undefined } => {
-  const { reference, video, master } = group
+const stageOf = (
+  segment: GenerationJob,
+  master: GenerationJob | undefined,
+): { stage: EditStage; error: string | undefined } => {
   if (master !== undefined) {
     if (isRunningStatus(master.status)) return { stage: 'composing', error: undefined }
     if (master.status !== 'completed')
       return { stage: 'failed', error: master.errorMessage ?? '合成失败' }
   }
-  if (video !== undefined) {
-    if (video.status === 'completed' && video.outputUrl !== null)
-      return { stage: 'ready', error: undefined }
-    if (isRunningStatus(video.status)) return { stage: 'generating', error: undefined }
-    return { stage: 'failed', error: video.errorMessage ?? '生成失败' }
-  }
-  if (reference !== undefined) {
-    if (reference.status === 'completed' && reference.outputUrl !== null)
-      return { stage: 'cut', error: undefined }
-    if (isRunningStatus(reference.status)) return { stage: 'cutting', error: undefined }
-    return { stage: 'failed', error: reference.errorMessage ?? '切片失败' }
-  }
-  return { stage: 'failed', error: '这次编辑没有留下任何记录' }
+  if (segment.status === 'completed' && segment.outputUrl !== null)
+    return { stage: 'ready', error: undefined }
+  if (segment.status === 'pending' || segment.status === 'submitting')
+    return { stage: 'cutting', error: undefined }
+  if (segment.status === 'submitted') return { stage: 'generating', error: undefined }
+  return { stage: 'failed', error: segment.errorMessage ?? '生成失败' }
 }
 
 /** 基底切开、把编辑结果夹进去。基底是一条完整视频，所以最多三段、两个地址。 */
 export const splicePreview = (
   base: ChainVersion,
-  coords: Pick<VideoEditMetadata, 'editStart' | 'editEnd'>,
+  range: EditRange,
   editedUrl: string,
 ): PlaySegment[] => {
   const segments: PlaySegment[] = []
-  if (coords.editStart > 0)
-    segments.push({ mediaUrl: base.mediaUrl, start: 0, end: coords.editStart, role: 'base' })
+  if (range.start > 0)
+    segments.push({ mediaUrl: base.mediaUrl, start: 0, end: range.start, role: 'base' })
   segments.push({ mediaUrl: editedUrl, start: 0, role: 'edited' })
-  segments.push({ mediaUrl: base.mediaUrl, start: coords.editEnd, role: 'base' })
+  segments.push({ mediaUrl: base.mediaUrl, start: range.end, role: 'base' })
   return segments
 }
 
-/** 版本与进行中的编辑。`jobs` 是链查询拿回来的（编辑记录与成片），根自己不在里面，单独传；
- * 顺序照服务端给的（新的在前），同一 editId 重发过时各角色取最前那条。 */
+/** 版本与进行中的编辑。`jobs` 是链查询拿回来的（这条出片名下的编辑段与合成），根自己不在里面，单独传。
+ *
+ * 完成的合成按完成时刻编 V2、V3……；基底一律按记录 id 找，基底不在链里的编辑无处安放，不展示。 */
 export const projectEditChain = (
   root: GenerationJob,
   jobs: readonly GenerationJob[],
 ): EditChain => {
   // 根没出片就没有可切的东西，链上别的记录也无处安放。
   if (root.outputUrl === null) return { versions: [], pending: [] }
-  const groups = groupEdits(jobs)
+  const segments = jobs.filter(isEditSegment)
+  const composites = latestComposites(jobs)
   const versions: ChainVersion[] = [
     {
       key: root.id,
@@ -184,53 +165,54 @@ export const projectEditChain = (
       edit: undefined,
     },
   ]
-  const composed = [...groups.values()]
-    .flatMap((group) => {
-      const master = group.master
+  const composed = segments
+    .flatMap((segment) => {
+      const master = composites.get(segment.id)
       return master?.status === 'completed' && master.outputUrl !== null
-        ? [{ group, master, mediaUrl: master.outputUrl }]
+        ? [{ segment, master, mediaUrl: master.outputUrl }]
         : []
     })
-    .sort((left, right) => left.master.createdAt.localeCompare(right.master.createdAt))
-  for (const { group, master, mediaUrl } of composed) {
-    const base = versions.find((version) => version.key === (group.coords.baseEdit ?? root.id))
+    .sort((left, right) => byFinish(left.master, right.master))
+  // 基底先于基于它的合成完成，按完成时刻走一遍，找基底时它已经在列表里了。
+  for (const { segment, master, mediaUrl } of composed) {
+    const base = versions.find((version) => version.jobId === segment.sourceJobId)
+    if (base === undefined) continue
     versions.push({
-      key: group.coords.editId,
+      key: segment.id,
       jobId: master.id,
       label: `V${versions.length + 1}`,
       mediaUrl,
       createdAt: master.createdAt,
-      edit: { ...group.coords, baseKey: base?.key ?? root.id },
+      edit: { ...rangeOf(segment), baseKey: base.key },
     })
   }
 
   const pending: PendingEdit[] = []
-  for (const group of groups.values()) {
-    if (composed.some((item) => item.group === group)) continue
-    const base = versions.find((version) => version.key === (group.coords.baseEdit ?? root.id))
-    // 基底不在链里（别的根、或根本没出片）：这次编辑无处安放，不展示。
+  for (const segment of segments) {
+    if (composed.some((item) => item.segment === segment)) continue
+    const base = versions.find((version) => version.jobId === segment.sourceJobId)
     if (base === undefined) continue
-    const { stage, error } = stageOf(group)
-    const editedUrl = group.video?.outputUrl ?? null
+    const master = composites.get(segment.id)
+    const range = rangeOf(segment)
+    const { stage, error } = stageOf(segment, master)
     pending.push({
-      key: group.coords.editId,
+      key: segment.id,
       label: '',
       base,
       stage,
-      coords: group.coords,
-      prompt: promptOf(group.video),
+      range,
+      prompt: promptOf(segment),
       error,
-      createdAt: (group.reference ?? group.video ?? group.master)?.createdAt ?? '',
-      reference: group.reference,
-      video: group.video,
-      master: group.master,
+      video: segment,
+      master,
       preview:
-        editedUrl === null || (stage !== 'ready' && stage !== 'composing' && stage !== 'failed')
+        segment.outputUrl === null ||
+        (stage !== 'ready' && stage !== 'composing' && stage !== 'failed')
           ? undefined
-          : splicePreview(base, group.coords, editedUrl),
+          : splicePreview(base, range, segment.outputUrl),
     })
   }
-  pending.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+  pending.sort((left, right) => byCreation(left.video, right.video))
   return {
     versions,
     pending: pending.map((edit, at) => ({ ...edit, label: `V${versions.length + at + 1}` })),
@@ -291,22 +273,11 @@ export const locateClock = (
   return { index: last, offset: segments[last]?.duration ?? 0 }
 }
 
-/** 合成用的段列表：`end` 必须全部落实成数字。 */
-export const composeSegments = (
-  segments: readonly LaidOutSegment[],
-): { url: string; start: number; end: number }[] =>
-  segments.map((segment) => ({ url: segment.mediaUrl, start: segment.start, end: segment.end }))
-
-/** 参考片段按关键帧切，多出来的主要在开头（尾部也会因 B 帧延迟多几帧）：起点按实际时长往前推，
- * 是差几帧的近似值。 */
-export const actualEditStart = (editEnd: number, clipDuration: number): number =>
-  Math.max(0, Math.round((editEnd - clipDuration) * 1000) / 1000)
-
-/** 每条根被成功编辑过几次，给抽屉那张卡显示：数它名下已完成的编辑结果。 */
+/** 每条根被成功编辑过几次，给抽屉那张卡显示：数它名下已完成的编辑段。合成是同一次编辑拼出来的，不另算。 */
 export const editCountsByRoot = (jobs: readonly GenerationJob[]): ReadonlyMap<string, number> => {
   const counts = new Map<string, number>()
   for (const job of jobs) {
-    if (job.kind !== 'video' || job.status !== 'completed' || job.rootJobId === null) continue
+    if (!isEditSegment(job) || job.status !== 'completed' || job.rootJobId === null) continue
     counts.set(job.rootJobId, (counts.get(job.rootJobId) ?? 0) + 1)
   }
   return counts

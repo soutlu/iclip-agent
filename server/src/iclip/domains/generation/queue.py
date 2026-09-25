@@ -88,7 +88,7 @@ class GenerationQueueSettings:
     """视频只有一家，它那条提交队列的并发不进配置。图片按家配，见 ProviderLane。"""
 
     clip_concurrency: int = 2
-    """本地裁剪拼接那条队列的并发。别的队列都在等网络，这一条在占 CPU，所以取个小数。"""
+    """本地合成那条队列的并发。别的队列都在等网络，这一条在占 CPU，所以取个小数。"""
 
     poll_concurrency: int = 100
 

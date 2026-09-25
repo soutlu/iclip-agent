@@ -5,11 +5,7 @@ import {
   type QueryClient,
 } from '@tanstack/react-query'
 import { apiFetch } from '@/shared/api/client'
-import type {
-  GenerationsPageOut,
-  ImageGenerationIn,
-  ImageModelOut,
-} from '@/shared/api/generated/types.gen'
+import type { ImageGenerationIn, ImageModelOut } from '@/shared/api/generated/types.gen'
 import {
   zGenerationEnvelope,
   zGenerationsPageOut,
@@ -21,6 +17,7 @@ import {
   generationsRefetchInterval,
   storyboardQueryKeys,
   type GenerationJob,
+  type GenerationsPage,
 } from '../storyboard.api'
 import type { EditInstruction, FrameEditDraft, FrameEditTarget } from './image-edit-types'
 
@@ -91,18 +88,15 @@ export const seedImageEditJob = (
   target: FrameEditTarget,
   job: GenerationJob,
 ) => {
-  queryClient.setQueryData<InfiniteData<GenerationsPageOut>>(
-    imageEditQueryKey(target),
-    (previous) => {
-      if (previous === undefined) return { pages: [{ items: [job] }], pageParams: [undefined] }
-      return {
-        ...previous,
-        pages: previous.pages.map((page, index) =>
-          index === 0 ? { items: [job, ...page.items.filter((item) => item.id !== job.id)] } : page,
-        ),
-      }
-    },
-  )
+  queryClient.setQueryData<InfiniteData<GenerationsPage>>(imageEditQueryKey(target), (previous) => {
+    if (previous === undefined) return { pages: [{ items: [job] }], pageParams: [undefined] }
+    return {
+      ...previous,
+      pages: previous.pages.map((page, index) =>
+        index === 0 ? { items: [job, ...page.items.filter((item) => item.id !== job.id)] } : page,
+      ),
+    }
+  })
   void queryClient.invalidateQueries({ queryKey: imageEditConversationKey(target.conversationId) })
 }
 

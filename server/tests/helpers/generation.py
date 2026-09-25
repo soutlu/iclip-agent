@@ -24,6 +24,7 @@ from iclip.domains.generation.models import (
     STATUS_SUBMITTING,
     GenerationJob,
     GenerationKind,
+    GenerationOperation,
     GenerationStatus,
     InFlightPhase,
     Inheritance,
@@ -37,9 +38,9 @@ from iclip.domains.generation.provider import (
 from iclip.domains.generation.queue import GenerationQueue, GenerationQueueSettings, ProviderLane
 from iclip.domains.generation.schemas import (
     KIND_VIDEO,
-    ClipIn,
     GenerationRequest,
     ImageGenerationIn,
+    VideoComposeRequest,
     VideoGenerationIn,
 )
 from iclip.domains.identity.public import Principal
@@ -63,16 +64,25 @@ def video_request(**overrides: Any) -> VideoGenerationIn:
     return VideoGenerationIn(**fields)
 
 
-def clip_request(**overrides: Any) -> ClipIn:
-    """默认是一次参考片段：在一条完整视频上裁一段。"""
+def edit_request(**overrides: Any) -> VideoGenerationIn:
+    """编辑段落库的请求：参考视频留空，由服务端提交上游前按区间切。"""
+
+    return video_request(**{"seconds": -1, "aspect_ratio": None, **overrides})
+
+
+def compose_request(**overrides: Any) -> VideoComposeRequest:
+    """默认是一次合成：基底前段、编辑段产物整条、基底后段取到结尾。"""
 
     fields: dict[str, Any] = {
-        "purpose": "reference",
-        "segments": [{"url": "https://example.com/base.mp4", "start": 4, "end": 8}],
-        "root_job_id": uuid.uuid4(),
+        "segments": [
+            {"url": "https://example.com/base.mp4", "start": 0, "end": 1},
+            {"url": "https://example.com/edited.mp4", "start": 0},
+            {"url": "https://example.com/base.mp4", "start": 4},
+        ],
+        "user_name": "luke",
     }
     fields.update(overrides)
-    return ClipIn(**fields)
+    return VideoComposeRequest(**fields)
 
 
 SHOT_IMAGE_URLS = ["https://example.com/a.png", "https://example.com/b.png"]
@@ -124,6 +134,9 @@ def make_job(
     metadata: dict[str, Any] | None = None,
     task_id: uuid.UUID | None = None,
     root_job_id: uuid.UUID | None = None,
+    source_job_id: uuid.UUID | None = None,
+    range_start_ms: int | None = None,
+    range_end_ms: int | None = None,
     output_url: str | None = None,
     watermark_output_url: str | None = None,
     error_code: str | None = None,
@@ -131,6 +144,7 @@ def make_job(
 ) -> GenerationJob:
     now = datetime.now(UTC)
     payload = request or video_request()
+    operation: GenerationOperation = payload.operation
     return GenerationJob(
         id=uuid.uuid4(),
         owner_user_id=owner_user_id or uuid.uuid4(),
@@ -138,9 +152,12 @@ def make_job(
         conversation_id=conversation_id,
         metadata=metadata,
         task_id=task_id,
-        # 与受理时一样从请求上抄原作号；显式给了就以给的为准。
-        root_job_id=root_job_id or payload.root_job_id,
+        root_job_id=root_job_id,
+        source_job_id=source_job_id,
+        range_start_ms=range_start_ms,
+        range_end_ms=range_end_ms,
         kind=payload.kind,
+        operation=operation,
         provider=provider
         or (FAKE_VIDEO_PROVIDER if payload.kind == KIND_VIDEO else FAKE_IMAGE_PROVIDER),
         request=payload,
@@ -156,6 +173,28 @@ def make_job(
         updated_at=now,
         submitted_at=submitted_at,
         finished_at=finished_at,
+    )
+
+
+def make_edit(base: GenerationJob, **fields: Any) -> GenerationJob:
+    """基于 ``base`` 的一条编辑段：来源是基底，原作随基底（基底是出片就是它自己），区间默认 1–4 秒。"""
+
+    fields.setdefault("range_start_ms", 1000)
+    fields.setdefault("range_end_ms", 4000)
+    return make_job(
+        edit_request(),
+        source_job_id=base.id,
+        root_job_id=base.root_job_id or base.id,
+        **fields,
+    )
+
+
+def make_composite(edit: GenerationJob, **fields: Any) -> GenerationJob:
+    """合成 ``edit`` 的一条记录：来源是编辑段，原作随它，执行方是本地 ffmpeg。"""
+
+    fields.setdefault("provider", "ffmpeg")
+    return make_job(
+        compose_request(), source_job_id=edit.id, root_job_id=edit.root_job_id, **fields
     )
 
 
@@ -188,9 +227,11 @@ class InMemoryGenerationRepository:
         limit: int,
         conversation_id: uuid.UUID | None = None,
         kind: GenerationKind | None = None,
+        operation: GenerationOperation | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
         root_job_id: uuid.UUID | None = None,
+        source_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
         inherited: Inheritance = (),
     ) -> tuple[GenerationJob, ...]:
@@ -206,8 +247,14 @@ class InMemoryGenerationRepository:
             )
             and (task_id is None or job.task_id == task_id)
             and (root_job_id is None or job.root_job_id == root_job_id)
+            and (source_job_id is None or job.source_job_id == source_job_id)
         ]
-        rows = [job for job in rows if kind is None or job.kind == kind]
+        rows = [
+            job
+            for job in rows
+            if (kind is None or job.kind == kind)
+            and (operation is None or job.operation == operation)
+        ]
         if metadata is not None:
             # 顶层键相等。Postgres 的 @> 对嵌套对象是递归包含，分镜页的坐标是平的，这里不模拟嵌套。
             rows = [
@@ -308,6 +355,23 @@ class InMemoryGenerationRepository:
             return None
         extra = {} if provider_snapshot is None else {"provider_snapshot": provider_snapshot}
         return self._replace(job_id, provider_status=provider_status, **extra)
+
+    async def record_reference_cut(
+        self,
+        job_id: uuid.UUID,
+        *,
+        range_start_ms: int,
+        range_end_ms: int,
+        only_if_status: GenerationStatus,
+    ) -> GenerationJob | None:
+        if self.jobs[job_id].status != only_if_status:
+            return None
+        return self._replace(
+            job_id,
+            range_start_ms=range_start_ms,
+            range_end_ms=range_end_ms,
+            provider_status=None,
+        )
 
     async def in_flight_by_conversation(
         self, conversation_ids: Sequence[uuid.UUID], *, kind: GenerationKind
@@ -480,9 +544,12 @@ __all__ = [
     "MemoryObjectStore",
     "ScriptedProvider",
     "build_queue",
-    "clip_request",
+    "compose_request",
     "config_with_media",
+    "edit_request",
     "image_request",
+    "make_composite",
+    "make_edit",
     "make_job",
     "video_request",
 ]

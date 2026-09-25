@@ -10,6 +10,7 @@ from typing import Any, Protocol
 from iclip.domains.generation.models import (
     GenerationJob,
     GenerationKind,
+    GenerationOperation,
     GenerationStatus,
     InFlightPhase,
     Inheritance,
@@ -38,15 +39,17 @@ class GenerationRepository(Protocol):
         limit: int,
         conversation_id: uuid.UUID | None = None,
         kind: GenerationKind | None = None,
+        operation: GenerationOperation | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
         root_job_id: uuid.UUID | None = None,
+        source_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
         inherited: Inheritance = (),
     ) -> tuple[GenerationJob, ...]:
         """按创建时间倒序列出；``conversation_id`` / ``task_id`` 给了就只要那段对话、那张需求单下面的，
-        ``root_job_id`` 给了就只要那条出片名下的衍生记录，``metadata`` 给了就只要坐标包含这些键值的
-        （JSONB ``@>``）。
+        ``root_job_id`` / ``source_job_id`` 给了就只要以那条为原作、为直接来源的，``kind`` /
+        ``operation`` 给了就只要那一种，``metadata`` 给了就只要坐标包含这些键值的（JSONB ``@>``）。
 
         ``inherited`` 是 ``conversation_id`` 那段对话的继承边界对：按属主收敛的那段对话自己的记录
         之外，再并上经它继承来的记录（不看属主）；其余筛选与 ``before`` 锚点对两者一视同仁。"""
@@ -106,8 +109,21 @@ class GenerationRepository(Protocol):
     ) -> GenerationJob | None:
         """保存本次 Provider 状态；后续查询时间由队列管理。
 
-        省略 snapshot 时不动原快照——它整份覆盖写，clip 上报阶段时带上会把完成时那次写打掉。
+        省略 snapshot 时不动原快照——它整份覆盖写，本地加工上报阶段时带上会把完成时那次写打掉。
         指定 only_if_status 时原子校验状态，不匹配返回 None，表示这条已经不在预期状态上。"""
+        ...
+
+    async def record_reference_cut(
+        self,
+        job_id: uuid.UUID,
+        *,
+        range_start_ms: int,
+        range_end_ms: int,
+        only_if_status: GenerationStatus,
+    ) -> GenerationJob | None:
+        """编辑段的参考片段切好了：区间改记实际切点，阶段词清空，业务状态不变、不算一跳。
+
+        原子校验 ``only_if_status``，不匹配返回 None，表示这一行已有结论，调用方不该再交上游。"""
         ...
 
     async def in_flight_by_conversation(

@@ -24,12 +24,12 @@ class ProviderError(Exception):
 
 
 def request_of[R](job: GenerationJob, expected: type[R], *, provider: str) -> R:
-    """取出这家能处理的那类请求。kind 对不上说明任务排错了队，抛 ``PROVIDER_KIND_MISMATCH``。"""
+    """取出这家能处理的那类请求。对不上说明任务排错了队，抛 ``PROVIDER_KIND_MISMATCH``。"""
 
     request = job.request
     if not isinstance(request, expected):
         raise ProviderError(
-            f"{provider} 收到了 {job.kind} 请求",
+            f"{provider} 收到了 {job.kind} / {job.operation} 请求",
             code="PROVIDER_KIND_MISMATCH",
             retryable=False,
         )

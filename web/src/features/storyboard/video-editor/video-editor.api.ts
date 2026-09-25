@@ -1,22 +1,15 @@
-/** 视频编辑的三次提交与链查询。切与合成走本地裁剪端点，编辑走出片端点。 */
+/** 视频编辑的两次提交与链查询。切参考片段、按实际区间拼接都由服务端做：编辑段只给基底与区间，
+ * 合成只给编辑段。 */
 
 import { useQuery, type QueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/shared/api/client'
-import type {
-  ClipIn,
-  GenerationsPageOut,
-  VideoGenerationIn,
-} from '@/shared/api/generated/types.gen'
-import {
-  zGenerationEnvelope,
-  zGenerationsPageOut,
-  zVideoSubmitOut,
-} from '@/shared/api/generated/zod.gen'
-import type { VideoEditMetadata } from '../generation-metadata'
+import type { VideoComposeIn, VideoEditIn } from '@/shared/api/generated/types.gen'
+import { zGenerationEnvelope, zGenerationsPageOut } from '@/shared/api/generated/zod.gen'
 import {
   generationsRefetchInterval,
   storyboardQueryKeys,
   type GenerationJob,
+  type GenerationsPage,
 } from '../storyboard.api'
 
 /** 本对话全部编辑链的查询前缀，挂在本对话生成记录的前缀下；按根的键挂在它下面，一次失效全部。 */
@@ -26,7 +19,7 @@ export const videoEditConversationKey = (conversationId: string) =>
 export const videoEditChainKey = (conversationId: string, rootJobId: string) =>
   [...videoEditConversationKey(conversationId), rootJobId] as const
 
-/** 一条根名下的衍生记录：参考片段、成片（clip）与编辑结果（video）一次拿回，按原作号筛。
+/** 一条根名下的衍生记录：编辑段与合成一次拿回，按原作号筛。
  *
  * 根自己的原作号是空的，不在结果里，由打开编辑器的那条记录传进来。 */
 export const useVideoEditChain = (conversationId: string, rootJobId: string) =>
@@ -51,7 +44,7 @@ export const seedVideoEditJob = (
   rootJobId: string,
   job: GenerationJob,
 ) => {
-  queryClient.setQueryData<GenerationsPageOut>(
+  queryClient.setQueryData<GenerationsPage>(
     videoEditChainKey(conversationId, rootJobId),
     (previous) => ({
       items: [job, ...(previous?.items ?? []).filter((item) => item.id !== job.id)],
@@ -92,80 +85,58 @@ export const pickEditModel = (
 
 type Origin = {
   conversationId: string
-  /** 根记录归属的需求单，三条记录跟着它。 */
+  /** 根记录归属的需求单，编辑段与合成跟着它。 */
   taskId: string | null
-  /** 最初那条出片：三条记录都是它的衍生记录，不管这次基于哪一版。 */
-  rootJobId: string
-  metadata: VideoEditMetadata
 }
 
-/** 从一条完整视频上切出 `[start, end)` 交给模型看。不重编码，产物会比区间略长、多在开头。 */
-export const submitReferenceClip = async (
-  input: Origin & { url: string; start: number; end: number },
-): Promise<GenerationJob> => {
-  const body: ClipIn = {
-    conversationId: input.conversationId,
-    taskId: input.taskId,
-    rootJobId: input.rootJobId,
-    metadata: input.metadata,
-    purpose: 'reference',
-    segments: [{ url: input.url, start: input.start, end: input.end }],
-  }
-  const result = await apiFetch('/generations/clips', zGenerationEnvelope, {
-    method: 'POST',
-    body,
-    fallbackErrorMessage: '切片任务提交失败',
-  })
-  return result.generation
-}
-
-/** 把参考片段交给模型改。怎么触发编辑照模型自报的 `edit`：前缀拼进正文、选项并进 provider_options。
+/** 在一版成片上改一段：服务端按区间切参考片段交给模型。怎么触发编辑照模型名认：前缀拼进正文、
+ * 选项并进 provider_options。
  *
  * `seconds: -1` 让结果跟着参考片段的时长走；不显式给，网关按默认 5 秒截断。不带 user_name：
- * 浏览器会话由服务端填登录用户名。回执只有任务号。 */
+ * 浏览器会话由服务端填登录用户名。 */
 export const submitVideoEdit = async (
   input: Origin & {
+    /** 基底那一版的记录 id。 */
+    sourceJobId: string
+    rangeStartMs: number
+    rangeEndMs: number
     model: string
     prompt: string
-    referenceVideoUrl: string
     referenceImageUrls: readonly string[]
   },
-): Promise<string> => {
+): Promise<GenerationJob> => {
   const edit = editTriggerOf(input.model)
   if (edit === undefined) throw new Error(`模型 ${input.model} 不支持视频编辑`)
-  const body: VideoGenerationIn = {
+  const body: VideoEditIn = {
     conversation_id: input.conversationId,
     task_id: input.taskId,
-    root_job_id: input.rootJobId,
-    metadata: input.metadata,
+    source_job_id: input.sourceJobId,
+    range_start_ms: input.rangeStartMs,
+    range_end_ms: input.rangeEndMs,
     model: input.model,
     prompt: `${edit.promptPrefix ?? ''}${input.prompt}`,
-    reference_video_urls: [input.referenceVideoUrl],
     reference_image_urls: [...input.referenceImageUrls],
     seconds: -1,
     ...(edit.providerOptions === undefined ? {} : { provider_options: edit.providerOptions }),
   }
-  const receipt = await apiFetch('/generations/video', zVideoSubmitOut, {
+  const result = await apiFetch('/generations/video-edits', zGenerationEnvelope, {
     method: 'POST',
     body,
     fallbackErrorMessage: '视频编辑提交失败',
   })
-  return receipt.task_id
+  return result.generation
 }
 
-/** 按顺序把各段拼成一条成片。一律重编码、对齐到原片；成片长期保留，成为新的一版。 */
-export const submitMasterClip = async (
-  input: Origin & { segments: readonly { url: string; start: number; end: number }[] },
+/** 把一条完成的编辑段拼回它的基底，成为新的一版。各段由服务端按编辑段的实际区间算。 */
+export const submitVideoComposite = async (
+  input: Origin & { sourceJobId: string },
 ): Promise<GenerationJob> => {
-  const body: ClipIn = {
+  const body: VideoComposeIn = {
     conversationId: input.conversationId,
     taskId: input.taskId,
-    rootJobId: input.rootJobId,
-    metadata: input.metadata,
-    purpose: 'master',
-    segments: [...input.segments],
+    sourceJobId: input.sourceJobId,
   }
-  const result = await apiFetch('/generations/clips', zGenerationEnvelope, {
+  const result = await apiFetch('/generations/video-composites', zGenerationEnvelope, {
     method: 'POST',
     body,
     fallbackErrorMessage: '合成任务提交失败',

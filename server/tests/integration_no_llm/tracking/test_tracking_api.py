@@ -12,26 +12,28 @@ from sqlalchemy import text
 from sqlalchemy.engine import RowMapping
 
 from iclip.domains.generation.models import STATUS_COMPLETED, STATUS_FAILED
-from iclip.domains.generation.schemas import CLIP_REFERENCE, KIND_CLIP, KIND_IMAGE, KIND_VIDEO
+from iclip.domains.generation.schemas import (
+    KIND_IMAGE,
+    KIND_VIDEO,
+    OPERATION_COMPOSE,
+    OPERATION_GENERATE,
+)
 from iclip.domains.tracking.models import VIDEO_DOWNLOADED
 from tests.helpers.auth import register_and_login, set_roles_in_db
 from tests.helpers.pg import connected
 
 EVENTS = "/tracking/events"
-MASTER = "master"
-"""ClipPurpose 的成片取值；生成域没有单独的常量。"""
 
-# 标签、种类、状态、clip 用途、原作（标签）、有没有地址。原作要先插。
-_JOBS: tuple[tuple[str, str, str, str | None, str | None, bool], ...] = (
-    ("video", KIND_VIDEO, STATUS_COMPLETED, None, None, True),
-    ("master", KIND_CLIP, STATUS_COMPLETED, MASTER, "video", True),
-    ("reference", KIND_CLIP, STATUS_COMPLETED, CLIP_REFERENCE, "video", True),
-    ("edited", KIND_VIDEO, STATUS_COMPLETED, None, "video", True),
-    ("failed", KIND_VIDEO, STATUS_FAILED, None, None, False),
-    ("no_url", KIND_VIDEO, STATUS_COMPLETED, None, None, False),
-    ("image", KIND_IMAGE, STATUS_COMPLETED, None, None, True),
+# 标签、种类、操作、状态、来源（标签）、有没有地址。来源要先插；有来源的原作都是那条出片。
+_JOBS: tuple[tuple[str, str, str, str, str | None, bool], ...] = (
+    ("video", KIND_VIDEO, OPERATION_GENERATE, STATUS_COMPLETED, None, True),
+    ("edit", KIND_VIDEO, OPERATION_GENERATE, STATUS_COMPLETED, "video", True),
+    ("composite", KIND_VIDEO, OPERATION_COMPOSE, STATUS_COMPLETED, "edit", True),
+    ("failed", KIND_VIDEO, OPERATION_GENERATE, STATUS_FAILED, None, False),
+    ("no_url", KIND_VIDEO, OPERATION_GENERATE, STATUS_COMPLETED, None, False),
+    ("image", KIND_IMAGE, OPERATION_GENERATE, STATUS_COMPLETED, None, True),
 )
-DOWNLOADABLE = ("video", "master")
+DOWNLOADABLE = ("video", "composite")
 
 
 async def login_as(client: httpx.AsyncClient, pg_url: str, username: str, role: str) -> uuid.UUID:
@@ -42,7 +44,7 @@ async def login_as(client: httpx.AsyncClient, pg_url: str, username: str, role: 
 
 
 async def plant_jobs(pg_url: str, *, owner: uuid.UUID) -> dict[str, uuid.UUID]:
-    """一段对话里一条成了的出片连同名下的成片、参考片段与编辑结果，外加没成的、没地址的出片与一张图。"""
+    """一段对话里一条成了的出片，它上面的一段编辑与那次合成，外加没成的、没地址的出片与一张图。"""
 
     conversation_id = uuid.uuid4()
     ids = {label: uuid.uuid4() for label, *_ in _JOBS}
@@ -54,27 +56,34 @@ async def plant_jobs(pg_url: str, *, owner: uuid.UUID) -> dict[str, uuid.UUID]:
             ),
             {"id": conversation_id, "owner": owner},
         )
-        for label, kind, status, purpose, root, has_url in _JOBS:
+        for label, kind, operation, status, source, has_url in _JOBS:
             request = (
-                {"purpose": purpose, "segments": []}
-                if purpose is not None
+                {"segments": [{"url": "https://oss.example.test/edit.mp4", "start": 0, "end": 3}]}
+                if operation == OPERATION_COMPOSE
                 else {"model": "m", "prompt": "p", "user_name": "nina"}
             )
+            edit = operation == OPERATION_GENERATE and source is not None
             await conn.execute(
                 text(
                     "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind,"
-                    " provider, request, status, root_job_id, output_url, created_at, updated_at)"
-                    " VALUES (:id, :owner, :conversation_id, :kind, 'test', CAST(:request AS jsonb),"
-                    " :status, :root, :output_url, now(), now())"
+                    " operation, provider, request, status, source_job_id, root_job_id,"
+                    " range_start_ms, range_end_ms, output_url, created_at, updated_at)"
+                    " VALUES (:id, :owner, :conversation_id, :kind, :operation, 'test',"
+                    " CAST(:request AS jsonb), :status, :source, :root, :range_start_ms,"
+                    " :range_end_ms, :output_url, now(), now())"
                 ),
                 {
                     "id": ids[label],
                     "owner": owner,
                     "conversation_id": conversation_id,
                     "kind": kind,
+                    "operation": operation,
                     "request": json.dumps(request),
                     "status": status,
-                    "root": None if root is None else ids[root],
+                    "source": None if source is None else ids[source],
+                    "root": None if source is None else ids["video"],
+                    "range_start_ms": 1000 if edit else None,
+                    "range_end_ms": 4000 if edit else None,
                     "output_url": f"https://oss.example.test/{label}.mp4" if has_url else None,
                 },
             )
@@ -105,7 +114,7 @@ async def test_anonymous_is_401(client: httpx.AsyncClient) -> None:
     assert (await client.post(EVENTS, json=download(uuid.uuid4()))).status_code == 401
 
 
-async def test_anyone_who_reads_generations_records_a_download_of_any_video_or_master(
+async def test_anyone_who_reads_generations_records_a_download_of_any_take_or_composite(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
     """片不必是自己的：资料库里全站的片谁都能下。发起人取自登录态，时刻是数据库此刻。"""
@@ -128,7 +137,7 @@ async def test_anyone_who_reads_generations_records_a_download_of_any_video_or_m
 async def test_anything_but_a_downloadable_video_is_the_same_404(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """参考片段、编辑结果、没成的、没地址的、图片与根本不存在的，状态码与报错一字不差。"""
+    """编辑段、没成的、没地址的、图片与根本不存在的，状态码与报错一字不差。"""
 
     owner = await login_as(client, pg_url, "nina", "editor")
     jobs = await plant_jobs(pg_url, owner=owner)

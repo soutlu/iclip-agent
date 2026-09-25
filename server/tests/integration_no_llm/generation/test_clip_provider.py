@@ -1,15 +1,15 @@
-"""用真实 ffmpeg 合成素材，验证裁剪与拼接的产物、存放前缀与取不到素材时的收尾。
+"""用真实 ffmpeg 合成素材，验证合成的产物、存放前缀、阶段上报与取不到素材时的收尾。
 
-参考片段由 ffmpeg 自己发 http 请求按需读，httpx 替身拦不到，所以那几个用例起一个真服务
-（tests.helpers.media_server）；成片仍是先下到本地，继续用替身喂字节。"""
+合成先把素材下到本地，httpx 替身喂字节就够；切参考片段是 ffmpeg 自己按需远程读，在
+``test_reference_cutter.py``。"""
 
 from __future__ import annotations
 
-import subprocess
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
 
 import httpx
 import pytest
@@ -17,13 +17,9 @@ import pytest
 from iclip.domains.generation.clip import FfmpegClipProvider
 from iclip.domains.generation.provider import ProviderError
 from iclip.domains.generation.schemas import ClipStage
-from iclip.platform.media.ffmpeg import (
-    ffmpeg_available,
-    probe_duration_ms,
-    probe_video,
-)
-from tests.helpers.generation import MemoryObjectStore, clip_request, make_job
-from tests.helpers.media_server import serving
+from iclip.platform.media.ffmpeg import ffmpeg_available, probe_video
+from tests.helpers.generation import MemoryObjectStore, compose_request, make_job
+from tests.helpers.media import duration_ms_of, synthesize_video
 
 pytestmark = [
     pytest.mark.anyio,
@@ -32,41 +28,6 @@ pytestmark = [
 
 BASE_URL = "https://example.test/base.mp4"
 EDITED_URL = "https://example.test/edited.mp4"
-
-
-def _synthesize(
-    path: Path, *, size: str, seconds: int, audio: bool, faststart: bool = False
-) -> bytes:
-    """合成一段图样视频。关键帧每秒一个，裁剪落到的边界才可预期。
-
-    默认照 ffmpeg 的缺省把 moov 写在尾部，和不少上传素材一样；``faststart`` 把它挪到头部。"""
-
-    args = ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc=size={size}:rate=10"]
-    if audio:
-        args += ["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-c:a", "aac"]
-    args += ["-t", str(seconds), "-g", "10", "-pix_fmt", "yuv420p"]
-    if faststart:
-        args += ["-movflags", "+faststart"]
-    args.append(str(path))
-    subprocess.run(args, check=True, capture_output=True)
-    return path.read_bytes()
-
-
-def _synthesize_noise(path: Path, *, seconds: int) -> bytes:
-    """合成一段随机噪声视频。压不动，所以几十兆，按需读省下多少一眼能看出来。"""
-
-    subprocess.run(
-        [
-            "ffmpeg", "-v", "error", "-y",
-            "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", "480x854", "-r", "25",
-            "-i", "/dev/urandom", "-t", str(seconds),
-            "-c:v", "libx264", "-preset", "ultrafast", "-g", "25", "-crf", "26",
-            "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(path),
-        ],
-        check=True,
-        capture_output=True,
-    )  # fmt: skip
-    return path.read_bytes()
 
 
 def _client(payloads: dict[str, bytes]) -> httpx.MockTransport:
@@ -86,9 +47,11 @@ def sources() -> dict[str, bytes]:
     with TemporaryDirectory(prefix="clip-fixture-") as tmp:
         root = Path(tmp)
         return {
-            BASE_URL: _synthesize(root / "base.mp4", size="320x240", seconds=4, audio=True),
+            BASE_URL: synthesize_video(root / "base.mp4", size="320x240", seconds=4, audio=True),
             # 照实测：模型还回来的片段比原片大（720×960 进去，834×1112 出来），同比例。
-            EDITED_URL: _synthesize(root / "edited.mp4", size="480x360", seconds=2, audio=False),
+            EDITED_URL: synthesize_video(
+                root / "edited.mp4", size="480x360", seconds=2, audio=False
+            ),
         }
 
 
@@ -109,200 +72,120 @@ class _Stages:
         return self.live
 
 
-def _provider(
-    store: MemoryObjectStore,
+async def _compose(
+    segments: list[dict[str, Any]],
+    sources: dict[str, bytes],
     *,
     stages: _Stages | None = None,
-    transport: httpx.MockTransport | None = None,
-) -> FfmpegClipProvider:
-    return FfmpegClipProvider(
-        object_store=store, report_stage=(stages or _Stages()).report, transport=transport
-    )
-
-
-async def _submit(
-    provider: FfmpegClipProvider, store: MemoryObjectStore, **request_kwargs: object
 ) -> tuple[str, bytes]:
-    """跑一次加工，返回落库的对象 key 与产物字节。"""
-
-    submission = await provider.submit(make_job(clip_request(**request_kwargs), provider="ffmpeg"))
-
-    assert submission.output_url is not None, "本地加工一次出结果，没有轮询阶段"
-    key = next(iter(store.objects))
-    return key, store.objects[key][0]
-
-
-async def _render(
-    request_kwargs: dict[str, object], sources: dict[str, bytes]
-) -> tuple[str, bytes]:
-    """跑一次成片加工：素材由 httpx 替身喂。"""
+    """跑一次合成，返回落库的对象 key 与产物字节。"""
 
     store = MemoryObjectStore()
-    return await _submit(_provider(store, transport=_client(sources)), store, **request_kwargs)
+    provider = FfmpegClipProvider(
+        object_store=store, report_stage=(stages or _Stages()).report, transport=_client(sources)
+    )
+    submission = await provider.submit(
+        make_job(compose_request(segments=segments), provider="ffmpeg")
+    )
+
+    assert submission.output_url is not None, "本地加工一次出结果，没有轮询阶段"
+    key, (content, _) = next(iter(store.objects.items()))
+    assert submission.raw == {"durationMs": await duration_ms_of(content)}, "快照只带量出来的时长"
+    return key, content
 
 
-async def _duration_seconds(content: bytes) -> float:
+async def _profile(content: bytes) -> tuple[int, int, bool]:
     with TemporaryDirectory(prefix="clip-probe-") as tmp:
         path = Path(tmp) / "out.mp4"
         path.write_bytes(content)
-        return await probe_duration_ms(path) / 1000
+        profile = await probe_video(path)
+    return profile.width, profile.height, profile.has_audio
 
 
-async def test_reference_cut_lands_under_the_expiring_prefix(sources: dict[str, bytes]) -> None:
-    store = MemoryObjectStore()
-    provider = _provider(store)
-    async with serving({"base.mp4": sources[BASE_URL]}) as server:
-        key, content = await _submit(
-            provider, store, segments=[{"url": server.url("base.mp4"), "start": 1, "end": 2}]
-        )
-
-    assert key.startswith("iclip/agent/video-clips/"), "参考片段是中间素材，按前缀配过期"
-    seconds = await _duration_seconds(content)
-    # -c copy 只能在关键帧处下刀，产物不短于请求的区间，最多多出一个 GOP（这里 1 秒）。
-    assert 1.0 <= seconds <= 2.1, seconds
-
-
-async def test_reference_cut_reads_the_index_and_the_selection_only() -> None:
-    """按需读：源只传了索引加选区那一段，不是整份。
-
-    素材用不可压缩的噪声，几十兆才看得出差别——图样视频压完只有几百 KB，一次读就全拿走了。"""
-
-    with TemporaryDirectory(prefix="clip-fixture-") as tmp:
-        body = _synthesize_noise(Path(tmp) / "noise.mp4", seconds=4)
-    store = MemoryObjectStore()
-    provider = _provider(store)
-    async with serving({"noise.mp4": body}) as server:
-        _, content = await _submit(
-            provider, store, segments=[{"url": server.url("noise.mp4"), "start": 3, "end": 4}]
-        )
-        sent, requests = server.sent, server.range_requests
-
-    assert requests >= 1, "ffmpeg 应该带着 Range 去读"
-    assert sent < len(body) * 0.6, f"只该取索引与选区，却传了 {sent} / {len(body)}"
-    assert 1.0 <= await _duration_seconds(content) <= 2.1
-
-
-async def test_reference_cut_still_works_when_the_source_ignores_range() -> None:
-    """源不支持 Range 时退化为顺序读：慢，但 moov 在头部仍出正确产物。
-
-    moov 在尾部时 ffmpeg 读到它之后要倒回 mdat，只有那段字节恰好还在读缓冲里才倒得回去，
-    成败随 TCP 分包而变，不是这条用例要验证的行为。"""
-
-    with TemporaryDirectory(prefix="clip-fixture-") as tmp:
-        body = _synthesize(
-            Path(tmp) / "base.mp4", size="320x240", seconds=4, audio=True, faststart=True
-        )
-    store = MemoryObjectStore()
-    provider = _provider(store)
-    async with serving({"base.mp4": body}, ranges=False) as server:
-        _, content = await _submit(
-            provider, store, segments=[{"url": server.url("base.mp4"), "start": 1, "end": 2}]
-        )
-
-    assert 1.0 <= await _duration_seconds(content) <= 2.1
-
-
-async def test_reference_cut_fails_without_retry_when_the_source_is_gone() -> None:
-    """签名过期、对象没了都归这一档：读取与裁剪交错，分不出取素材和加工两步。"""
-
-    provider = _provider(MemoryObjectStore())
-    async with serving({}) as server:
-        job = make_job(
-            clip_request(segments=[{"url": server.url("gone.mp4"), "start": 1, "end": 2}]),
-            provider="ffmpeg",
-        )
-        with pytest.raises(ProviderError) as caught:
-            await provider.submit(job)
-
-    assert caught.value.code == "MEDIA_PROCESS_FAILED"
-    assert not caught.value.retryable, "取不到素材是这次请求的问题，重排也还是取不到"
-
-
-async def test_master_concat_aligns_to_the_original_and_keeps_total_length(
+async def test_a_composite_aligns_to_the_original_and_keeps_total_length(
     sources: dict[str, bytes],
 ) -> None:
-    """换进去的那段画幅更大，成片仍照原片——原片贡献的时长更长。"""
+    """换进去的那段画幅更大，成片仍照原片——原片整条更长。"""
 
-    key, content = await _render(
-        {
-            "purpose": "master",
-            "segments": [
-                {"url": BASE_URL, "start": 0, "end": 1},
-                {"url": EDITED_URL, "start": 0.3, "end": 1.7},
-                {"url": BASE_URL, "start": 3, "end": 4},
-            ],
-        },
+    key, content = await _compose(
+        [
+            {"url": BASE_URL, "start": 0, "end": 1},
+            {"url": EDITED_URL, "start": 0.3, "end": 1.7},
+            {"url": BASE_URL, "start": 3, "end": 4},
+        ],
         sources,
     )
 
     assert key.startswith("iclip/agent/video-masters/"), "成片长期保留，不进过期规则"
-    assert 3.1 <= await _duration_seconds(content) <= 3.7, "总长是各段之和"
-    with TemporaryDirectory(prefix="clip-probe-") as tmp:
-        path = Path(tmp) / "out.mp4"
-        path.write_bytes(content)
-        profile = await probe_video(path)
-    assert (profile.width, profile.height) == (320, 240), (
-        "对齐到原片；照「画幅最大的那条」会变成 480×360"
+    assert 3100 <= await duration_ms_of(content) <= 3700, "总长是各段之和"
+    assert await _profile(content) == (320, 240, True), (
+        "对齐到原片；有一段带音轨就出音轨，没音轨的那段补静音"
     )
-    assert profile.has_audio, "有一段带音轨就出音轨，没音轨的那段补静音"
 
 
-async def test_master_still_aligns_to_the_original_when_the_edit_covers_most_of_it(
+async def test_a_composite_still_aligns_to_the_original_when_the_edit_covers_most_of_it(
     sources: dict[str, bytes],
 ) -> None:
-    """编辑区间超过一半：换进去的那段在成片里占大头，成片仍照原片——原片整条更长。"""
+    """编辑区间超过一半：换进去的那段在成片里占大头，成片仍照原片。"""
 
-    _, content = await _render(
-        {
-            "purpose": "master",
-            "segments": [
-                {"url": BASE_URL, "start": 0, "end": 0.5},
-                {"url": EDITED_URL, "start": 0, "end": 2},
-                {"url": BASE_URL, "start": 3.5, "end": 4},
-            ],
-        },
+    _, content = await _compose(
+        [
+            {"url": BASE_URL, "start": 0, "end": 0.5},
+            {"url": EDITED_URL, "start": 0, "end": 2},
+            {"url": BASE_URL, "start": 3.5, "end": 4},
+        ],
         sources,
     )
 
-    with TemporaryDirectory(prefix="clip-probe-") as tmp:
-        path = Path(tmp) / "out.mp4"
-        path.write_bytes(content)
-        profile = await probe_video(path)
-    assert (profile.width, profile.height) == (320, 240), (
-        "按贡献时长认原片会认成 480×360 的编辑片段"
-    )
+    width, height, _ = await _profile(content)
+    assert (width, height) == (320, 240), "按贡献时长认原片会认成 480×360 的编辑片段"
 
 
-async def test_reference_reports_processing_then_uploading(sources: dict[str, bytes]) -> None:
-    """参考片段没有取素材这一步：它是边读边切的。"""
-
-    store = MemoryObjectStore()
-    stages = _Stages()
-    async with serving({"base.mp4": sources[BASE_URL]}) as server:
-        await _submit(
-            _provider(store, stages=stages),
-            store,
-            segments=[{"url": server.url("base.mp4"), "start": 1, "end": 2}],
-        )
-
-    assert stages.seen == ["processing", "uploading"]
-
-
-async def test_master_reports_fetching_then_processing_then_uploading(
+async def test_open_ends_are_filled_from_the_downloaded_sources(
     sources: dict[str, bytes],
 ) -> None:
-    """成片三步都有：下素材、探规格算取素材，重编码算加工。"""
+    """编辑段产物整条、基底后段取到结尾：长度按下载下来的素材补齐。"""
 
-    store = MemoryObjectStore()
-    stages = _Stages()
-    await _submit(
-        _provider(store, stages=stages, transport=_client(sources)),
-        store,
-        purpose="master",
-        segments=[
+    _, content = await _compose(
+        [
             {"url": BASE_URL, "start": 0, "end": 1},
-            {"url": EDITED_URL, "start": 0, "end": 1},
+            {"url": EDITED_URL, "start": 0},
+            {"url": BASE_URL, "start": 3},
         ],
+        sources,
+    )
+
+    assert 3800 <= await duration_ms_of(content) <= 4200, "1 秒前段 + 2 秒编辑段 + 1 秒后段"
+
+
+async def test_a_tail_that_starts_at_the_end_of_the_base_is_skipped(
+    sources: dict[str, bytes],
+) -> None:
+    """编辑一直改到基底结尾，后段从结尾取到结尾，是空的：跳过而不是报零长段。"""
+
+    base_ms = await duration_ms_of(sources[BASE_URL])
+    _, content = await _compose(
+        [
+            {"url": BASE_URL, "start": 0, "end": 2},
+            {"url": EDITED_URL, "start": 0},
+            {"url": BASE_URL, "start": base_ms / 1000},
+        ],
+        sources,
+    )
+
+    assert 3800 <= await duration_ms_of(content) <= 4200, "2 秒前段 + 2 秒编辑段"
+
+
+async def test_a_composite_reports_fetching_then_processing_then_uploading(
+    sources: dict[str, bytes],
+) -> None:
+    """三步都有：下素材、探规格算取素材，重编码算加工。"""
+
+    stages = _Stages()
+    await _compose(
+        [{"url": BASE_URL, "start": 0, "end": 1}, {"url": EDITED_URL, "start": 0}],
+        sources,
+        stages=stages,
     )
 
     assert stages.seen == ["fetching", "processing", "uploading"]
@@ -313,18 +196,16 @@ async def test_stops_reporting_once_the_job_has_a_conclusion_but_still_finishes(
 ) -> None:
     """上报被拒（这条已经有结论了）就不再报，活照样干完——产物落在按任务 id 定好的 key 上。"""
 
-    store = MemoryObjectStore()
     stages = _Stages(live=False)
-    async with serving({"base.mp4": sources[BASE_URL]}) as server:
-        key, content = await _submit(
-            _provider(store, stages=stages),
-            store,
-            segments=[{"url": server.url("base.mp4"), "start": 1, "end": 2}],
-        )
+    key, content = await _compose(
+        [{"url": BASE_URL, "start": 0, "end": 1}, {"url": EDITED_URL, "start": 0}],
+        sources,
+        stages=stages,
+    )
 
-    assert stages.seen == ["processing"], "第一次就被拒，后面不再报"
-    assert key.startswith("iclip/agent/video-clips/")
-    assert 1.0 <= await _duration_seconds(content) <= 2.1
+    assert stages.seen == ["fetching"], "第一次就被拒，后面不再报"
+    assert key.startswith("iclip/agent/video-masters/")
+    assert await duration_ms_of(content) > 0
 
 
 async def test_a_broken_stage_report_does_not_fail_the_job(sources: dict[str, bytes]) -> None:
@@ -333,30 +214,26 @@ async def test_a_broken_stage_report_does_not_fail_the_job(sources: dict[str, by
     让它抛出去会穿过队列的 ProviderError 捕获进重试策略，下一次执行见 submitting 就判
     SUBMIT_INTERRUPTED——一条能出结果的加工被一次展示用的写库失败判死。"""
 
-    store = MemoryObjectStore()
     stages = _Stages(broken=True)
-    async with serving({"base.mp4": sources[BASE_URL]}) as server:
-        _, content = await _submit(
-            _provider(store, stages=stages),
-            store,
-            segments=[{"url": server.url("base.mp4"), "start": 1, "end": 2}],
-        )
+    _, content = await _compose(
+        [{"url": BASE_URL, "start": 0, "end": 1}, {"url": EDITED_URL, "start": 0}],
+        sources,
+        stages=stages,
+    )
 
-    assert stages.seen == ["processing"], "第一次就炸，后面不再报"
-    assert 1.0 <= await _duration_seconds(content) <= 2.1
+    assert stages.seen == ["fetching"], "第一次就炸，后面不再报"
+    assert await duration_ms_of(content) > 0
 
 
-async def test_master_source_that_cannot_be_fetched_fails_without_retry() -> None:
-    """成片仍是先下到本地，取不到素材有自己的错误码。"""
+async def test_a_source_that_cannot_be_fetched_fails_without_retry() -> None:
+    """先下到本地，取不到素材有自己的错误码。"""
 
-    provider = _provider(MemoryObjectStore(), transport=_client({}))
+    provider = FfmpegClipProvider(
+        object_store=MemoryObjectStore(), report_stage=_Stages().report, transport=_client({})
+    )
     job = make_job(
-        clip_request(
-            purpose="master",
-            segments=[
-                {"url": BASE_URL, "start": 0, "end": 1},
-                {"url": EDITED_URL, "start": 0, "end": 1},
-            ],
+        compose_request(
+            segments=[{"url": BASE_URL, "start": 0, "end": 1}, {"url": EDITED_URL, "start": 0}]
         ),
         provider="ffmpeg",
     )

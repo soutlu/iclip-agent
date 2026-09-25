@@ -1,8 +1,8 @@
 """资料库的 Postgres 查询：跨生成记录、对话、用户三张表只读，不建表、不写入。
 
-SQL 里的 'video' / 'clip' / 'completed' 镜像生成域的 KIND_VIDEO / KIND_CLIP / STATUS_COMPLETED，
-'master' 镜像 ClipPurpose 的取值（按表名直接查，不 import 业务模块）；集成测试的种子取自那些
-常量，生成域改词这里的用例就红。外部输入一律走绑定参数。"""
+SQL 里的 'video' / 'generate' / 'compose' / 'completed' 镜像生成域的 KIND_VIDEO /
+OPERATION_GENERATE / OPERATION_COMPOSE / STATUS_COMPLETED（按表名直接查，不 import 业务模块）；
+集成测试的种子取自那些常量，生成域改词这里的用例就红。外部输入一律走绑定参数。"""
 
 from __future__ import annotations
 
@@ -30,10 +30,10 @@ from iclip.domains.library.schemas import (
 
 # ---------------------------------------------------------------------------
 # 收录口径，一段 CTE 供所有查询共用：
-# roots  成功的独立视频记录，已删对话里的不收；
+# roots  成功的出片（没有来源的视频 generate），已删对话里的不收；
 # takes  每条都是一次出片；镜的身份是（对话，镜号），没有镜号或不挂对话的一条自成一镜；
-# masters 成片按原作号挂到那次出片上：分叉副本里剪继承来的出片，成片也挂在源那一镜；
-#        成片所在的对话删了就不收；
+# masters 合成按原作挂到那次出片上：分叉副本里剪继承来的出片，合成也挂在源那一镜；
+#        合成所在的对话删了就不收；
 # master_lists 每次出片名下的全部成片与最新那条，一次分组算完，不逐行子查询；
 # faces  每次出片带上名下成片与画幅朝向；
 # cards  一镜一张卡，卡面取这一镜最新的成片，没有成片就取最新一次出片。
@@ -50,8 +50,8 @@ WITH roots AS (
     FROM iclip.generation_jobs g
     JOIN iclip.users u ON u.id = g.owner_user_id
     LEFT JOIN iclip.conversations c ON c.id = g.conversation_id
-    WHERE g.kind = 'video' AND g.root_job_id IS NULL AND g.status = 'completed'
-      AND g.output_url IS NOT NULL AND c.deleted_at IS NULL
+    WHERE g.kind = 'video' AND g.operation = 'generate' AND g.source_job_id IS NULL
+      AND g.status = 'completed' AND g.output_url IS NOT NULL AND c.deleted_at IS NULL
 ),
 takes AS (
     SELECT r.*,
@@ -66,7 +66,7 @@ masters AS (
     FROM iclip.generation_jobs m
     JOIN takes t ON t.id = m.root_job_id
     LEFT JOIN iclip.conversations mc ON mc.id = m.conversation_id
-    WHERE m.kind = 'clip' AND m.request->>'purpose' = 'master' AND m.status = 'completed'
+    WHERE m.kind = 'video' AND m.operation = 'compose' AND m.status = 'completed'
       AND m.output_url IS NOT NULL AND mc.deleted_at IS NULL
 ),
 master_lists AS (

@@ -504,29 +504,31 @@ async def test_a_fork_inherits_finished_takes_instead_of_copying_them(
 
             assert await listed_ids(client, copy) == {str(take.id)}
 
-            async def clip_on(root: uuid.UUID) -> httpx.Response:
+            async def edit_on(base: uuid.UUID) -> httpx.Response:
                 return await client.post(
-                    "/generations/clips",
+                    "/generations/video-edits",
                     json={
-                        "purpose": "reference",
-                        "segments": [
-                            {"url": "https://example.test/take.mp4", "start": 1, "end": 3}
-                        ],
-                        "conversationId": copy,
-                        "rootJobId": str(root),
+                        "source_job_id": str(base),
+                        "range_start_ms": 1000,
+                        "range_end_ms": 3000,
+                        "model": "seedance",
+                        "prompt": "换一双鞋",
+                        "conversation_id": copy,
                     },
                 )
 
-            accepted = await clip_on(take.id)
+            accepted = await edit_on(take.id)
             assert accepted.status_code == 202, accepted.text
-            clip = accepted.json()["generation"]
-            assert clip["rootJobId"] == str(take.id), "原作号指源对话那条"
+            edit = accepted.json()["generation"]
+            assert (edit["sourceJobId"], edit["rootJobId"]) == (str(take.id), str(take.id)), (
+                "来源与原作都指源对话那条"
+            )
             for outside in (after.id, in_flight.id):
-                refused = await clip_on(outside)
+                refused = await edit_on(outside)
                 assert refused.status_code == 422, refused.text
-            # 片段还在排队、不可能是继承来的：列得出来就说明它记在副本名下。
-            assert await listed_ids(client, copy) == {str(take.id), clip["id"]}
-            assert clip["id"] not in await listed_ids(client, source)
+            # 编辑段还在排队、不可能是继承来的：列得出来就说明它记在副本名下。
+            assert await listed_ids(client, copy) == {str(take.id), edit["id"]}
+            assert edit["id"] not in await listed_ids(client, source)
 
         async with make_client(media_app) as other:
             await login_as(other, pg_url, username="mia")

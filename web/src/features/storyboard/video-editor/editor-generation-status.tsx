@@ -18,7 +18,7 @@ const STEP_STATES: Record<StepState, string> = {
 /** 本地加工的处境：`queued` 是还在本系统排队，其余是后端报的加工阶段。 */
 type ClipProgress = 'queued' | NonNullable<GenerationJob['clipStage']>
 
-/** 处境换成文案；参考片段边读边切，没有 `fetching` 这一档。 */
+/** 处境换成文案；编辑段的参考片段边读边切，没有 `fetching` 这一档。 */
 const CUTTING_TITLES: Partial<Record<ClipProgress, string>> = {
   queued: '等待切片',
   processing: '正在截取参考片段',
@@ -43,10 +43,8 @@ function describeProgress(edit: PendingEdit) {
     case 'cutting':
       return {
         step: 0,
-        title: titleOf(edit.reference, CUTTING_TITLES) ?? '正在准备参考片段',
+        title: titleOf(edit.video, CUTTING_TITLES) ?? '正在准备参考片段',
       }
-    case 'cut':
-      return { step: 1, title: '准备提交视频生成' }
     case 'generating':
       return { step: 1, title: '正在生成视频' }
     case 'ready':
@@ -56,16 +54,11 @@ function describeProgress(edit: PendingEdit) {
         step: 2,
         title: titleOf(edit.master, COMPOSING_TITLES) ?? '正在合成成片',
       }
-    case 'failed': {
-      const step =
-        edit.master !== undefined && edit.master.status !== 'completed'
-          ? 2
-          : edit.video !== undefined
-            ? 1
-            : 0
-      const title = ['参考片段准备失败', '视频生成失败', '成片合成失败'][step]
-      return { step, title }
-    }
+    case 'failed':
+      // 编辑段切片失败与生成失败落在同一条记录上，记录分不出是哪一步，一律记在视频生成这一步。
+      return edit.master !== undefined && edit.master.status !== 'completed'
+        ? { step: 2, title: '成片合成失败' }
+        : { step: 1, title: '视频生成失败' }
   }
 }
 

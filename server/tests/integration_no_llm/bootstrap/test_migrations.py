@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -70,8 +70,26 @@ def _alembic(url: str) -> AlembicConfig:
     return cfg
 
 
+@pytest.fixture(autouse=True)
+async def _start_from_empty_tables(migrated_pg: str) -> None:
+    """降级会按行核对（0017 有取到结尾的合成就拒绝），别的用例留下的行不能左右这里的结果。"""
+
+    engine = create_async_engine(migrated_pg)
+    try:
+        async with engine.begin() as conn:
+            await reset_database(conn)
+    finally:
+        await engine.dispose()
+
+
 def test_upgrade_is_idempotent_at_head(migrated_pg: str) -> None:
     command.upgrade(_alembic(migrated_pg), "head")
+
+
+BEFORE_OPERATION = "2f9ffd7b9bbe"
+"""0016：记录上还没有 operation / 来源 / 区间、编辑坐标还写在 metadata 里的那一版。
+
+更早迁移的用例升到这里为止：它们种的编辑链只为验那一版，过不了 0017 的核对。"""
 
 
 BEFORE_SOFT_DELETE = "8b1f4a2c9d3e"
@@ -371,7 +389,7 @@ async def test_path_drop_migration_keeps_the_other_coordinate_keys(migrated_pg: 
                     {"id": job_id, "owner": owner, "metadata": metadata},
                 )
         await engine.dispose()
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, BEFORE_OPERATION)
 
         async with engine.connect() as conn:
             found = {
@@ -388,14 +406,8 @@ async def test_path_drop_migration_keeps_the_other_coordinate_keys(migrated_pg: 
             }
     finally:
         await engine.dispose()
+        await _remove_generation_owner(migrated_pg, owner)
         command.upgrade(cfg, "head")
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("DELETE FROM iclip.generation_jobs WHERE owner_user_id = :owner"),
-                {"owner": owner},
-            )
-            await conn.execute(text("DELETE FROM iclip.users WHERE id = :owner"), {"owner": owner})
-        await engine.dispose()
 
     assert _jsonb(found[video]) == {"shot": 2}
     assert _jsonb(found[frame_edit]) == {
@@ -404,7 +416,7 @@ async def test_path_drop_migration_keeps_the_other_coordinate_keys(migrated_pg: 
         "sourceUrl": "https://cdn.test/a.png",
     }
     assert _jsonb(found[gateway]) == {"shot": 5}
-    # 升到 head 还会过 0013 与 0014：rootJob 抄进列，指向根的 baseJob 擦掉，只剩 editId。
+    # 升到 0016 还会过 0013 与 0014：rootJob 抄进列，指向根的 baseJob 擦掉，只剩 editId。
     assert _jsonb(found[video_edit]) == {"editId": "e"}
     assert found[path_only] is None
 
@@ -468,7 +480,7 @@ async def test_root_job_migration_lifts_root_job_into_the_column(migrated_pg: st
                     {"id": job_id, "owner": owner, "kind": kind, "metadata": metadata},
                 )
         await engine.dispose()
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, BEFORE_OPERATION)
 
         async with engine.connect() as conn:
             found = {
@@ -502,11 +514,11 @@ async def test_root_job_migration_lifts_root_job_into_the_column(migrated_pg: st
             ).scalar_one()
     finally:
         await engine.dispose()
-        command.upgrade(cfg, "head")
         await _remove_generation_owner(migrated_pg, owner)
+        command.upgrade(cfg, "head")
 
     assert found[root] == (None, {"shot": 2}), "独立记录一个字不动"
-    # 升到 head 还会过 0014：指向根的 baseJob 是「基于原片」，键擦掉。
+    # 升到 0016 还会过 0014：指向根的 baseJob 是「基于原片」，键擦掉。
     assert found[reference] == (root, {"editId": "e"})
     assert found[edited] == (root, {"editId": "e", "editStart": 1})
     assert "fk_generation_jobs_root_job" in foreign_keys
@@ -648,14 +660,14 @@ async def test_base_edit_migration_rewrites_base_job_into_edit_ids(migrated_pg: 
                 ),
             )
         await engine.dispose()
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, BEFORE_OPERATION)
         found = await _metadata_by_id(migrated_pg, owner)
         command.downgrade(cfg, BEFORE_BASE_EDIT)
         restored = await _metadata_by_id(migrated_pg, owner)
     finally:
         await engine.dispose()
-        command.upgrade(cfg, "head")
         await _remove_generation_owner(migrated_pg, owner)
+        command.upgrade(cfg, "head")
 
     upgraded_second = {"baseEdit": "e1", "editId": "e2", "editStart": 2, "editEnd": 5}
     assert found[root] == {"shot": 1}, "独立记录不动"
@@ -701,7 +713,7 @@ async def test_base_edit_migration_refuses_a_dangling_base_job(migrated_pg: str)
             )
         await engine.dispose()
         with pytest.raises(RuntimeError, match="baseJob 指向不存在的记录") as refused:
-            command.upgrade(cfg, "head")
+            command.upgrade(cfg, BEFORE_OPERATION)
         async with engine.connect() as conn:
             version = (
                 await conn.execute(text("SELECT version_num FROM iclip.alembic_version"))
@@ -847,7 +859,7 @@ async def test_fork_inherit_migration_folds_copies_back_into_their_sources(
                 (on_native, parent_take),
             ),
         )
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, BEFORE_OPERATION)
         engine = create_async_engine(migrated_pg)
         try:
             async with engine.connect() as conn:
@@ -867,8 +879,8 @@ async def test_fork_inherit_migration_folds_copies_back_into_their_sources(
         finally:
             await engine.dispose()
     finally:
-        command.upgrade(cfg, "head")
         await _clear(migrated_pg)
+        command.upgrade(cfg, "head")
 
     assert roots == {
         take: None,
@@ -907,7 +919,7 @@ async def test_fork_inherit_migration_refuses_a_copy_without_exactly_one_source(
             jobs=(*originals, (copy, fork, "video", None, "take", 1)),
         )
         with pytest.raises(RuntimeError, match="找不到唯一一条源记录") as refused:
-            command.upgrade(cfg, "head")
+            command.upgrade(cfg, BEFORE_OPERATION)
         engine = create_async_engine(migrated_pg)
         try:
             async with engine.connect() as conn:
@@ -1044,3 +1056,366 @@ async def test_last_run_backfill_takes_the_latest_run_and_keeps_later_renames(
         never_ran: (None, opened_at),
         deleted: ("backfill-r4", first_run_at),
     }
+
+
+OPERATION = "7c50c7336e0c"
+"""0017：记录上有了 operation、来源与区间，参考片段不再落行的那一版。"""
+
+_INSERT_BEFORE_OPERATION = text(
+    "INSERT INTO iclip.generation_jobs (id, owner_user_id, kind, provider, request, status, "
+    "metadata, root_job_id, output_url, created_at, updated_at, finished_at) VALUES (:id, :owner, "
+    ":kind, 'test', CAST(:request AS jsonb), :status, CAST(:metadata AS jsonb), :root, :url, :at, "
+    ":at, :at)"
+)
+_MASTER_SEGMENTS: list[dict[str, object]] = [
+    {"url": "https://example.test/root.mp4", "start": 0, "end": 0.834},
+    {"url": "https://example.test/edit.mp4", "start": 0, "end": 3.3},
+    {"url": "https://example.test/root.mp4", "start": 4, "end": 6},
+]
+_MASTER_REQUEST: dict[str, object] = {"purpose": "master", "segments": _MASTER_SEGMENTS}
+
+_ChainRow = tuple[
+    uuid.UUID, str, Mapping[str, object], Mapping[str, object] | None, uuid.UUID | None, int
+]
+"""(id, kind, request, metadata, 原作号, 建立分钟)；状态除非另给都是已完成。"""
+
+
+async def _seed_before_operation(
+    migrated_pg: str,
+    owner: uuid.UUID,
+    rows: Sequence[_ChainRow],
+    *,
+    failed: frozenset[uuid.UUID] = frozenset(),
+) -> None:
+    """在 0016 的表上种一条编辑链；建立、完成时刻按分钟错开，``failed`` 里的记成失败。"""
+
+    engine = create_async_engine(migrated_pg)
+    try:
+        async with engine.begin() as conn:
+            await _insert_generation_owner(conn, owner)
+            for job_id, kind, request, metadata, root, minute in rows:
+                done = job_id not in failed
+                await conn.execute(
+                    _INSERT_BEFORE_OPERATION,
+                    {
+                        "id": job_id,
+                        "owner": owner,
+                        "kind": kind,
+                        "request": json.dumps(request),
+                        "status": "completed" if done else "failed",
+                        "metadata": None if metadata is None else json.dumps(metadata),
+                        "root": root,
+                        "url": f"https://example.test/{job_id}.mp4" if done else None,
+                        "at": _minute(minute),
+                    },
+                )
+    finally:
+        await engine.dispose()
+
+
+async def _select_rows(
+    migrated_pg: str, owner: uuid.UUID, columns: str
+) -> dict[uuid.UUID, dict[str, object]]:
+    """这个属主名下每行的几列；``columns`` 是用例里的常量列名。JSONB 列解码成对象。"""
+
+    engine = create_async_engine(migrated_pg)
+    try:
+        async with engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    text(
+                        f"SELECT id, {columns} FROM iclip.generation_jobs "
+                        "WHERE owner_user_id = :owner"
+                    ),
+                    {"owner": owner},
+                )
+            ).mappings()
+            return {
+                row["id"]: {
+                    key: _jsonb(value) if key in ("request", "metadata") else value
+                    for key, value in row.items()
+                    if key != "id"
+                }
+                for row in rows
+            }
+    finally:
+        await engine.dispose()
+
+
+async def _alembic_version(migrated_pg: str) -> str:
+    engine = create_async_engine(migrated_pg)
+    try:
+        async with engine.connect() as conn:
+            return (
+                await conn.execute(text("SELECT version_num FROM iclip.alembic_version"))
+            ).scalar_one()
+    finally:
+        await engine.dispose()
+
+
+async def _generation_shape(migrated_pg: str) -> dict[str, set[str]]:
+    """生成表上的约束、外键与索引名，以及不可空的列。"""
+
+    engine = create_async_engine(migrated_pg)
+    try:
+        async with engine.connect() as conn:
+            return await conn.run_sync(
+                lambda sync_conn: {
+                    "checks": {
+                        str(item["name"])
+                        for item in inspect(sync_conn).get_check_constraints(
+                            "generation_jobs", schema=DB_SCHEMA
+                        )
+                    },
+                    "foreign_keys": {
+                        str(item["name"])
+                        for item in inspect(sync_conn).get_foreign_keys(
+                            "generation_jobs", schema=DB_SCHEMA
+                        )
+                    },
+                    "indexes": {
+                        str(item["name"])
+                        for item in inspect(sync_conn).get_indexes(
+                            "generation_jobs", schema=DB_SCHEMA
+                        )
+                    },
+                    "not_null": {
+                        str(item["name"])
+                        for item in inspect(sync_conn).get_columns(
+                            "generation_jobs", schema=DB_SCHEMA
+                        )
+                        if not item["nullable"]
+                    },
+                }
+            )
+    finally:
+        await engine.dispose()
+
+
+async def test_operation_migration_backfills_sources_and_ranges_and_drops_reference_clips(
+    migrated_pg: str,
+) -> None:
+    """0017：参考片段删掉；成片改记 video / compose、request 去掉 purpose；编辑结果的来源按 baseEdit
+    找最后完成的那次成片、没有就是原作，区间四舍五入成毫秒；成片的来源是它之前那条编辑结果；
+    四个坐标键擦掉，编辑结果的 request 不动。降级再按编辑段 id 重建坐标，两轮编辑互相对得上。"""
+
+    cfg = _alembic(migrated_pg)
+    owner = uuid.uuid4()
+    root, reference, edit_1, master_1, recomposed_1, edit_2, master_2, image = (
+        uuid.uuid4() for _ in range(8)
+    )
+    first: dict[str, object] = {"editId": "e1", "editStart": 0.8335, "editEnd": 4}
+    second: dict[str, object] = {"baseEdit": "e1", "editId": "e2", "editStart": 2, "editEnd": 5}
+    edit_request: dict[str, object] = {
+        "prompt": "p",
+        "reference_video_urls": ["https://example.test/reference.mp4"],
+    }
+    reference_request: dict[str, object] = {
+        "purpose": "reference",
+        "segments": [{"url": "https://example.test/root.mp4", "start": 1, "end": 4}],
+    }
+    try:
+        command.downgrade(cfg, BEFORE_OPERATION)
+        await _seed_before_operation(
+            migrated_pg,
+            owner,
+            (
+                (root, "video", {"prompt": "p"}, {"shot": 1}, None, 0),
+                (reference, "clip", reference_request, first, root, 1),
+                (edit_1, "video", edit_request, first, root, 2),
+                (master_1, "clip", _MASTER_REQUEST, first, root, 3),
+                # 同一次编辑重新合成过：基于它的下一轮编辑取最后完成的那条。
+                (recomposed_1, "clip", _MASTER_REQUEST, first, root, 4),
+                (edit_2, "video", {"prompt": "p2"}, second, root, 5),
+                (master_2, "clip", _MASTER_REQUEST, second, root, 6),
+                (image, "image", {"prompt": "猫"}, {"shot": 1, "frame": 2}, None, 7),
+            ),
+        )
+        command.upgrade(cfg, "head")
+        upgraded = await _select_rows(
+            migrated_pg,
+            owner,
+            "kind, operation, source_job_id, root_job_id, range_start_ms, range_end_ms, "
+            "request, metadata",
+        )
+        shape = await _generation_shape(migrated_pg)
+        command.downgrade(cfg, BEFORE_OPERATION)
+        restored = await _select_rows(migrated_pg, owner, "kind, request, metadata")
+    finally:
+        await _clear(migrated_pg)
+        command.upgrade(cfg, "head")
+
+    roles = {
+        job_id: (
+            row["kind"],
+            row["operation"],
+            row["source_job_id"],
+            row["range_start_ms"],
+            row["range_end_ms"],
+            row["metadata"],
+        )
+        for job_id, row in upgraded.items()
+    }
+    assert roles == {
+        root: ("video", "generate", None, None, None, {"shot": 1}),
+        edit_1: ("video", "generate", root, 834, 4000, None),
+        master_1: ("video", "compose", edit_1, None, None, None),
+        recomposed_1: ("video", "compose", edit_1, None, None, None),
+        edit_2: ("video", "generate", recomposed_1, 2000, 5000, None),
+        master_2: ("video", "compose", edit_2, None, None, None),
+        image: ("image", "generate", None, None, None, {"shot": 1, "frame": 2}),
+    }, "参考片段整行删掉，其余各就各位"
+    assert {job_id for job_id, row in upgraded.items() if row["root_job_id"] == root} == {
+        edit_1,
+        master_1,
+        recomposed_1,
+        edit_2,
+        master_2,
+    }
+    assert upgraded[edit_1]["request"] == edit_request, "编辑结果的 request 是历史，不改写"
+    assert upgraded[master_1]["request"] == {"segments": _MASTER_SEGMENTS}, "purpose 去掉"
+    assert {
+        "ck_generation_jobs_kind",
+        "ck_generation_jobs_operation",
+        "ck_generation_jobs_video_shape",
+        "ck_generation_jobs_image_shape",
+    } <= shape["checks"]
+    assert "fk_generation_jobs_source_job" in shape["foreign_keys"]
+    assert "ix_generation_jobs_source_job" in shape["indexes"]
+    assert "operation" in shape["not_null"]
+
+    first_back = {"editId": str(edit_1), "editStart": 0.834, "editEnd": 4}
+    second_back = {"editId": str(edit_2), "editStart": 2, "editEnd": 5, "baseEdit": str(edit_1)}
+    assert set(restored) == set(upgraded), "参考片段降级不造回"
+    assert restored[edit_1]["metadata"] == first_back
+    assert restored[edit_2]["metadata"] == second_back, "baseEdit 与它基于的那次成片的 editId 相同"
+    for master in (master_1, recomposed_1):
+        assert restored[master] == {
+            "kind": "clip",
+            "request": _MASTER_REQUEST,
+            "metadata": first_back,
+        }
+    assert restored[master_2]["metadata"] == second_back
+    assert restored[root]["metadata"] == {"shot": 1}
+
+
+@pytest.mark.parametrize(
+    ("flaw", "message"),
+    [
+        ("base_edit_missing", "baseEdit 找不到同链里已完成的成片"),
+        ("base_edit_failed", "baseEdit 找不到同链里已完成的成片"),
+        ("master_before_edit", "成片找不到同链里更早的编辑结果"),
+        ("coordinates", "编辑结果缺编辑坐标或坐标不成区间"),
+    ],
+    ids=["baseEdit 没有成片", "baseEdit 的成片失败了", "成片早于编辑结果", "编辑结果缺 editEnd"],
+)
+async def test_operation_migration_refuses_rows_it_cannot_place(
+    migrated_pg: str, flaw: str, message: str
+) -> None:
+    """对不上的行不静默落成别的角色：带 id 报错，库停在 0016。"""
+
+    cfg = _alembic(migrated_pg)
+    owner = uuid.uuid4()
+    root, edit, master, offender = (uuid.uuid4() for _ in range(4))
+    take: _ChainRow = (root, "video", {"prompt": "p"}, {"shot": 1}, None, 0)
+    first: dict[str, object] = {"editId": "e1", "editStart": 1, "editEnd": 2}
+    based: dict[str, object] = {"baseEdit": "e1", "editId": "e2", "editStart": 1, "editEnd": 2}
+    failed: frozenset[uuid.UUID] = frozenset()
+    rows: tuple[_ChainRow, ...]
+    if flaw == "base_edit_missing":
+        rows = (take, (offender, "video", {"prompt": "p"}, based, root, 1))
+    elif flaw == "base_edit_failed":
+        rows = (
+            take,
+            (edit, "video", {"prompt": "p"}, first, root, 1),
+            (master, "clip", _MASTER_REQUEST, first, root, 2),
+            (offender, "video", {"prompt": "p"}, based, root, 3),
+        )
+        failed = frozenset({master})
+    elif flaw == "master_before_edit":
+        rows = (
+            take,
+            (offender, "clip", _MASTER_REQUEST, first, root, 1),
+            (edit, "video", {"prompt": "p"}, first, root, 2),
+        )
+    else:
+        rows = (
+            take,
+            (offender, "video", {"prompt": "p"}, {"editId": "e1", "editStart": 1}, root, 1),
+        )
+    try:
+        command.downgrade(cfg, BEFORE_OPERATION)
+        await _seed_before_operation(migrated_pg, owner, rows, failed=failed)
+        with pytest.raises(RuntimeError, match=message) as refused:
+            command.upgrade(cfg, "head")
+        version = await _alembic_version(migrated_pg)
+    finally:
+        await _clear(migrated_pg)
+        command.upgrade(cfg, "head")
+
+    assert str(offender) in str(refused.value), "报错要点名是哪一行"
+    assert version == BEFORE_OPERATION, "整个迁移回滚，列没加上"
+
+
+async def test_operation_migration_refuses_to_downgrade_an_open_ended_composite(
+    migrated_pg: str,
+) -> None:
+    """0017 之后的合成有取到结尾的段，旧形状要求每段都有 end：拒绝降级，库留在 0017。"""
+
+    cfg = _alembic(migrated_pg)
+    owner = uuid.uuid4()
+    root, edit, composite = (uuid.uuid4() for _ in range(3))
+    rows = (
+        (root, "generate", None, None, None, {"model": "m", "prompt": "p"}),
+        (edit, "generate", root, root, (1000, 4000), {"model": "m", "prompt": "p"}),
+        (
+            composite,
+            "compose",
+            edit,
+            root,
+            None,
+            {
+                "segments": [
+                    {"url": "https://example.test/root.mp4", "start": 0, "end": 1},
+                    {"url": "https://example.test/edit.mp4", "start": 0},
+                ],
+                "userName": "luke",
+            },
+        ),
+    )
+    engine = create_async_engine(migrated_pg)
+    try:
+        async with engine.begin() as conn:
+            await _insert_generation_owner(conn, owner)
+            for job_id, operation, source, root_id, span, request in rows:
+                await conn.execute(
+                    text(
+                        "INSERT INTO iclip.generation_jobs (id, owner_user_id, kind, operation, "
+                        "provider, request, status, source_job_id, root_job_id, range_start_ms, "
+                        "range_end_ms, output_url, created_at, updated_at, finished_at) VALUES "
+                        "(:id, :owner, 'video', :operation, 'test', CAST(:request AS jsonb), "
+                        "'completed', :source, :root, :start, :end, 'https://example.test/v.mp4', "
+                        "now(), now(), now())"
+                    ),
+                    {
+                        "id": job_id,
+                        "owner": owner,
+                        "operation": operation,
+                        "request": json.dumps(request),
+                        "source": source,
+                        "root": root_id,
+                        "start": None if span is None else span[0],
+                        "end": None if span is None else span[1],
+                    },
+                )
+        await engine.dispose()
+        with pytest.raises(RuntimeError, match="合成里有取到结尾的段") as refused:
+            command.downgrade(cfg, BEFORE_OPERATION)
+        version = await _alembic_version(migrated_pg)
+    finally:
+        await engine.dispose()
+        await _clear(migrated_pg)
+        command.upgrade(cfg, "head")
+
+    assert str(composite) in str(refused.value)
+    assert version == OPERATION

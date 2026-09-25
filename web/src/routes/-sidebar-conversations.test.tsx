@@ -424,7 +424,12 @@ describe('SidebarConversations', () => {
     socket.deliver({
       type: 'event.generation.changed',
       session_id: id,
-      payload: { id: crypto.randomUUID(), kind: 'video', status: 'submitted' },
+      payload: {
+        id: crypto.randomUUID(),
+        kind: 'video',
+        operation: 'generate',
+        status: 'submitted',
+      },
     })
     expect(await screen.findByLabelText('视频生成中')).toBeVisible()
 
@@ -432,7 +437,12 @@ describe('SidebarConversations', () => {
     socket.deliver({
       type: 'event.generation.changed',
       session_id: id,
-      payload: { id: crypto.randomUUID(), kind: 'video', status: 'completed' },
+      payload: {
+        id: crypto.randomUUID(),
+        kind: 'video',
+        operation: 'generate',
+        status: 'completed',
+      },
     })
     await waitFor(() => expect(screen.queryByLabelText('视频生成中')).not.toBeInTheDocument())
   })

@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_en
 
 from iclip.common.shot_prompt import ShotCut, ShotScript, format_shot_prompt
 from iclip.domains.generation.models import STATUS_COMPLETED, STATUS_FAILED
-from iclip.domains.generation.schemas import CLIP_REFERENCE, KIND_CLIP, KIND_VIDEO
+from iclip.domains.generation.schemas import KIND_VIDEO, OPERATION_COMPOSE, OPERATION_GENERATE
 from iclip.domains.library.models import Scope, VideoCursor
 from iclip.domains.library.reports_pg import PgLibraryReports
 from tests.helpers.pg import reset_database
@@ -25,8 +25,6 @@ BASE = datetime(2026, 9, 20, 10, 0, tzinfo=UTC)
 NINA = "Nina.He"
 LEO = "Leo.Sun"
 SHAN = "Shan.Hu"
-MASTER = "master"
-"""ClipPurpose 的另一个取值；生成域没有为它单独起常量。"""
 
 SHOT_ONE: dict[str, Any] = {
     "global_settings": "浅灰地面与白墙，干净留白。",
@@ -67,7 +65,7 @@ class Seed:
     """两个人、四段对话（一段已删、一段是分叉）与一条不挂对话的钥匙出片。
 
     c1 镜 1：A（结构化 shot）、B（只有拼好的正文），A 名下有成片 M，M 比 B 晚，卡面是 M；
-    c1 镜 2：C 失败、D 成了；c2：E 成了，另有它的参考片段与编辑结果；c3 已删：F；
+    c1 镜 2：C 失败、D 成了；c2：E 成了，另有它上面的一段编辑；c3 已删：F；
     c4 分叉自 c1：在 c4 里剪继承来的 A 得到成片 N（比 M 晚），加分叉后新出的 G；
     H：钥匙直提的纯文本横版。
     """
@@ -122,12 +120,11 @@ class Seed:
                 url_name="b",
                 request={"prompt": MARKER_PROMPT},
             )
-            await self._clip(
+            await self._composite(
                 conn,
                 self.m,
                 self.c1,
-                root=self.a,
-                purpose=MASTER,
+                base=self.a,
                 created_at=at(90),
                 url_name="m",
                 duration_ms=7040,
@@ -166,15 +163,6 @@ class Seed:
                 url_name="e",
                 request={"prompt": "滑板 100% 落地。"},
             )
-            await self._clip(
-                conn,
-                uuid.uuid4(),
-                self.c2,
-                root=self.e,
-                purpose=CLIP_REFERENCE,
-                created_at=at(41),
-                url_name="e-ref",
-            )
             await self._video(
                 conn,
                 uuid.uuid4(),
@@ -184,7 +172,7 @@ class Seed:
                 shot=None,
                 created_at=at(42),
                 url_name="e-edit",
-                root=self.e,
+                edit_of=self.e,
             )
 
             await self._video(
@@ -198,12 +186,11 @@ class Seed:
                 url_name="f",
             )
 
-            await self._clip(
+            await self._composite(
                 conn,
                 self.n,
                 self.c4,
-                root=self.a,
-                purpose=MASTER,
+                base=self.a,
                 created_at=at(100),
                 url_name="n",
                 duration_ms=6500,
@@ -272,8 +259,10 @@ class Seed:
         url_name: str,
         status: str = STATUS_COMPLETED,
         request: dict[str, Any] | None = None,
-        root: uuid.UUID | None = None,
+        edit_of: uuid.UUID | None = None,
     ) -> None:
+        """一条出片；给了 ``edit_of`` 就是那次出片上的一段编辑（来源与原作都是它）。"""
+
         body: dict[str, Any] = {
             "model": "mmt-seedance-2-5",
             "prompt": "占位正文。",
@@ -286,56 +275,90 @@ class Seed:
         await conn.execute(
             text(
                 "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind,"
-                " provider, request, status, metadata, root_job_id, output_url,"
-                " watermark_output_url, created_at, updated_at, finished_at)"
-                " VALUES (:id, :owner, :conversation_id, :kind, 'test', CAST(:request AS jsonb),"
-                " :status, CAST(:metadata AS jsonb), :root, :output_url, :watermark_url,"
-                " :created_at, :created_at, :created_at)"
+                " operation, provider, request, status, metadata, source_job_id, root_job_id,"
+                " range_start_ms, range_end_ms, output_url, watermark_output_url, created_at,"
+                " updated_at, finished_at)"
+                " VALUES (:id, :owner, :conversation_id, :kind, :operation, 'test',"
+                " CAST(:request AS jsonb), :status, CAST(:metadata AS jsonb), :edit_of, :edit_of,"
+                " :range_start_ms, :range_end_ms, :output_url, :watermark_url, :created_at,"
+                " :created_at, :created_at)"
             ),
             {
                 "id": video_id,
                 "owner": owner,
                 "conversation_id": conversation_id,
                 "kind": KIND_VIDEO,
+                "operation": OPERATION_GENERATE,
                 "request": json.dumps(body),
                 "status": status,
                 "metadata": None if shot is None else json.dumps({"shot": shot}),
-                "root": root,
+                "edit_of": edit_of,
+                "range_start_ms": None if edit_of is None else 1000,
+                "range_end_ms": None if edit_of is None else 4000,
                 "output_url": url(url_name) if status == STATUS_COMPLETED else None,
                 "watermark_url": url(f"{url_name}-wm") if status == STATUS_COMPLETED else None,
                 "created_at": created_at,
             },
         )
 
-    async def _clip(
+    async def _composite(
         self,
         conn: AsyncConnection,
-        clip_id: uuid.UUID,
+        composite_id: uuid.UUID,
         conversation_id: uuid.UUID,
         *,
-        root: uuid.UUID,
-        purpose: str,
+        base: uuid.UUID,
         created_at: datetime,
         url_name: str,
         duration_ms: int | None = None,
     ) -> None:
+        """在 ``base`` 那次出片上剪一段再合成：先落编辑段，合成以它为来源、原作是基底；
+        两条的属主都照基底的。"""
+
+        edit_id = uuid.uuid4()
         await conn.execute(
             text(
                 "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind,"
-                " provider, request, status, root_job_id, output_url, provider_snapshot,"
-                " created_at, updated_at, finished_at)"
-                " SELECT :id, owner_user_id, :conversation_id, :kind, 'local',"
-                " CAST(:request AS jsonb), :status, :root, :output_url,"
-                " CAST(:snapshot AS jsonb), :created_at, :created_at, :created_at"
-                " FROM iclip.generation_jobs WHERE id = :root"
+                " operation, provider, request, status, source_job_id, root_job_id,"
+                " range_start_ms, range_end_ms, output_url, created_at, updated_at, finished_at)"
+                " SELECT :id, owner_user_id, :conversation_id, :kind, :operation, 'test',"
+                " CAST(:request AS jsonb), :status, :base, :base, 1000, 4000, :output_url,"
+                " :created_at, :created_at, :created_at"
+                " FROM iclip.generation_jobs WHERE id = :base"
             ),
             {
-                "id": clip_id,
+                "id": edit_id,
                 "conversation_id": conversation_id,
-                "kind": KIND_CLIP,
-                "request": json.dumps({"purpose": purpose, "segments": []}),
+                "kind": KIND_VIDEO,
+                "operation": OPERATION_GENERATE,
+                "request": json.dumps({"model": "mmt-seedance-2-5", "prompt": "改一段。"}),
                 "status": STATUS_COMPLETED,
-                "root": root,
+                "base": base,
+                "output_url": url(f"{url_name}-edit"),
+                "created_at": created_at - timedelta(minutes=1),
+            },
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind,"
+                " operation, provider, request, status, source_job_id, root_job_id, output_url,"
+                " provider_snapshot, created_at, updated_at, finished_at)"
+                " SELECT :id, owner_user_id, :conversation_id, :kind, :operation, 'local',"
+                " CAST(:request AS jsonb), :status, :edit, :base, :output_url,"
+                " CAST(:snapshot AS jsonb), :created_at, :created_at, :created_at"
+                " FROM iclip.generation_jobs WHERE id = :base"
+            ),
+            {
+                "id": composite_id,
+                "conversation_id": conversation_id,
+                "kind": KIND_VIDEO,
+                "operation": OPERATION_COMPOSE,
+                "request": json.dumps(
+                    {"segments": [{"url": url(f"{url_name}-edit"), "start": 0, "end": 3}]}
+                ),
+                "status": STATUS_COMPLETED,
+                "edit": edit_id,
+                "base": base,
                 "output_url": url(url_name),
                 "snapshot": json.dumps({} if duration_ms is None else {"durationMs": duration_ms}),
                 "created_at": created_at,

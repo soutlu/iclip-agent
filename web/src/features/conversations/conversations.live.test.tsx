@@ -80,7 +80,7 @@ const titleFrame = (conversationId: string, title: string) => ({
 })
 
 const generationFrame = (conversationId: string, kind: 'video' | 'image') => ({
-  payload: { id: 'job-1', kind, status: 'submitted' },
+  payload: { id: 'job-1', kind, operation: 'generate', status: 'submitted' },
   session_id: conversationId,
   type: 'event.generation.changed',
 })

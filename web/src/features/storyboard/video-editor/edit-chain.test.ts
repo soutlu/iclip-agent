@@ -2,33 +2,43 @@ import { describe, expect, it } from 'vitest'
 import { makeGenerationJob } from '@/testing/generation-job'
 import type { GenerationJob } from '../storyboard.api'
 import {
-  actualEditStart,
   ancestorsOf,
-  composeSegments,
   editCountsByRoot,
   layoutSegments,
   locateClock,
   projectEditChain,
   splicePreview,
   type ChainVersion,
+  type EditStage,
 } from './edit-chain'
 
 const ROOT_URL = 'https://oss.example/root.mp4'
+const EDITED_URL = 'https://oss.example/edited.mp4'
+
+const at = (time: string) => `2026-09-15T${time}Z`
 
 const job = (spec: Partial<GenerationJob> & { id: string }): GenerationJob =>
-  makeGenerationJob({ createdAt: '2026-09-15T10:00:00Z', ...spec })
+  makeGenerationJob({ createdAt: at('10:00:00'), ...spec })
 
-/** 链上的记录：原作号一律指根，不管这次基于哪一版。 */
-const derived = (spec: Partial<GenerationJob> & { id: string }): GenerationJob =>
-  job({ rootJobId: 'root', ...spec })
+/** 编辑段：原作号一律指根，来源是这次的基底（根或某次合成）；区间按秒给。 */
+const segment = (
+  id: string,
+  source: string,
+  [start, end]: [number, number],
+  spec: Partial<GenerationJob> = {},
+): GenerationJob =>
+  job({
+    id,
+    rootJobId: 'root',
+    sourceJobId: source,
+    rangeStartMs: start * 1000,
+    rangeEndMs: end * 1000,
+    ...spec,
+  })
 
-/** `base` 是基于哪一版：'root' 即原片（便签上不写），否则是那一版成片的 editId。 */
-const coords = (editId: string, base: string, editStart: number, editEnd: number) => ({
-  ...(base === 'root' ? {} : { baseEdit: base }),
-  editId,
-  editStart,
-  editEnd,
-})
+/** 合成：来源是它拼回去的那条编辑段。 */
+const composite = (id: string, source: string, spec: Partial<GenerationJob> = {}): GenerationJob =>
+  job({ id, operation: 'compose', rootJobId: 'root', sourceJobId: source, ...spec })
 
 const root = job({
   id: 'root',
@@ -37,82 +47,52 @@ const root = job({
   request: { prompt: '原片' },
 })
 
-/** e1 已合成；e2 在 V2 上切片中；e3 编辑结果回来了待预览；e4 生成失败。 */
+/** e1 已合成成 V2；e2 在 V2 上切片中；e3 编辑结果回来了待预览；e4 生成失败。 */
 const chainJobs: GenerationJob[] = [
-  derived({
-    id: 'e1-ref',
-    kind: 'clip',
-    createdAt: '2026-09-15T10:01:00Z',
-    outputUrl: 'https://oss.example/e1-ref.mp4',
-    metadata: coords('e1', 'root', 4, 8),
-    request: { purpose: 'reference', segments: [{ url: ROOT_URL, start: 4, end: 8 }] },
-  }),
-  derived({
-    id: 'e1-video',
-    createdAt: '2026-09-15T10:02:00Z',
+  segment('e1', 'root', [3.774, 8], {
+    createdAt: at('10:01:00'),
     outputUrl: 'https://oss.example/e1.mp4',
-    metadata: coords('e1', 'root', 3.774, 8),
     request: { prompt: '编辑视频，换成浅灰背景' },
   }),
-  derived({
-    id: 'e1-master',
-    kind: 'clip',
-    createdAt: '2026-09-15T10:03:00Z',
+  composite('m1', 'e1', {
+    createdAt: at('10:02:00'),
+    finishedAt: at('10:03:00'),
     outputUrl: 'https://oss.example/m1.mp4',
-    metadata: coords('e1', 'root', 3.774, 8),
-    request: {
-      purpose: 'master',
-      segments: [
-        { url: ROOT_URL, start: 0, end: 3.774 },
-        { url: 'https://oss.example/e1.mp4', start: 0, end: 4.1 },
-        { url: ROOT_URL, start: 8, end: 15 },
-      ],
-    },
   }),
-  derived({
-    id: 'e2-ref',
-    kind: 'clip',
-    createdAt: '2026-09-15T10:04:00Z',
-    status: 'submitted',
-    metadata: coords('e2', 'e1', 1, 2),
-    request: {
-      purpose: 'reference',
-      segments: [{ url: 'https://oss.example/m1.mp4', start: 1, end: 2 }],
-    },
-  }),
-  derived({
-    id: 'e3-video',
-    createdAt: '2026-09-15T10:05:00Z',
+  segment('e2', 'm1', [1, 2], { createdAt: at('10:04:00'), status: 'submitting' }),
+  segment('e3', 'root', [2.5, 6], {
+    createdAt: at('10:05:00'),
     outputUrl: 'https://oss.example/e3.mp4',
-    metadata: coords('e3', 'root', 2.5, 6),
     request: { prompt: '把人物换成侧身' },
   }),
-  derived({
-    id: 'e4-video',
-    createdAt: '2026-09-15T10:06:00Z',
+  segment('e4', 'root', [0, 3], {
+    createdAt: at('10:06:00'),
     status: 'failed',
     errorMessage: '上游拒绝了这段素材',
-    metadata: coords('e4', 'root', 0, 3),
   }),
-  // 坐标读不出来的、基底不在链里的，都不算。
+  // 没有来源的视频不是编辑段，不算。
   job({ id: 'stray', metadata: { shot: 2 } }),
-  derived({ id: 'orphan', metadata: coords('e9', 'elsewhere', 0, 1), outputUrl: 'x' }),
 ]
 
 describe('projectEditChain', () => {
   const chain = projectEditChain(root, chainJobs)
 
-  it('根是 V1，合成完的成片按时间接着编号，并记住基于哪一版', () => {
-    expect(chain.versions.map((version) => [version.key, version.label, version.mediaUrl])).toEqual(
-      [
-        ['root', 'V1', ROOT_URL],
-        ['e1', 'V2', 'https://oss.example/m1.mp4'],
-      ],
-    )
-    expect(chain.versions[1]?.edit).toMatchObject({ baseKey: 'root', editStart: 3.774, editEnd: 8 })
+  it('根是 V1，完成的合成接着编号，键跟着它的编辑段，并记住基于哪一版、改了哪一段', () => {
+    expect(
+      chain.versions.map((version) => [
+        version.key,
+        version.jobId,
+        version.label,
+        version.mediaUrl,
+      ]),
+    ).toEqual([
+      ['root', 'root', 'V1', ROOT_URL],
+      ['e1', 'm1', 'V2', 'https://oss.example/m1.mp4'],
+    ])
+    expect(chain.versions[1]?.edit).toEqual({ baseKey: 'root', start: 3.774, end: 8 })
   })
 
-  it('进行中的编辑按阶段分类、按提交顺序预定版本号，坐标以编辑结果上的实际值为准', () => {
+  it('进行中的编辑按提交顺序预定版本号，基底按记录 id 找，区间取编辑段上记的实际值', () => {
     expect(
       chain.pending.map((edit) => [edit.key, edit.label, edit.base.label, edit.stage, edit.error]),
     ).toEqual([
@@ -121,16 +101,7 @@ describe('projectEditChain', () => {
       ['e4', 'V5', 'V1', 'failed', '上游拒绝了这段素材'],
     ])
     expect(chain.pending[1]?.prompt).toBe('把人物换成侧身')
-    expect(chain.pending[1]?.coords).toMatchObject({ editStart: 2.5, editEnd: 6 })
-  })
-
-  it('来源链从根一路追到当前版本', () => {
-    const labels = (from: number) =>
-      chain.versions[from] === undefined
-        ? []
-        : ancestorsOf(chain.versions, chain.versions[from]).map((version) => version.label)
-    expect(labels(1)).toEqual(['V1', 'V2'])
-    expect(labels(0)).toEqual(['V1'])
+    expect(chain.pending[1]?.range).toEqual({ start: 2.5, end: 6 })
   })
 
   it('待预览的编辑把基底切开、夹进结果，尾段开放到素材结束', () => {
@@ -141,36 +112,133 @@ describe('projectEditChain', () => {
     ])
   })
 
-  it('同一 editId 重发过时，各角色取列表最前那条（接口新的在前），坐标跟着它', () => {
-    const resent = projectEditChain(root, [
-      derived({
-        id: 'e5-video-retry',
-        createdAt: '2026-09-15T10:09:00Z',
-        outputUrl: 'https://oss.example/e5-retry.mp4',
-        metadata: coords('e5', 'root', 1.2, 4),
-        request: { prompt: '重发：人物转身' },
-      }),
-      derived({
-        id: 'e5-video',
-        createdAt: '2026-09-15T10:08:00Z',
-        status: 'failed',
-        errorMessage: '上游超时',
-        metadata: coords('e5', 'root', 1.5, 4),
-        request: { prompt: '人物转身' },
-      }),
-      derived({
-        id: 'e5-ref',
-        kind: 'clip',
-        createdAt: '2026-09-15T10:07:00Z',
-        outputUrl: 'https://oss.example/e5-ref.mp4',
-        metadata: coords('e5', 'root', 1, 4),
-        request: { purpose: 'reference', segments: [{ url: ROOT_URL, start: 1, end: 4 }] },
+  it('基于某次合成的再次编辑，合成后记着基于那一版；来源链从根一路追到当前版本', () => {
+    const { versions } = projectEditChain(root, [
+      ...chainJobs.slice(0, 2),
+      segment('e2', 'm1', [1, 2], { createdAt: at('10:04:00'), outputUrl: 'e2.mp4' }),
+      composite('m2', 'e2', {
+        createdAt: at('10:05:00'),
+        finishedAt: at('10:06:00'),
+        outputUrl: 'm2.mp4',
       }),
     ])
-    expect(
-      resent.pending.map((edit) => [edit.key, edit.stage, edit.video?.id, edit.prompt]),
-    ).toEqual([['e5', 'ready', 'e5-video-retry', '重发：人物转身']])
-    expect(resent.pending[0]?.coords).toMatchObject({ editStart: 1.2, editEnd: 4 })
+    expect(versions.map((version) => [version.label, version.edit?.baseKey])).toEqual([
+      ['V1', undefined],
+      ['V2', 'root'],
+      ['V3', 'e1'],
+    ])
+    const labels = (from: ChainVersion | undefined) =>
+      from === undefined ? [] : ancestorsOf(versions, from).map((version) => version.label)
+    expect(labels(versions[2])).toEqual(['V1', 'V2', 'V3'])
+    expect(labels(versions[0])).toEqual(['V1'])
+  })
+
+  it('完成的合成按完成时刻编号，不看提交先后；缺完成时刻的按创建时刻排', () => {
+    const { versions } = projectEditChain(root, [
+      segment('slow', 'root', [0, 1], { createdAt: at('10:01:00'), outputUrl: 'slow.mp4' }),
+      composite('slow-m', 'slow', {
+        createdAt: at('10:02:00'),
+        finishedAt: at('10:09:00'),
+        outputUrl: 'slow-m.mp4',
+      }),
+      segment('fast', 'root', [1, 2], { createdAt: at('10:03:00'), outputUrl: 'fast.mp4' }),
+      composite('fast-m', 'fast', {
+        createdAt: at('10:04:00'),
+        finishedAt: at('10:05:00'),
+        outputUrl: 'fast-m.mp4',
+      }),
+      segment('undated', 'root', [2, 3], { createdAt: at('10:05:30'), outputUrl: 'undated.mp4' }),
+      composite('undated-m', 'undated', {
+        createdAt: at('10:07:00'),
+        finishedAt: null,
+        outputUrl: 'undated-m.mp4',
+      }),
+    ])
+    expect(versions.map((version) => [version.label, version.jobId])).toEqual([
+      ['V1', 'root'],
+      ['V2', 'fast-m'],
+      ['V3', 'undated-m'],
+      ['V4', 'slow-m'],
+    ])
+  })
+
+  it('重新合成只认最近发起的那一次', () => {
+    const edited = segment('e5', 'root', [1, 4], {
+      createdAt: at('10:07:00'),
+      outputUrl: EDITED_URL,
+    })
+    const failed = composite('m5-failed', 'e5', {
+      createdAt: at('10:08:00'),
+      finishedAt: at('10:09:00'),
+      status: 'failed',
+      errorMessage: '取不到素材',
+    })
+
+    const running = projectEditChain(root, [
+      composite('m5', 'e5', { createdAt: at('10:10:00'), status: 'submitting' }),
+      failed,
+      edited,
+    ])
+    expect(running.pending.map((edit) => [edit.key, edit.stage, edit.master?.id])).toEqual([
+      ['e5', 'composing', 'm5'],
+    ])
+
+    const done = projectEditChain(root, [
+      composite('m5', 'e5', {
+        createdAt: at('10:10:00'),
+        finishedAt: at('10:11:00'),
+        outputUrl: 'm5.mp4',
+      }),
+      failed,
+      edited,
+    ])
+    expect(done.versions.map((version) => [version.key, version.jobId])).toEqual([
+      ['root', 'root'],
+      ['e5', 'm5'],
+    ])
+    expect(done.pending).toEqual([])
+  })
+
+  const stageCases: [
+    string,
+    Partial<GenerationJob>,
+    Partial<GenerationJob> | undefined,
+    EditStage,
+    string | undefined,
+  ][] = [
+    ['编辑段还在排队', { status: 'pending' }, undefined, 'cutting', undefined],
+    ['服务端在切片、交给模型', { status: 'submitting' }, undefined, 'cutting', undefined],
+    ['上游在生成', { status: 'submitted' }, undefined, 'generating', undefined],
+    ['编辑结果回来了', { outputUrl: EDITED_URL }, undefined, 'ready', undefined],
+    [
+      '编辑段失败',
+      { status: 'failed', errorMessage: '起点超出基底' },
+      undefined,
+      'failed',
+      '起点超出基底',
+    ],
+    ['合成在跑', { outputUrl: EDITED_URL }, { status: 'submitting' }, 'composing', undefined],
+    ['合成失败', { outputUrl: EDITED_URL }, { status: 'failed' }, 'failed', '合成失败'],
+  ]
+
+  it.each(stageCases)('%s', (_name, segmentSpec, compositeSpec, stage, error) => {
+    const { pending } = projectEditChain(root, [
+      ...(compositeSpec === undefined
+        ? []
+        : [composite('m', 'e', { createdAt: at('10:02:00'), ...compositeSpec })]),
+      segment('e', 'root', [1, 3], { createdAt: at('10:01:00'), ...segmentSpec }),
+    ])
+    expect(pending.map((edit) => [edit.stage, edit.error])).toEqual([[stage, error]])
+  })
+
+  it('基底不在链里的编辑与合成都不展示', () => {
+    const orphaned = projectEditChain(root, [
+      segment('orphan', 'elsewhere', [0, 1], { outputUrl: 'orphan.mp4' }),
+      composite('orphan-m', 'orphan', { finishedAt: at('10:01:00'), outputUrl: 'orphan-m.mp4' }),
+      segment('orphan-running', 'elsewhere', [0, 1], { status: 'submitted' }),
+    ])
+    expect(orphaned.versions.map((version) => version.key)).toEqual(['root'])
+    expect(orphaned.pending).toEqual([])
   })
 
   it('根没有结果时没有任何版本', () => {
@@ -189,7 +257,7 @@ describe('splicePreview', () => {
   }
 
   it('从头开始改就没有前段', () => {
-    expect(splicePreview(base, { editStart: 0, editEnd: 3 }, 'e')).toEqual([
+    expect(splicePreview(base, { start: 0, end: 3 }, 'e')).toEqual([
       { mediaUrl: 'e', start: 0, role: 'edited' },
       { mediaUrl: ROOT_URL, start: 3, role: 'base' },
     ])
@@ -199,7 +267,7 @@ describe('splicePreview', () => {
 describe('layoutSegments', () => {
   const preview = splicePreview(
     { key: 'r', jobId: 'r', label: 'V1', mediaUrl: ROOT_URL, createdAt: '', edit: undefined },
-    { editStart: 2.5, editEnd: 6 },
+    { start: 2.5, end: 6 },
     'e',
   )
 
@@ -208,17 +276,12 @@ describe('layoutSegments', () => {
     expect(layoutSegments(preview, { [ROOT_URL]: 15, e: null })).toBeUndefined()
   })
 
-  it('时长齐了就排上时钟，合成用的段全是闭区间', () => {
+  it('时长齐了就排上时钟，开放的段按素材时长闭合', () => {
     const laid = layoutSegments(preview, { [ROOT_URL]: 15, e: 3.4 })
     expect(laid?.map((segment) => [segment.at, segment.duration, segment.end])).toEqual([
       [0, 2.5, 2.5],
       [2.5, 3.4, 3.4],
       [5.9, 9, 15],
-    ])
-    expect(composeSegments(laid ?? [])).toEqual([
-      { url: ROOT_URL, start: 0, end: 2.5 },
-      { url: 'e', start: 0, end: 3.4 },
-      { url: ROOT_URL, start: 6, end: 15 },
     ])
   })
 
@@ -261,15 +324,9 @@ describe('locateClock', () => {
   })
 })
 
-describe('actualEditStart', () => {
-  it('结束点准，起点按片段实际时长往前推，推过头就贴 0', () => {
-    expect(actualEditStart(8, 4.226)).toBe(3.774)
-    expect(actualEditStart(3, 3.5)).toBe(0)
-  })
-})
-
 describe('editCountsByRoot', () => {
-  it('只按原作号数成功的编辑结果，基底不在链里的也算这条根的', () => {
-    expect([...editCountsByRoot(chainJobs)]).toEqual([['root', 3]])
+  it('只数这条根名下完成的编辑段：合成不另算，基底不在链里的也算', () => {
+    const jobs = [...chainJobs, segment('orphan', 'elsewhere', [0, 1], { outputUrl: 'x' })]
+    expect([...editCountsByRoot(jobs)]).toEqual([['root', 3]])
   })
 })
