@@ -176,7 +176,13 @@ describe('需求单关联对话按全局帧重拉', () => {
   const videoFrame = (conversationId: string, kind: 'video' | 'image' = 'video') => ({
     type: 'event.generation.changed',
     session_id: conversationId,
-    payload: { id: crypto.randomUUID(), kind, status: 'pending', metadata: { shot: 1 } },
+    payload: {
+      id: crypto.randomUUID(),
+      kind,
+      operation: 'generate',
+      status: 'pending',
+      metadata: { shot: 1 },
+    },
   })
 
   /** 打开一张挂着一段空闲对话的需求单，并记下关联对话列表被读了几次。 */

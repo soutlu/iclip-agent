@@ -12,23 +12,29 @@ import {
 describe('seedVideoEditJob', () => {
   const conversationId = 'ff2c1c0e-6c4f-4f0e-9a2b-0f2f3a4b5c6d'
   const chainKey = videoEditChainKey(conversationId, 'root-job')
-  const clip = makeGenerationJob({ kind: 'clip', status: 'pending' })
+  const segment = makeGenerationJob({
+    status: 'pending',
+    rootJobId: 'root-job',
+    sourceJobId: 'root-job',
+    rangeStartMs: 0,
+    rangeEndMs: 2000,
+  })
 
   it('这条链还没读过就只有这一条', () => {
     const queryClient = new QueryClient()
 
-    seedVideoEditJob(queryClient, conversationId, 'root-job', clip)
+    seedVideoEditJob(queryClient, conversationId, 'root-job', segment)
 
-    expect(queryClient.getQueryData(chainKey)).toEqual({ items: [clip] })
+    expect(queryClient.getQueryData(chainKey)).toEqual({ items: [segment] })
   })
 
   it('放进这条链最前面、同一条替换不重复，并失效本对话全部编辑链', () => {
     const queryClient = new QueryClient()
-    const earlier = makeGenerationJob({ kind: 'clip' })
+    const earlier = makeGenerationJob()
     const otherChain = videoEditChainKey(conversationId, 'other-root')
-    queryClient.setQueryData(chainKey, { items: [clip, earlier] })
+    queryClient.setQueryData(chainKey, { items: [segment, earlier] })
     queryClient.setQueryData(otherChain, { items: [] })
-    const accepted = { ...clip, status: 'submitted' as const }
+    const accepted = { ...segment, status: 'submitted' as const }
 
     seedVideoEditJob(queryClient, conversationId, 'root-job', accepted)
 

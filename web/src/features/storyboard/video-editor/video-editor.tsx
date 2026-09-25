@@ -1,24 +1,21 @@
-/** 视频编辑器：切出选中的一段交给模型，预览拼好的整条，满意再合成成片。
+/** 视频编辑器：选中一段交给模型改，预览拼好的整条，满意再合成成片。
  *
- * 编辑进行到哪一步不存在本地：每次渲染都从生成记录按 editId 分组推出来，关掉重开、刷新都还在。
- * 唯一留在内存里的是本次会话发起的编辑的草稿（要求、模型、参考图），参考片段切好那一刻要用它
- * 发编辑任务；刷新后草稿没了，那条切好的片段就不再展示，重新选一段就是。 */
+ * 编辑进行到哪一步不存在本地：每次渲染都从这条出片名下的编辑段与合成推出来，关掉重开、刷新都还在。
+ * 切参考片段与拼接都在服务端，这里只提交基底、区间与编辑段。 */
 
 import { useQueryClient } from '@tanstack/react-query'
 import { useMemo, useRef, useState } from 'react'
 import { errorMessageOf } from '@/shared/api/client'
 import { useMediaDownload } from '@/shared/api/media-download'
 import { videoSnapshotUrl } from '@/shared/lib/media-url'
-import { mintUuid } from '@/shared/lib/uuid'
 import { Button } from '@/shared/ui/button'
 import { DialogBody, DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
 import { toast } from '@/shared/ui/toast'
-import type { VideoEditMetadata } from '../generation-metadata'
 import { useVideoModels, type GenerationJob } from '../storyboard.api'
 import {
   EDIT_STAGE_LABEL,
   ancestorsOf,
-  composeSegments,
+  isComposite,
   layoutSegments,
   projectEditChain,
   totalDuration,
@@ -35,15 +32,14 @@ import { EditorRangeFields } from './editor-range-fields'
 import { EditorTimeline } from './editor-timeline'
 import type { VersionMenuEntry } from './editor-version-menu'
 import { clampRange, MIN_RANGE_SECONDS, type TimeRange } from './time-range'
-import { useAutoSubmitEdits, type EditDraft } from './use-auto-submit-edits'
 import { useMediaDurations } from './use-media-durations'
 import { useStableValue } from './use-stable-value'
 import {
   editableModels,
   pickEditModel,
   seedVideoEditJob,
-  submitMasterClip,
-  submitReferenceClip,
+  submitVideoComposite,
+  submitVideoEdit,
   useVideoEditChain,
 } from './video-editor.api'
 
@@ -113,19 +109,16 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
   const [prompt, setPrompt] = useState('')
   const [references, setReferences] = useState<EditorReference[]>([])
   const [wantedModel, setWantedModel] = useState<string>()
-  const [drafts, setDrafts] = useState<Readonly<Record<string, EditDraft>>>({})
-  // 三段互斥的写操作加上传参考图；任一在跑时整个编辑器一起锁。
-  const [operation, setOperation] = useState<'idle' | 'uploading' | 'cutting' | 'composing'>('idle')
+  // 两次互斥的提交加上传参考图；任一在跑时整个编辑器一起锁。
+  const [operation, setOperation] = useState<'idle' | 'uploading' | 'generating' | 'composing'>(
+    'idle',
+  )
   const [operationError, setOperationError] = useState<string | null>(null)
   const { downloading, download } = useMediaDownload()
   const busy = operation !== 'idle'
   const model = pickEditModel(models, wantedModel, modelsQuery.data?.default)
 
-  // 切好没发、又不是本次会话发起的编辑，草稿已经没了，不展示。
-  const pending = useMemo(
-    () => chain.pending.filter((edit) => edit.stage !== 'cut' || edit.key in drafts),
-    [chain.pending, drafts],
-  )
+  const pending = chain.pending
   const previewable = useMemo(() => pending.filter((edit) => edit.preview !== undefined), [pending])
   const selected = useMemo<Selected | undefined>(() => {
     const version = chain.versions.find((item) => item.key === selectedKey)
@@ -162,11 +155,11 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
       for (const segment of edit.preview ?? []) seen.add(segment.mediaUrl)
     return [...seen]
   }, [chain])
-  // 本系统加工出来的视频（参考片段与成片）时长由后端量好随记录返回，不用再开播放器去探。
+  // 合成出来的视频时长由后端量好随记录返回，不用再开播放器去探。
   const clipDurations = useMemo(() => {
     const known: Record<string, number> = {}
     for (const job of chainQuery.data?.items ?? [])
-      if (job.kind === 'clip' && job.outputUrl !== null && job.durationMs !== null)
+      if (isComposite(job) && job.outputUrl !== null && job.durationMs !== null)
         known[job.outputUrl] = job.durationMs / 1000
     return known
   }, [chainQuery.data])
@@ -231,14 +224,6 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
   const seedJob = (job: GenerationJob) =>
     seedVideoEditJob(queryClient, conversationId, root.id, job)
 
-  // 第二步：参考片段切好了，把片段交给模型。
-  useAutoSubmitEdits({
-    pending: chain.pending,
-    drafts,
-    origin: { conversationId, taskId: root.taskId, rootJobId: root.id },
-    onError: setOperationError,
-  })
-
   const select = (key: string) => {
     setSelectedKey(key)
     setOperationError(null)
@@ -273,51 +258,40 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
       setOperationError('没有可用的编辑模型')
       return
     }
-    const editId = mintUuid()
-    const metadata: VideoEditMetadata = {
-      // 基于原片时 edit 为空，这一项就不写。
-      ...(selectedVersion.edit === undefined ? {} : { baseEdit: selectedVersion.edit.editId }),
-      editId,
-      editStart: range.start,
-      editEnd: range.end,
-    }
-    setDrafts((current) => ({ ...current, [editId]: { prompt: text, model, references } }))
-    setOperation('cutting')
+    setOperation('generating')
     setOperationError(null)
     try {
       seedJob(
-        await submitReferenceClip({
+        await submitVideoEdit({
           conversationId,
           taskId: root.taskId,
-          rootJobId: root.id,
-          metadata,
-          url: selectedVersion.mediaUrl,
-          start: range.start,
-          end: range.end,
+          sourceJobId: selectedVersion.jobId,
+          rangeStartMs: Math.round(range.start * 1000),
+          rangeEndMs: Math.round(range.end * 1000),
+          model,
+          prompt: text,
+          referenceImageUrls: references.map((reference) => reference.url),
         }),
       )
     } catch (error) {
-      setDrafts(({ [editId]: _dropped, ...rest }) => rest)
-      setOperationError(errorMessageOf(error, '切片任务提交失败'))
+      setOperationError(errorMessageOf(error, '视频编辑提交失败'))
     } finally {
       setOperation('idle')
     }
   }
 
   const compose = async (edit: PendingEdit) => {
-    const segments =
-      edit.preview === undefined ? undefined : layoutSegments(edit.preview, durations)
-    if (busy || segments === undefined) return
+    // 预览排不出来的不让合成，与按钮的可用条件一致。
+    if (busy || edit.preview === undefined || layoutSegments(edit.preview, durations) === undefined)
+      return
     setOperation('composing')
     setOperationError(null)
     try {
       seedJob(
-        await submitMasterClip({
+        await submitVideoComposite({
           conversationId,
           taskId: root.taskId,
-          rootJobId: root.id,
-          metadata: edit.coords,
-          segments: composeSegments(segments),
+          sourceJobId: edit.video.id,
         }),
       )
       toast.success('已提交合成，完成后会成为新版本')
@@ -330,12 +304,6 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
 
   const canGenerate =
     !busy && selectedVersion !== undefined && range !== undefined && model !== undefined
-  const clipDurationMissing = pending.some(
-    (edit) =>
-      edit.stage === 'cut' &&
-      edit.reference?.outputUrl != null &&
-      edit.reference.durationMs == null,
-  )
   const canCompose = (edit: PendingEdit) =>
     !busy &&
     edit.preview !== undefined &&
@@ -437,7 +405,7 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
                     <Button
                       className="video-editor-generate"
                       disabled={!canGenerate}
-                      loading={operation === 'cutting'}
+                      loading={operation === 'generating'}
                       onClick={() => void generate()}
                       trailingIcon="send-up"
                     >
@@ -460,7 +428,6 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
                     ? errorMessageOf(chainQuery.error, '读取编辑记录失败')
                     : undefined
                 }
-                clipDurationMissing={clipDurationMissing}
                 composeBlocked={composeBlocked}
                 modelsError={
                   modelsQuery.isError

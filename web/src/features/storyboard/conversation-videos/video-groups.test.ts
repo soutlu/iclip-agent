@@ -13,19 +13,22 @@ const job = (id: string, overrides: Partial<GenerationJob> = {}): GenerationJob 
   })
 
 describe('groupConversationVideos', () => {
-  it('只收成功、有地址的原始视频，图片、切片和编辑结果均不计入版本', () => {
+  it('只收成功、有地址的原始视频，图片、编辑段与合成均不计入版本', () => {
     const groups = groupConversationVideos([
       job('original'),
       job('image', { kind: 'image' }),
-      job('clip', { kind: 'clip' }),
       job('failed', { status: 'failed' }),
       job('submitted', { status: 'submitted' }),
       job('empty', { outputUrl: null }),
       job('blank', { outputUrl: '  ' }),
+      // 坐标照样落在这一组上，靠来源认出它们不是出片。
       job('edited', {
         rootJobId: 'original',
-        metadata: { shot: 1, editId: 'edit', editStart: 0, editEnd: 3 },
+        sourceJobId: 'original',
+        rangeStartMs: 0,
+        rangeEndMs: 3000,
       }),
+      job('composite', { operation: 'compose', rootJobId: 'original', sourceJobId: 'edited' }),
     ])
 
     expect(groups.map((group) => group.videos.map((video) => video.id))).toEqual([['original']])

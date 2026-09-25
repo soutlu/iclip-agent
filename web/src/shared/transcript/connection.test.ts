@@ -53,7 +53,7 @@ const MALFORMED = [
   }),
   malformed('event.generation.changed', {
     session_id: 'c9',
-    payload: { id: 'job-9', kind: BODY, status: 'submitted' },
+    payload: { id: 'job-9', kind: BODY, operation: 'generate', status: 'submitted' },
   }),
   malformed('event.fs.changed', {
     session_id: 'c1',
@@ -322,6 +322,7 @@ describe('TranscriptConnection', () => {
       payload: {
         id: 'job-1',
         kind: 'image',
+        operation: 'generate',
         status: 'submitted',
         metadata: { shot: 2, frame: 3 },
       },
@@ -329,7 +330,7 @@ describe('TranscriptConnection', () => {
     // 任务没有来源对话时信封上没有 session_id，空的归属字段服务端整个省略。
     socket.deliver({
       type: 'event.generation.changed',
-      payload: { id: 'job-2', kind: 'video', status: 'failed' },
+      payload: { id: 'job-2', kind: 'video', operation: 'compose', status: 'failed' },
     })
 
     expect(seen).toEqual([

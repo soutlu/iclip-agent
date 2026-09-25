@@ -146,6 +146,7 @@ describe('submitImageEdit', () => {
               errorMessage: null,
               id: '4a1e2f60-9a1e-4c2f-9c8b-1d2e3f4a5b6c',
               kind: 'image',
+              operation: 'generate',
               metadata: body['metadata'],
               outputUrl: null,
               request: {},

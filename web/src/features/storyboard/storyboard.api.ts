@@ -16,6 +16,9 @@ import { isRunningStatus } from './shots'
 
 export type GenerationJob = z.infer<typeof zGenerationOut>
 
+/** 列表接口的一页，按 zod 解析后的形状；查询缓存里存的就是它，与生成的 TS 类型在可选字段上不完全同形。 */
+export type GenerationsPage = z.infer<typeof zGenerationsPageOut>
+
 const PAGE_LIMIT = 100
 
 const POLL_MS = 5000

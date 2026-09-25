@@ -54,10 +54,11 @@ const workChangedSchema = z.object({
   last_turn_reason: z.enum(['completed', 'failed', 'aborted']).nullable().optional(),
 })
 
-// session_id 位于信封，任务没有来源对话时省略；kind 与 status 的词表取生成物的 GenerationOut；metadata 是调用方自带的坐标原样带出，为空时服务端整个省略字段。
+// session_id 位于信封，任务没有来源对话时省略；kind、operation 与 status 的词表取生成物的 GenerationOut；metadata 是调用方自带的坐标原样带出，为空时服务端整个省略字段。
 const generationChangedSchema = z.object({
   id: z.string(),
   kind: zGenerationOut.shape.kind,
+  operation: zGenerationOut.shape.operation,
   status: zGenerationOut.shape.status,
   metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 })

@@ -183,7 +183,13 @@ describe('ConversationVideos', () => {
     const changed = (sessionId: string) => ({
       type: 'event.generation.changed',
       session_id: sessionId,
-      payload: { id: job(2).id, kind: 'video', status: 'completed', metadata: { shot: 1 } },
+      payload: {
+        id: job(2).id,
+        kind: 'video',
+        operation: 'generate',
+        status: 'completed',
+        metadata: { shot: 1 },
+      },
     })
 
     act(() => socket.deliver(changed('0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d')))

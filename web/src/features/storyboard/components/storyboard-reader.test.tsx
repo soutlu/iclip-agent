@@ -540,6 +540,7 @@ describe('StoryboardReader', () => {
         payload: {
           id: runningJob.id,
           kind: 'video',
+          operation: 'generate',
           status: 'completed',
           metadata: { shot: 1 },
         },
@@ -589,6 +590,7 @@ describe('StoryboardReader', () => {
         payload: {
           id: imageJob.id,
           kind: 'image',
+          operation: 'generate',
           status: 'completed',
           metadata: { frame: 2, shot: 1 },
         },

@@ -13,6 +13,16 @@ const failedJob: GenerationJob = makeGenerationJob({
   rootJobId: 'root',
 })
 
+/** 这次编辑的编辑段；状态只看它，阶段词由各用例覆盖。 */
+const segment: GenerationJob = makeGenerationJob({
+  id: 'edit-1',
+  status: 'submitting',
+  rootJobId: 'root',
+  sourceJobId: 'root',
+  rangeStartMs: 0,
+  rangeEndMs: 3000,
+})
+
 const edit = (changes: Partial<PendingEdit>): PendingEdit => ({
   key: 'edit-1',
   label: 'V2',
@@ -25,12 +35,10 @@ const edit = (changes: Partial<PendingEdit>): PendingEdit => ({
     edit: undefined,
   },
   stage: 'cutting',
-  coords: { editId: 'edit-1', editStart: 0, editEnd: 3 },
+  range: { start: 0, end: 3 },
   prompt: undefined,
   error: undefined,
-  createdAt: failedJob.createdAt,
-  reference: undefined,
-  video: undefined,
+  video: segment,
   master: undefined,
   preview: undefined,
   ...changes,
@@ -39,7 +47,6 @@ const edit = (changes: Partial<PendingEdit>): PendingEdit => ({
 describe('EditorGenerationStatus', () => {
   it.each([
     { stage: 'cutting', current: '切片准备，当前阶段', completed: 0 },
-    { stage: 'cut', current: '视频生成，当前阶段', completed: 1 },
     { stage: 'generating', current: '视频生成，当前阶段', completed: 1 },
   ] as const)('$stage 按真实阶段标记进度', async ({ stage, current, completed }) => {
     await renderWithProviders(<EditorGenerationStatus edit={edit({ stage })} />)
@@ -70,8 +77,8 @@ describe('EditorGenerationStatus', () => {
   })
 
   it.each([
-    { stage: 'cutting', job: 'reference', clipStage: 'processing', text: '正在截取参考片段' },
-    { stage: 'cutting', job: 'reference', clipStage: 'uploading', text: '正在上传参考片段' },
+    { stage: 'cutting', job: 'video', clipStage: 'processing', text: '正在截取参考片段' },
+    { stage: 'cutting', job: 'video', clipStage: 'uploading', text: '正在上传参考片段' },
     { stage: 'composing', job: 'master', clipStage: 'fetching', text: '正在取素材' },
     { stage: 'composing', job: 'master', clipStage: 'processing', text: '正在编码成片' },
     { stage: 'composing', job: 'master', clipStage: 'uploading', text: '正在上传成片' },
@@ -83,7 +90,7 @@ describe('EditorGenerationStatus', () => {
   })
 
   it.each([
-    { stage: 'cutting', job: 'reference', text: '等待切片' },
+    { stage: 'cutting', job: 'video', text: '等待切片' },
     { stage: 'composing', job: 'master', text: '等待合成' },
   ] as const)('$stage 还在本系统排队时说清是在等：$text', async ({ stage, job, text }) => {
     const queued: GenerationJob = { ...failedJob, status: 'pending' }
@@ -102,7 +109,6 @@ describe('EditorGenerationStatus', () => {
   })
 
   it.each([
-    { failedAt: 'reference', failedStep: '切片准备，失败', completed: 0 },
     { failedAt: 'video', failedStep: '视频生成，失败', completed: 1 },
     { failedAt: 'master', failedStep: '结果预览，失败', completed: 2 },
   ] as const)(

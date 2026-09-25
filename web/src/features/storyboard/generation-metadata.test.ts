@@ -28,7 +28,6 @@ describe('readStoryboardMetadata', () => {
     ['没有坐标', null],
     ['别的调用方的形状', { batch: 'x' }],
     ['帧号不是正整数', { shot: 1, frame: 0 }],
-    ['视频编辑链的形状', { baseEdit: 'a', editId: 'e', editStart: 0, editEnd: 1 }],
   ])('%s 就当没有坐标', (_name, metadata) => {
     expect(readStoryboardMetadata({ metadata })).toBeUndefined()
   })

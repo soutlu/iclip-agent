@@ -35,36 +35,11 @@ export const readStoryboardMetadata = (job: {
   return parsed.success ? parsed.data : undefined
 }
 
-/** 这条记录是这一组的出片：视频、坐标落在这一组上。编辑结果不带坐标，不算。 */
+/** 这条记录是这一组的出片：视频、坐标落在这一组上。编辑段与合成提交时不带坐标，不算。 */
 export const isShotVideo = (
   job: Pick<GenerationOut, 'kind' | 'metadata'>,
   shotIndex: number,
 ): boolean => job.kind === 'video' && readStoryboardMetadata(job)?.shot === shotIndex
-
-/** 视频编辑链的坐标。三条记录（参考片段、编辑结果、成片）共用同一组键，靠 `editId` 串成一次编辑；
- * 它们属于哪条出片不在便签上，在记录的 `rootJobId` 里，链查询也按它筛。
- *
- * 便签里不放记录 id：基于哪一版用那一版的 `editId` 指。它是前端铸的，分叉副本继承来的成片与
- * 副本里自己剪的都能这样指。
- * 不带 `shot`：编辑结果不是这一镜的出片，抽屉与审计都不该把它算进去。
- * `editStart` 在编辑结果与成片上记的是实际值——参考片段按关键帧切，起点会落在用户选的位置之前，
- * 提交编辑任务那一刻按片段实际时长反算出来写进去；合成只读它，不回头碰会过期的参考片段。 */
-const videoEditMetadataSchema = z.object({
-  /** 这次编辑基于哪一版：那一版成片的 `editId`；基于原片就不填。 */
-  baseEdit: z.string().min(1).optional(),
-  editId: z.string().min(1),
-  editStart: z.number().min(0),
-  editEnd: z.number().positive(),
-})
-
-export type VideoEditMetadata = z.infer<typeof videoEditMetadataSchema>
-
-export const readVideoEditMetadata = (job: {
-  metadata: Record<string, unknown> | null
-}): VideoEditMetadata | undefined => {
-  const parsed = videoEditMetadataSchema.safeParse(job.metadata)
-  return parsed.success ? parsed.data : undefined
-}
 
 /** 列表接口的 `metadata` 查询参数：一段 JSON 对象，服务端按包含匹配筛。 */
 export const metadataFilterParam = (filter: Partial<StoryboardMetadata>): string =>
