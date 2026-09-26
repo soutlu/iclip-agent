@@ -307,13 +307,11 @@ class GenerationService:
             status=STATUS_PENDING,
             provider_task_id=None,
             provider_status=None,
-            provider_snapshot=None,
             output_url=None,
             error_code=None,
             error_message=None,
             # 仓储使用数据库 now() 覆盖时间占位值。
             created_at=now,
-            updated_at=now,
             submitted_at=None,
             finished_at=None,
         )
@@ -587,12 +585,10 @@ def _settled_job(
         status=STATUS_COMPLETED,
         provider_task_id=None,
         provider_status=None,
-        provider_snapshot=None,
         output_url=url,
         error_code=None,
         error_message=None,
         created_at=now,
-        updated_at=now,
         submitted_at=None,
         finished_at=now,
     )

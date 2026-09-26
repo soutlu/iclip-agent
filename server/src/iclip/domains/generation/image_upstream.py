@@ -69,9 +69,6 @@ class GatewayImageModel:
 
     fields: ImageFields
 
-    snapshot_keys: tuple[str, ...]
-    """专有键里要记进 provider 快照的那几个。"""
-
 
 @dataclass(frozen=True, slots=True)
 class GatewayImageSettings:
@@ -136,11 +133,6 @@ class GatewayImageProvider:
             # 网关不返回任务 id，使用请求 data_id 对账。
             provider_task_id=str(job.id),
             provider_status="succeeded",
-            raw={
-                **{key: fields[key] for key in self._model.snapshot_keys},
-                "sourceUrl": source_url,
-                "response": body,
-            },
             output_url=output_url,
         )
 

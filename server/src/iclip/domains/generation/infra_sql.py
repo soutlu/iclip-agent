@@ -98,7 +98,6 @@ generation_jobs_table = Table(
     Column("status", Text, nullable=False),
     Column("provider_task_id", Text, nullable=True),
     Column("provider_status", Text, nullable=True),
-    Column("provider_snapshot", JSONB, nullable=True),
     Column("output_url", Text, nullable=True),
     Column("watermark_output_url", Text, nullable=True),
     # 产物时长（毫秒）：只有本系统自己加工、量过的才有。
@@ -106,7 +105,6 @@ generation_jobs_table = Table(
     Column("error_code", Text, nullable=True),
     Column("error_message", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
-    Column("updated_at", DateTime(timezone=True), nullable=False),
     Column("submitted_at", DateTime(timezone=True), nullable=True),
     Column("finished_at", DateTime(timezone=True), nullable=True),
     Index("ix_generation_jobs_owner_created", "owner_user_id", "created_at"),
@@ -224,14 +222,12 @@ class SqlGenerationRepository:
                             status=job.status,
                             provider_task_id=None,
                             provider_status=None,
-                            provider_snapshot=None,
                             output_url=None,
                             watermark_output_url=None,
                             duration_ms=None,
                             error_code=None,
                             error_message=None,
                             created_at=func.now(),
-                            updated_at=func.now(),
                             submitted_at=None,
                             finished_at=None,
                         )
@@ -375,7 +371,7 @@ class SqlGenerationRepository:
         }
 
     async def mark_submitting(self, job_id: uuid.UUID) -> GenerationJob:
-        return await self._update(job_id, status=STATUS_SUBMITTING, updated_at=func.now())
+        return await self._update(job_id, status=STATUS_SUBMITTING)
 
     async def mark_submitted(
         self,
@@ -383,16 +379,13 @@ class SqlGenerationRepository:
         *,
         provider_task_id: str,
         provider_status: str,
-        provider_snapshot: dict[str, Any],
     ) -> GenerationJob:
         return await self._update(
             job_id,
             status=STATUS_SUBMITTED,
             provider_task_id=provider_task_id,
             provider_status=provider_status,
-            provider_snapshot=provider_snapshot,
             submitted_at=func.now(),
-            updated_at=func.now(),
         )
 
     async def mark_completed(
@@ -401,7 +394,6 @@ class SqlGenerationRepository:
         *,
         output_url: str,
         provider_status: str,
-        provider_snapshot: dict[str, Any],
         provider_task_id: str | None = None,
         watermark_output_url: str | None = None,
         duration_ms: int | None = None,
@@ -412,11 +404,9 @@ class SqlGenerationRepository:
             "output_url": output_url,
             "watermark_output_url": watermark_output_url,
             "provider_status": provider_status,
-            "provider_snapshot": provider_snapshot,
             # 同步生成在完成时补写 submitted_at；异步生成保留提交时间。
             "submitted_at": func.coalesce(_JOBS.submitted_at, func.now()),
             "finished_at": func.now(),
-            "updated_at": func.now(),
         }
         if provider_task_id is not None:
             values["provider_task_id"] = provider_task_id
@@ -433,7 +423,6 @@ class SqlGenerationRepository:
         error_code: str,
         error_message: str,
         provider_status: str | None = None,
-        provider_snapshot: dict[str, Any] | None = None,
         only_if_status: GenerationStatus | None = None,
     ) -> GenerationJob | None:
         values: dict[str, Any] = {
@@ -441,12 +430,9 @@ class SqlGenerationRepository:
             "error_code": error_code,
             "error_message": error_message,
             "finished_at": func.now(),
-            "updated_at": func.now(),
         }
         if provider_status is not None:
             values["provider_status"] = provider_status
-        if provider_snapshot is not None:
-            values["provider_snapshot"] = provider_snapshot
         if only_if_status is not None:
             return await self._update_if(job_id, only_if_status, **values)
         return await self._update(job_id, **values)
@@ -456,18 +442,11 @@ class SqlGenerationRepository:
         job_id: uuid.UUID,
         *,
         provider_status: str,
-        provider_snapshot: dict[str, Any] | None = None,
         only_if_status: GenerationStatus | None = None,
     ) -> GenerationJob | None:
-        values: dict[str, Any] = {
-            "provider_status": provider_status,
-            "updated_at": func.now(),
-        }
-        if provider_snapshot is not None:
-            values["provider_snapshot"] = provider_snapshot
         if only_if_status is not None:
-            return await self._update_if(job_id, only_if_status, **values)
-        return await self._update(job_id, **values)
+            return await self._update_if(job_id, only_if_status, provider_status=provider_status)
+        return await self._update(job_id, provider_status=provider_status)
 
     async def record_reference_cut(
         self,
@@ -484,7 +463,6 @@ class SqlGenerationRepository:
             range_end_ms=range_end_ms,
             # 切片阶段结束，阶段词清掉；接下来等上游的回执。
             provider_status=None,
-            updated_at=func.now(),
         )
 
     async def _update_if(
@@ -575,14 +553,12 @@ def _settled_values(job: GenerationJob) -> dict[str, Any]:
         "status": job.status,
         "provider_task_id": None,
         "provider_status": None,
-        "provider_snapshot": None,
         "output_url": job.output_url,
         "watermark_output_url": None,
         "duration_ms": None,
         "error_code": None,
         "error_message": None,
         "created_at": func.now(),
-        "updated_at": func.now(),
         "submitted_at": None,
         "finished_at": func.now(),
     }
@@ -612,14 +588,12 @@ def _job_from_row(row: RowMapping) -> GenerationJob:
         status=status,
         provider_task_id=row["provider_task_id"],
         provider_status=row["provider_status"],
-        provider_snapshot=row["provider_snapshot"],
         output_url=row["output_url"],
         watermark_output_url=row["watermark_output_url"],
         duration_ms=row["duration_ms"],
         error_code=row["error_code"],
         error_message=row["error_message"],
         created_at=row["created_at"],
-        updated_at=row["updated_at"],
         submitted_at=row["submitted_at"],
         finished_at=row["finished_at"],
     )

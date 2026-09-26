@@ -75,11 +75,10 @@ async def plant_jobs(pg_url: str, *, owner: uuid.UUID) -> dict[str, uuid.UUID]:
                 text(
                     "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind,"
                     " operation, provider, request, status, source_job_id, root_job_id,"
-                    " range_start_ms, range_end_ms, output_url, created_at, updated_at,"
-                    " finished_at)"
+                    " range_start_ms, range_end_ms, output_url, created_at, finished_at)"
                     " VALUES (:id, :owner, :conversation_id, :kind, :operation, 'test',"
                     " CAST(:request AS jsonb), :status, :source, :root, :range_start_ms,"
-                    " :range_end_ms, :output_url, now(), now(), :finished_at)"
+                    " :range_end_ms, :output_url, now(), :finished_at)"
                 ),
                 {
                     "id": ids[label],

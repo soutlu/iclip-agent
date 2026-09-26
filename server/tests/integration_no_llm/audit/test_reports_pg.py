@@ -162,11 +162,11 @@ class Seed:
                         "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id,"
                         " kind, operation, provider, request, status, shot_index, metadata,"
                         " source_job_id, root_job_id, range_start_ms, range_end_ms, created_at,"
-                        " updated_at, submitted_at, finished_at)"
+                        " submitted_at, finished_at)"
                         " VALUES (:id, :owner, :conversation_id, :kind, :operation, 'test',"
                         " CAST(:request AS jsonb), :status, :shot, CAST(:metadata AS jsonb),"
                         " :edit_of, :edit_of, :range_start_ms, :range_end_ms, :created_at,"
-                        " :created_at, :submitted_at, :finished_at)"
+                        " :submitted_at, :finished_at)"
                     ),
                     {
                         "id": job_id,
@@ -214,11 +214,10 @@ class Seed:
                     text(
                         "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id,"
                         " kind, operation, provider, request, status, shot_index, source_job_id,"
-                        " root_job_id, output_url, created_at, updated_at, submitted_at,"
-                        " finished_at)"
+                        " root_job_id, output_url, created_at, submitted_at, finished_at)"
                         " VALUES (:id, :owner, :conversation_id, :kind, :operation, 'test',"
                         " CAST(:request AS jsonb), :status, :shot, :edit, :root,"
-                        " 'https://example.test/master.mp4', :at, :at, :at, :at)"
+                        " 'https://example.test/master.mp4', :at, :at, :at)"
                     ),
                     {
                         "id": master_id,
@@ -894,10 +893,10 @@ async def test_forks_do_not_count_toward_any_metric(
         await conn.execute(
             text(
                 "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, shot_index,"
-                " kind, operation, provider, request, status, output_url, created_at, updated_at,"
+                " kind, operation, provider, request, status, output_url, created_at,"
                 " submitted_at, finished_at)"
                 " VALUES (:id, :owner, :conversation_id, 1, :kind, :operation, 'p',"
-                " :request, :status, 'https://example.test/copy.mp4', :at, :at, :at, :at)"
+                " :request, :status, 'https://example.test/copy.mp4', :at, :at, :at)"
             ),
             {
                 "id": fork_video,
@@ -984,9 +983,9 @@ async def test_videos_of_an_owner_without_username_count_overall_only(
                 text(
                     "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id,"
                     " shot_index, kind, operation, provider, request, status, output_url,"
-                    " created_at, updated_at, submitted_at, finished_at)"
+                    " created_at, submitted_at, finished_at)"
                     " VALUES (:id, :owner, :conversation_id, :shot, :kind, :operation, 'p',"
-                    " :request, :status, 'https://example.test/bare.mp4', :at, :at, :at, :at)"
+                    " :request, :status, 'https://example.test/bare.mp4', :at, :at, :at)"
                 ),
                 {
                     "id": video_id,
@@ -1037,9 +1036,9 @@ async def test_uploads_and_cuts_do_not_count_toward_any_metric(
                 text(
                     "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id,"
                     " kind, operation, provider, request, status, source_job_id, output_url,"
-                    " created_at, updated_at, finished_at)"
+                    " created_at, finished_at)"
                     " VALUES (:id, :owner, :conversation_id, :kind, :operation, 'p',"
-                    " CAST(:request AS jsonb), :status, :source, :url, :at, :at, :at)"
+                    " CAST(:request AS jsonb), :status, :source, :url, :at, :at)"
                 ),
                 {
                     "id": job_id,

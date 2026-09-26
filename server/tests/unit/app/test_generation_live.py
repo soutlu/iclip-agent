@@ -60,15 +60,12 @@ async def test_every_status_transition_of_a_video_job_is_announced_to_its_owner(
 
     await repo.create(job)
     await repo.mark_submitting(job.id)
-    await repo.mark_submitted(
-        job.id, provider_task_id="t-1", provider_status="queued", provider_snapshot={}
-    )
-    await repo.record_progress(job.id, provider_status="running", provider_snapshot={})
+    await repo.mark_submitted(job.id, provider_task_id="t-1", provider_status="queued")
+    await repo.record_progress(job.id, provider_status="running")
     await repo.mark_completed(
         job.id,
         output_url="https://cdn.test/take.mp4",
         provider_status="succeeded",
-        provider_snapshot={},
         watermark_output_url="https://cdn.test/take-wm.mp4",
     )
 

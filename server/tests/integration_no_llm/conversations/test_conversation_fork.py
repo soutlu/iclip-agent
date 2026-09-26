@@ -439,7 +439,6 @@ async def complete(repo: SqlGenerationRepository, job: GenerationJob, name: str)
         job.id,
         output_url=f"https://example.test/{name}.mp4",
         provider_status="succeeded",
-        provider_snapshot={},
     )
     assert done is not None
     return done

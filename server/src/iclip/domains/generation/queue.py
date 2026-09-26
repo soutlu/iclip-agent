@@ -224,7 +224,6 @@ class GenerationQueue:
                     job.id,
                     output_url=submission.output_url,
                     provider_status=submission.provider_status,
-                    provider_snapshot=submission.raw,
                     provider_task_id=submission.provider_task_id,
                     duration_ms=submission.duration_ms,
                     only_if_status=STATUS_SUBMITTING,
@@ -236,7 +235,6 @@ class GenerationQueue:
             job.id,
             provider_task_id=submission.provider_task_id,
             provider_status=submission.provider_status,
-            provider_snapshot=submission.raw,
         )
         await self._poll.configure(
             task_kwargs={"job_id": str(job.id)},
@@ -293,7 +291,6 @@ class GenerationQueue:
                     output_url=progress.output_url,
                     watermark_output_url=progress.watermark_output_url,
                     provider_status=progress.provider_status,
-                    provider_snapshot=progress.raw,
                     only_if_status=STATUS_SUBMITTED,
                 ),
             )
@@ -306,17 +303,13 @@ class GenerationQueue:
                     error_code=progress.error_code or "PROVIDER_FAILED",
                     error_message=progress.error_message or "provider 报告生成失败",
                     provider_status=progress.provider_status,
-                    provider_snapshot=progress.raw,
                     only_if_status=STATUS_SUBMITTED,
                 ),
             )
             return
 
         await self._repo.record_progress(
-            job.id,
-            provider_status=progress.provider_status,
-            provider_snapshot=progress.raw,
-            only_if_status=STATUS_SUBMITTED,
+            job.id, provider_status=progress.provider_status, only_if_status=STATUS_SUBMITTED
         )
         raise StillRunning(f"{job.id} 还在跑（{progress.provider_status}）")
 

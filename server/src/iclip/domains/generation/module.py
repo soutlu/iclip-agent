@@ -157,8 +157,7 @@ IMAGE_MODEL_SPECS: Final[Mapping[str, ImageModelSpec]] = {
 def _clip_stage_reporter(repo: GenerationRepository) -> ReportClipStage:
     """把 provider 报的阶段落到 provider_status 上，provider 自己不碰数据库。
 
-    只在提交中更新，返回这条是不是还在提交中。不带快照：快照整份覆盖写，捎带上会把完成时
-    那次写打掉。"""
+    只在提交中更新，返回这条是不是还在提交中。"""
 
     async def report(job_id: uuid.UUID, stage: ClipStage) -> bool:
         updated = await repo.record_progress(

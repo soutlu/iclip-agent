@@ -90,9 +90,7 @@ async def _compose(
 
     assert submission.output_url is not None, "本地加工一次出结果，没有轮询阶段"
     key, (content, _) = next(iter(store.objects.items()))
-    assert (submission.duration_ms, submission.raw) == (await duration_ms_of(content), {}), (
-        "量出来的时长单独交回，快照里什么都不带"
-    )
+    assert submission.duration_ms == await duration_ms_of(content), "量出来的时长单独交回"
     return key, content
 
 

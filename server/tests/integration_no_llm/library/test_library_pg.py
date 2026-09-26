@@ -304,10 +304,10 @@ async def _video(
         text(
             "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind,"
             " operation, provider, request, status, shot_index, output_url,"
-            " watermark_output_url, created_at, updated_at, finished_at)"
+            " watermark_output_url, created_at, finished_at)"
             " VALUES (:id, :owner, :conversation_id, :kind, :operation, 'test',"
             " CAST(:request AS jsonb), :status, :shot, :output_url, :watermark_url, :created_at,"
-            " :created_at, :finished_at)"
+            " :finished_at)"
         ),
         {
             "id": video_id,
@@ -342,10 +342,10 @@ async def _edit(
         text(
             "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind,"
             " operation, provider, request, status, shot_index, source_job_id, root_job_id,"
-            " range_start_ms, range_end_ms, output_url, created_at, updated_at, finished_at)"
+            " range_start_ms, range_end_ms, output_url, created_at, finished_at)"
             " SELECT :id, :owner, CAST(:conversation_id AS uuid), :kind, :operation, 'test',"
             " CAST(:request AS jsonb), :status, shot_index, id, COALESCE(root_job_id, id),"
-            " 1000, 4000, :output_url, :created_at, :created_at, :finished_at"
+            " 1000, 4000, :output_url, :created_at, :finished_at"
             " FROM iclip.generation_jobs WHERE id = :base"
         ),
         {
@@ -394,10 +394,10 @@ async def _composite(
         text(
             "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind,"
             " operation, provider, request, status, shot_index, source_job_id, root_job_id,"
-            " output_url, provider_snapshot, duration_ms, created_at, updated_at, finished_at)"
+            " output_url, duration_ms, created_at, finished_at)"
             " SELECT :id, :owner, CAST(:conversation_id AS uuid), :kind, :operation, 'local',"
             " CAST(:request AS jsonb), :status, shot_index, :edit, COALESCE(root_job_id, id),"
-            " :output_url, '{}'::jsonb, :duration_ms, :created_at, :created_at, :finished_at"
+            " :output_url, :duration_ms, :created_at, :finished_at"
             " FROM iclip.generation_jobs WHERE id = :base"
         ),
         {
@@ -699,8 +699,8 @@ async def test_a_video_upload_is_not_a_card_or_a_version(
         await conn.execute(
             text(
                 "INSERT INTO iclip.generation_jobs (id, owner_user_id, kind, operation, provider,"
-                " status, output_url, created_at, updated_at, finished_at)"
-                " VALUES (:id, :owner, :kind, :operation, 'upload', :status, :url, :at, :at, :at)"
+                " status, output_url, created_at, finished_at)"
+                " VALUES (:id, :owner, :kind, :operation, 'upload', :status, :url, :at, :at)"
             ),
             {
                 "id": upload,

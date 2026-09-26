@@ -48,10 +48,10 @@ async def plant_video(
             text(
                 "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind,"
                 " operation, provider, request, status, shot_index, output_url, created_at,"
-                " updated_at, finished_at)"
+                " finished_at)"
                 " VALUES (:id, :owner, :conversation_id, :kind, :operation, 'test',"
                 " CAST(:request AS jsonb), :status, 1, 'https://oss.example.test/v.mp4', now(),"
-                " now(), now())"
+                " now())"
             ),
             {
                 "id": video_id,
