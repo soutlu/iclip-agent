@@ -82,7 +82,6 @@ async def test_shutdown_returns_when_a_finished_run_is_still_on_the_books() -> N
         lease_seconds=30,
         sweep_seconds=15,
         max_attempts=2,
-        locked_by="w-test",
     )
 
     await runner.submit(_running_row())

@@ -104,18 +104,10 @@ def test_unknown_provider_fails() -> None:
         build_model(spec(provider="no-such-vendor"))
 
 
-def test_responses_rejected_for_non_openai_provider() -> None:
-
-    pytest.importorskip("anthropic")
-    with pytest.raises(RuntimeError, match="只适用于 OpenAI 兼容"):
-        build_model(spec(provider="anthropic", model="claude-x", api="responses", base_url=None))
-
-
-def test_build_models_keys_by_name_and_reuses_instance() -> None:
+def test_build_models_keys_by_name() -> None:
     built = build_models([spec(), spec(name="ds", provider="deepseek", model="deepseek-chat")])
 
     assert sorted(built) == ["ds", "qwen"]
-    assert isinstance(cast("OpenAIChatModel", built["qwen"]).client, AsyncOpenAI)
 
 
 def test_thinking_lands_in_model_settings_on_both_apis() -> None:

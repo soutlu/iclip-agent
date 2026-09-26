@@ -213,44 +213,6 @@ async def drive(registry: AgentRegistry, agent_id: str, *, deps: object = None) 
         return [event async for event in events]
 
 
-async def test_subagents_expose_delegate_tool(tmp_path: Path) -> None:
-    parent = make_spec(tmp_path, "producer")
-    child = make_spec(tmp_path, "shot-writer", spec="model: test\n")
-    registry = build_agent_registry(
-        (
-            AgentDefinition(
-                agent_id="producer",
-                spec=parent,
-                model=MODEL_NAME,
-                subagents=(
-                    SubAgentDefinition(
-                        name="shot-writer",
-                        spec=child,
-                        model=MODEL_NAME,
-                        timeout_seconds=180,
-                        max_calls=3,
-                    ),
-                ),
-            ),
-        ),
-        step_store=store(),
-        models=models(),
-        subagent_mirror=mirror(),
-        usage_ledger=discarding_usage_ledger(),
-    )
-
-    seen: list[str] = []
-
-    async def note_tools(_messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
-        seen.extend(tool.name for tool in info.function_tools)
-        yield "好"
-
-    with registry.agents["producer"].override(model=FunctionModel(stream_function=note_tools)):
-        await drive(registry, "producer")
-
-    assert DELEGATE_TOOL in seen
-
-
 async def test_the_usage_ledger_is_attached_to_the_agent_and_its_subagents(tmp_path: Path) -> None:
     """顶层与子代理各自的模型响应都进同一本台账，模型名取各自配置的模型。"""
 

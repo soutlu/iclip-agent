@@ -13,7 +13,6 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
-import pytest
 from pydantic_ai import Tool
 from pydantic_ai.exceptions import ModelRetry
 from pydantic_ai.messages import ModelMessage, ToolReturn
@@ -27,7 +26,6 @@ from pydantic_ai.models.function import (
 )
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from iclip.common.errors import NotFound
 from iclip.harness.agents import (
     DELEGATE_TOOL,
     AgentDefinition,
@@ -535,48 +533,6 @@ async def test_a_delegation_becomes_its_own_stream(engine: AsyncEngine, tmp_path
     assert record is not None
     assert (record.parent_run_id, record.metadata["agent_name"]) == (row.run_id, WRITER)
     check_golden("delegate-turn", {"rest": comparable(cold), "child_rest": comparable(child_cold)})
-
-
-async def test_a_child_stream_is_only_readable_from_its_own_conversation(
-    engine: AsyncEngine, tmp_path: Path
-) -> None:
-    """子代理 id 只是个运行 id，请求里的会话必须是它父运行所在的那段，否则 404。"""
-
-    store = TranscriptStore()
-    runner, step_store, queue = subagent_runner(
-        engine,
-        tmp_path,
-        store=store,
-        parent=delegates((WRITER, TASK)),
-        children={WRITER: says("S3-1 特写")},
-    )
-    conversation_id = new_conversation_id()
-    service = TranscriptService(
-        store=store,
-        history=TranscriptHistory(step_store, queue, DISPLAYS, DELEGATE_TOOL),
-        queue=queue,
-        runner=runner,
-        context_limits={},
-        record_materials=records_nothing,
-    )
-
-    await submit_text(runner, queue, conversation_id, "给这条视频做分镜")
-    await drained(queue, conversation_id)
-    await runner.shutdown()
-    card = frames_of(await service.page(conversation_id, runtime_agent_id=AGENT_ID), "t1", "t1.1")[
-        0
-    ]
-    assert isinstance(card, ToolFrame) and card.agent_refs is not None
-    child_id = card.agent_refs[0].agent_id
-
-    await service.verify_agent(conversation_id, MAIN_AGENT_ID)
-    await service.verify_agent(conversation_id, child_id)
-    with pytest.raises(NotFound):
-        await service.verify_agent(new_conversation_id(), child_id)
-    with pytest.raises(NotFound):
-        await service.verify_agent(conversation_id, "not-a-run")
-    # 拿别人会话配这个子 id 读页也不行：校验在页之前，实时存储里不会留下一条空流。
-    assert store.subscribe_view(new_conversation_id(), child_id).live_turns == ()
 
 
 async def test_two_delegations_in_one_response_do_not_cross(

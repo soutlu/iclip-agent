@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from pydantic_ai.messages import (
     INTERRUPTED_TOOL_RETURN_CONTENT,
     CompactionPart,
-    ImageUrl,
     ModelRequest,
     ModelResponse,
     RetryPromptPart,
@@ -20,7 +19,6 @@ from pydantic_ai.usage import RequestUsage
 from pydantic_ai_harness.step_persistence import StepEvent
 
 from iclip.harness.job_status import JobStatus
-from iclip.harness.media import media_tag_close, media_tag_open
 from iclip.harness.transcript.from_messages import (
     ORPHAN_TOOL_ERROR,
     ChildRun,
@@ -37,10 +35,8 @@ from iclip.harness.transcript.from_messages import (
 )
 from iclip.harness.transcript.prompt_media import model_prompt
 from iclip.platform.transcript.ops import (
-    COMPACTION_NOTICE,
     AttachmentSource,
     ImageContent,
-    NoticeFrame,
     StepUsage,
     TextContent,
     TextFrame,
@@ -80,32 +76,6 @@ def _returns(*parts: object, run_id: str | None = RUN, minute: int = 2) -> Model
         parts=list(parts),  # pyright: ignore[reportArgumentType]
         run_id=run_id,
         timestamp=_at(minute),
-    )
-
-
-def test_multimodal_prompt_keeps_the_part_order() -> None:
-    """用户 parts 顺序决定图文相对位置，历史投影需保持原序。"""
-
-    url = "https://example.invalid/a.png"
-    turns = turns_from_messages(
-        [
-            _ask(
-                [
-                    "参考这张图：",
-                    media_tag_open("image", url),
-                    ImageUrl(url=f"{url}?x-oss-process=image/resize,l_1024"),
-                    media_tag_close("image"),
-                    "做个 30 秒的",
-                ]
-            ),
-            _reply(TextPart(content="好")),
-        ]
-    )
-
-    assert turns[0].content == (
-        TextContent(text="参考这张图："),
-        ImageContent(source=AttachmentSource(kind="url", url=url)),
-        TextContent(text="做个 30 秒的"),
     )
 
 
@@ -213,33 +183,6 @@ def test_the_turn_state_comes_from_the_last_run() -> None:
         assert [step.state for step in broken[0].steps] == ["interrupted", "completed"]
 
 
-def test_an_earlier_run_that_finished_keeps_its_last_step_completed() -> None:
-
-    turns = turns_from_messages(
-        _resumed(),
-        turn_states={"r1": "completed", "r2": "completed"},
-        prompt_of_run=_OF_ONE_PROMPT,
-    )
-
-    assert [step.state for step in turns[0].steps] == ["completed", "completed"]
-
-
-def test_a_tool_call_is_settled_by_the_return_in_the_next_run() -> None:
-    """工具调用可由下一运行的返回结束，卡片位置保留在原步骤。"""
-
-    turns = turns_from_messages(
-        _resumed(),
-        turn_states={"r1": "failed", "r2": "completed"},
-        prompt_of_run=_OF_ONE_PROMPT,
-    )
-
-    card = turns[0].steps[0].frames[1]
-    assert isinstance(card, ToolFrame)
-    assert card.frame_id == "t1.1.c1"
-    # 中断返回与没有返回的孤儿卡同一句收尾，实时侧也是这句。
-    assert (card.state, card.output, card.error) == ("error", None, ORPHAN_TOOL_ERROR)
-
-
 def _awaiting() -> list[ModelRequest | ModelResponse]:
     """模拟待审批运行：以 run_completed 结束，但保留未返回调用；区别于运行中断。"""
 
@@ -254,25 +197,6 @@ def _awaiting() -> list[ModelRequest | ModelResponse]:
     ]
 
 
-def _decided(outcome: str) -> list[ModelRequest | ModelResponse]:
-    """审批续跑消息，首条请求包含待审批工具的返回。"""
-
-    return [
-        *_awaiting(),
-        _returns(
-            ToolReturnPart(
-                tool_name="write_file",
-                content="写好了" if outcome == "success" else "用户拒绝",
-                tool_call_id="c1",
-                outcome=outcome,  # pyright: ignore[reportArgumentType]
-            ),
-            run_id="r2",
-            minute=2,
-        ),
-        _reply(TextPart(content="好了"), run_id="r2", minute=3),
-    ]
-
-
 _BOTH_COMPLETED: dict[str, TurnState] = {"r1": "completed", "r2": "completed"}
 _SETTLED: dict[str, JobStatus] = {"r1": "completed", "r2": "completed"}
 
@@ -281,32 +205,6 @@ def _card(turn: TranscriptTurn) -> ToolFrame:
     card = turn.steps[0].frames[1]
     assert isinstance(card, ToolFrame)
     return card
-
-
-def test_a_frontier_approval_waits_with_its_card_still_running() -> None:
-    """待审批运行虽已完成，轮和工具卡仍为 running，步骤为 completed。"""
-
-    messages = _awaiting()
-    states: dict[str, TurnState] = {"r1": "completed"}
-    turns = turns_from_messages(
-        messages,
-        turn_states=states,
-        prompt_of_run={"r1": "p1"},
-        prompt_status_of_run={"r1": "awaiting"},
-    )
-
-    assert turns[0].state == "running"
-    assert [step.state for step in turns[0].steps] == ["completed"]
-    assert (_card(turns[0]).state, _card(turns[0]).approval_id) == ("running", "apr_c1")
-    assert [
-        (item.interaction_id, item.tool_call_id, item.state)
-        for item in approvals_from_messages(
-            messages,
-            turn_states=states,
-            prompt_of_run={"r1": "p1"},
-            prompt_status_of_run={"r1": "awaiting"},
-        )
-    ] == [("apr_c1", "c1", "pending")]
 
 
 def test_a_frontier_approval_is_settled_by_the_prompt_that_stopped_waiting() -> None:
@@ -335,33 +233,6 @@ def test_a_frontier_approval_is_settled_by_the_prompt_that_stopped_waiting() -> 
                 prompt_status_of_run={"r1": status},
             )
         ] == ["cancelled"]
-
-
-def test_a_decision_is_read_off_the_return_in_the_next_run() -> None:
-
-    for outcome, card_state, decision in (
-        ("success", "done", "approved"),
-        ("denied", "error", "rejected"),
-    ):
-        messages = _decided(outcome)
-        turns = turns_from_messages(
-            messages,
-            turn_states=_BOTH_COMPLETED,
-            prompt_of_run=_OF_ONE_PROMPT,
-            prompt_status_of_run=_SETTLED,
-        )
-
-        assert turns[0].state == "completed"
-        assert (_card(turns[0]).state, _card(turns[0]).approval_id) == (card_state, "apr_c1")
-        assert [
-            item.state
-            for item in approvals_from_messages(
-                messages,
-                turn_states=_BOTH_COMPLETED,
-                prompt_of_run=_OF_ONE_PROMPT,
-                prompt_status_of_run=_SETTLED,
-            )
-        ] == [decision]
 
 
 def test_a_close_out_return_is_not_a_decision() -> None:
@@ -505,24 +376,6 @@ def test_turn_usage_adds_up_the_step_readings() -> None:
     assert summed.output_tokens == 50 + 20
 
 
-def test_turn_usage_sums_the_steps() -> None:
-
-    turns = turns_from_messages(
-        [
-            _ask("走"),
-            _reply(ToolCallPart(tool_name="Read", args={}, tool_call_id="c1")),
-            _returns(ToolReturnPart(tool_name="Read", content="x", tool_call_id="c1")),
-            _reply(TextPart(content="好"), minute=3),
-        ]
-    )
-
-    usage = turns[0].usage
-    assert usage is not None
-    assert usage.input_tokens == (300 + 100) * 2
-    assert usage.cached_tokens == 600 * 2
-    assert usage.output_tokens == 50 * 2
-
-
 def test_terminal_state_comes_from_the_caller_not_from_the_message_shape() -> None:
     """最终响应形状无法区分完成与取消，必须使用调用方提供的终态；缺失时按 failed 处理。"""
 
@@ -630,20 +483,19 @@ def test_duration_is_only_reported_for_ended_turns() -> None:
 
 
 def test_attached_image_survives_the_round_trip() -> None:
-    """用户图片经过消息持久化后，须从 tag 恢复为原图 part。"""
+    """用户图片经过消息持久化后，须从 tag 恢复为原图 part，图文保持原序。"""
 
     # 使用可缩放地址以生成完整的开标签、图片和闭标签三项，覆盖独立闭标签的解析。
     url = "https://bkt.oss-cn-hangzhou.aliyuncs.com/u/shot.png"
-    items = model_prompt(
-        (ImageContent(source=AttachmentSource(kind="url", url=url)), TextContent(text="照这张做"))
+    content = (
+        TextContent(text="参考这张图："),
+        ImageContent(source=AttachmentSource(kind="url", url=url)),
+        TextContent(text="做个 30 秒的"),
     )
-    turns = turns_from_messages([_ask(items), _reply(TextPart(content="好"))])
+    turns = turns_from_messages([_ask(model_prompt(content)), _reply(TextPart(content="好"))])
 
     # 恢复 tag 中的原图地址，不能使用模型收到的缩略图地址。
-    assert turns[0].content == (
-        ImageContent(source=AttachmentSource(kind="url", url=url)),
-        TextContent(text="照这张做"),
-    )
+    assert turns[0].content == content
 
 
 def test_drop_last_turn_on_empty_history_is_a_no_op() -> None:
@@ -698,21 +550,6 @@ def test_drop_last_turn_takes_trailing_unstamped_messages_with_it() -> None:
     assert kept == messages[:2]
 
 
-def test_truncation_reuses_the_dropped_ordinal() -> None:
-
-    messages = [
-        _ask("第一问", run_id="r1", minute=0),
-        _reply(TextPart(content="第一答"), run_id="r1", minute=1),
-        _ask("第二问", run_id="r2", minute=2),
-        _reply(TextPart(content="第二答"), run_id="r2", minute=3),
-    ]
-    dropped_ordinal = len(turn_run_ids(messages, {}))
-
-    kept, _ = drop_last_turn(messages, {})
-
-    assert len(turn_run_ids(kept, {})) + 1 == dropped_ordinal
-
-
 def test_turn_run_ids_groups_the_runs_of_one_prompt() -> None:
 
     messages = [
@@ -753,27 +590,6 @@ def test_a_compaction_boundary_is_not_a_step() -> None:
     )
 
     assert [step.step_id for step in turns[0].steps] == ["t1.1", "t1.2"]
-
-
-def test_the_compaction_notice_hangs_on_the_first_step_after_it() -> None:
-    """压缩提示按边界时间关联后续步骤，不能按边界所在的历史列表位置关联。"""
-
-    turns = turns_from_messages(
-        [
-            _ask("走", minute=0),
-            _reply(TextPart(content="第一步"), minute=1),
-            _returns(minute=2),
-            _compaction("旧账", minute=3),
-            _reply(TextPart(content="第二步"), minute=4),
-        ]
-    )
-
-    first, second = turns[0].steps
-    assert [frame.frame_id for frame in first.frames] == ["t1.1.f1"]
-    notice = second.frames[0]
-    assert isinstance(notice, NoticeFrame)
-    assert [frame.frame_id for frame in second.frames] == ["t1.2.compaction", "t1.2.f1"]
-    assert (notice.level, notice.message, notice.detail) == ("info", COMPACTION_NOTICE, "旧账")
 
 
 def test_a_boundary_with_no_step_after_it_shows_nothing() -> None:

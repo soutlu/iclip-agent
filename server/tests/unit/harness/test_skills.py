@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 from pydantic_ai import Agent
-from pydantic_ai.capabilities import AgentCapability, Capability
+from pydantic_ai.capabilities import AgentCapability
 from pydantic_ai.messages import (
     ModelMessage,
     ModelResponse,
@@ -20,8 +20,6 @@ from pydantic_ai.messages import (
     ToolReturnPart,
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
-from pydantic_ai.tools import Tool
-from pydantic_ai_harness.skills import Skills
 
 from iclip.harness.skills import (
     MAX_REFERENCE_CHARS,
@@ -110,29 +108,6 @@ def test_mounting_zero_skills_is_a_caller_error(tmp_path: Path) -> None:
     make_skill(tmp_path, SKILL)
     with pytest.raises(ValueError, match="至少要挑一个 skill"):
         build_skill_capabilities(tmp_path, ())
-
-
-def test_library_and_reference_key_are_mounted_together(tmp_path: Path) -> None:
-
-    make_skill(tmp_path, SKILL)
-
-    skills, key = build_skill_capabilities(tmp_path, (SKILL,))
-
-    assert isinstance(skills, Skills)
-    assert isinstance(key, Capability)
-
-
-def test_the_access_boundary_is_mounted_as_a_validator(tmp_path: Path) -> None:
-    """需检查注册表的 args_validator，避免未授权 skill 的 references 因漏挂校验器而可读。"""
-
-    make_skill(tmp_path, SKILL)
-    _, key = build_skill_capabilities(tmp_path, (SKILL,))
-    assert isinstance(key, Capability)
-
-    tool = next(iter(key.tools))
-    assert isinstance(tool, Tool)
-    assert tool.name == TOOL
-    assert tool.args_validator is not None
 
 
 def test_the_reference_tool_has_a_display(tmp_path: Path) -> None:

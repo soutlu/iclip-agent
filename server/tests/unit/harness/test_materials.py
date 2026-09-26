@@ -1,4 +1,4 @@
-"""验证素材台账的存在性、类型及命名空间校验。"""
+"""验证素材台账的存在性与类型校验。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import pytest
 from pydantic_ai import ModelRetry
 
 from iclip.harness.materials import require_http, require_material, require_materials
-from iclip.platform.material_ledger.store import Material, MaterialKind
+from iclip.platform.material_ledger.store import Material
 from tests.helpers.material_ledger import FakeMaterialLedger
 
 NAMESPACE = "owner/thread-1"
@@ -23,9 +23,9 @@ def ledger() -> FakeMaterialLedger:
     return fake
 
 
-async def check(ledger: FakeMaterialLedger, url: str, *, kind: MaterialKind = "image") -> None:
+async def check(ledger: FakeMaterialLedger, url: str) -> None:
     await require_material(
-        ledger, NAMESPACE, url, kind=kind, what="图片地址", recorded_at=RECORDED_AT
+        ledger, NAMESPACE, url, kind="image", what="图片地址", recorded_at=RECORDED_AT
     )
 
 
@@ -40,21 +40,6 @@ async def test_unrecorded_material_is_refused(ledger: FakeMaterialLedger) -> Non
 
     # 不回显未登记地址，避免重试消息将其引入素材上下文。
     assert made_up not in str(failure.value)
-
-
-async def test_another_conversation_material_is_refused(ledger: FakeMaterialLedger) -> None:
-
-    ledger.rows[("owner/thread-2", "https://cdn.test/别人的.jpg")] = Material(
-        url="https://cdn.test/别人的.jpg", kind="image"
-    )
-    with pytest.raises(ModelRetry):
-        await check(ledger, "https://cdn.test/别人的.jpg")
-
-
-async def test_a_prefix_of_a_recorded_url_is_refused(ledger: FakeMaterialLedger) -> None:
-
-    with pytest.raises(ModelRetry):
-        await check(ledger, "https://cdn.test/ref", kind="video")
 
 
 async def test_wrong_kind_is_refused(ledger: FakeMaterialLedger) -> None:

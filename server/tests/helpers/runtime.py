@@ -53,7 +53,7 @@ AGENT_ID = "storyboard"
 MAX_CONTEXT_TOKENS = 4096
 OWNER = uuid.UUID("11111111-2222-3333-4444-555555555555")
 LOCKED_BY = "w-test"
-"""固定当前 runner 的租约属主，便于直接模拟租约转移。"""
+"""只经过队列、不经过 runner 的用例使用的租约属主；runner 自己的属主读 runner.locked_by。"""
 DEAD = "w-dead"
 """模拟已退出进程的租约属主，不再更新心跳。"""
 
@@ -192,7 +192,6 @@ def make_runner(
     step_store: PgStepStore,
     store: TranscriptStore,
     display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY,
-    locked_by: str = LOCKED_BY,
     max_attempts: int = 2,
     context_limits: Mapping[str, int] | None = None,
     on_run_started: RunStarted | None = None,
@@ -218,7 +217,6 @@ def make_runner(
         lease_seconds=30,
         sweep_seconds=15,
         max_attempts=max_attempts,
-        locked_by=locked_by,
         on_run_started=on_run_started,
         display=display,
     )
@@ -231,7 +229,6 @@ def build_runner(
     *,
     store: TranscriptStore,
     tools: Sequence[Any] = (),
-    locked_by: str = LOCKED_BY,
     max_attempts: int = 2,
     display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY,
     context_limits: Mapping[str, int] | None = None,
@@ -255,7 +252,6 @@ def build_runner(
         step_store=step_store,
         store=store,
         display=display,
-        locked_by=locked_by,
         max_attempts=max_attempts,
         context_limits=context_limits,
         on_run_started=on_run_started,

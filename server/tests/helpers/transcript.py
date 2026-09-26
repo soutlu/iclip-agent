@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
-from pydantic_ai_harness.step_persistence import ContinuableSnapshot, InMemoryStepStore
+from pydantic_ai_harness.step_persistence import InMemoryStepStore
 
 from iclip.harness.job_status import JobStatus
 from iclip.harness.transcript.from_messages import SteeredPrompt
@@ -27,27 +27,13 @@ GOLDEN_DIR = Path(__file__).resolve().parents[3] / "contract" / "transcript"
 """金样放在跨端合同目录，前端测试读同一份。"""
 
 
-class InMemoryConversationSnapshots(InMemoryStepStore):
-    """官方内存 store 加一个按对话取快照的入口，口径与 PgStepStore 一致。"""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._by_conversation: list[ContinuableSnapshot] = []
-
-    async def save_snapshot(self, snapshot: ContinuableSnapshot) -> None:
-        await super().save_snapshot(snapshot)
-        self._by_conversation.append(snapshot)
+class EmptyConversationSnapshots(InMemoryStepStore):
+    """实时页用的空历史：官方内存 store 补上按对话取快照的入口，恒无快照。"""
 
     async def latest_conversation_snapshot(
         self, *, conversation_id: str, include_interrupted: bool = False
-    ) -> ContinuableSnapshot | None:
-        found = [
-            item
-            for item in self._by_conversation
-            if item.conversation_id == conversation_id
-            and (include_interrupted or item.state == "complete")
-        ]
-        return found[-1] if found else None
+    ) -> None:
+        return None
 
 
 class NoPromptRuns:
@@ -164,7 +150,7 @@ async def live_page(
     for replayed_agent in dict.fromkeys((MAIN_AGENT_ID, agent_id)):
         for batch in store.subscribe_view(conversation_id, replayed_agent, since=0).batches:
             replayed.append(conversation_id, replayed_agent, batch.ops)
-    history = TranscriptHistory(InMemoryConversationSnapshots(), NoPromptRuns(), display)
+    history = TranscriptHistory(EmptyConversationSnapshots(), NoPromptRuns(), display)
     return await _service(replayed, history, queue, runner).page(
         conversation_id, agent_id=agent_id, runtime_agent_id=runtime_agent_id
     )
@@ -250,7 +236,7 @@ def frames_of(page: TranscriptPage, turn_id: str, step_id: str) -> Sequence[Any]
 
 __all__ = [
     "GOLDEN_DIR",
-    "InMemoryConversationSnapshots",
+    "EmptyConversationSnapshots",
     "NoPromptRuns",
     "Normalizer",
     "check_golden",

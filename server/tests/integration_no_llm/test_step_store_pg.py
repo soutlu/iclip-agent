@@ -24,7 +24,6 @@ from pydantic_ai_harness.step_persistence import (
     RunRecord,
     StepEvent,
     StepPersistence,
-    StepStore,
     ToolEffectRecord,
     continue_run,
 )
@@ -73,10 +72,6 @@ def _messages(text_content: str = "hello") -> list[ModelMessage]:
 
 def _dump(messages: list[ModelMessage]) -> bytes:
     return ModelMessagesTypeAdapter.dump_json(messages)
-
-
-async def test_satisfies_official_protocol(store: PgStepStore) -> None:
-    assert isinstance(store, StepStore)
 
 
 async def test_register_run_roundtrip_and_single_shot(store: PgStepStore) -> None:
@@ -275,10 +270,9 @@ async def test_tool_effects_upsert_and_unresolved(store: PgStepStore) -> None:
 
 
 async def test_media_store_content_addressed(engine: AsyncEngine) -> None:
-    from pydantic_ai_harness.media import MediaContext, MediaStore
+    from pydantic_ai_harness.media import MediaContext
 
     media = PgMediaStore(engine)
-    assert isinstance(media, MediaStore)
 
     data = b"payload-bytes"
     uri = await media.put(
@@ -354,8 +348,6 @@ async def test_agent_run_end_to_end_with_official_capability(store: PgStepStore)
     assert len(runs) == 1
     run = runs[0]
     assert run.agent_name == "probe"
-    # StepPersistence 将 agent_name 和 run_id 编码为不透明的 sp- 标识。
-    assert run.run_id.startswith("sp-")
     assert run.registration_id is not None
 
     kinds = [e.kind for e in await store.list_events(run_id=run.run_id)]

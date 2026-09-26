@@ -198,7 +198,6 @@ class ConversationRunner:
         max_attempts: int,
         compaction_max_fraction: float = 0.85,
         compaction_keep_messages: int = 20,
-        locked_by: str | None = None,
         on_turn_ended: TurnEnded | None = None,
         on_run_started: RunStarted | None = None,
         display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY,
@@ -219,7 +218,7 @@ class ConversationRunner:
         # 与 TranscriptHistory 共享展示规则，保证刷新前后工具卡一致。
         self._display = display
         # 公开租约持有者 id，供提交入口写入租约。
-        self.locked_by = locked_by or uuid.uuid4().hex
+        self.locked_by = uuid.uuid4().hex
         self._on_turn_ended = on_turn_ended
         self._on_run_started = on_run_started
         self._active: dict[str, _Active] = {}
