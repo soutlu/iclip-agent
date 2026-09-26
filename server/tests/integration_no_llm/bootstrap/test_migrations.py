@@ -14,12 +14,14 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config as AlembicConfig
+from fastapi_users.password import PasswordHelper
 from sqlalchemy import MetaData, inspect, text
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from iclip.domains.collections.infra_sql import metadata_obj as collections_metadata
 from iclip.domains.conversations.infra_sql import metadata_obj as conversations_metadata
 from iclip.domains.generation.infra_sql import metadata_obj as generation_metadata
+from iclip.domains.identity.acting import placeholder_email
 from iclip.domains.identity.infra_sql import DB_SCHEMA, Base
 from iclip.domains.inspirations.infra_sql import metadata_obj as inspirations_metadata
 from iclip.domains.tasks.infra_sql import metadata_obj as tasks_metadata
@@ -1066,6 +1068,9 @@ OPERATION = "7c50c7336e0c"
 SHOT_INDEX = "3403faebf6dc"
 """0018：视频的镜号与合成的时长各落一列，视频的 metadata 里不再有 shot 的那一版。"""
 
+OWNER_FIX = "69f785644eb5"
+"""0019：早期钥匙行的属主校正成请求里指名的那个人的那一版。"""
+
 _INSERT_BEFORE_OPERATION = text(
     "INSERT INTO iclip.generation_jobs (id, owner_user_id, kind, provider, request, status, "
     "metadata, root_job_id, output_url, created_at, updated_at, finished_at) VALUES (:id, :owner, "
@@ -1420,7 +1425,7 @@ async def test_operation_migration_refuses_to_downgrade_an_open_ended_composite(
 ) -> None:
     """0017 之后的合成有取到结尾的段，旧形状要求每段都有 end：拒绝降级。
 
-    一次命令一个事务，0017 拒绝会把前面 0018 的降级一起回滚，库留在 0018。"""
+    一次命令一个事务，0017 拒绝会把前面 0019、0018 的降级一起回滚，库留在 0019。"""
 
     cfg = _alembic(migrated_pg)
     owner = uuid.uuid4()
@@ -1446,7 +1451,7 @@ async def test_operation_migration_refuses_to_downgrade_an_open_ended_composite(
         command.upgrade(cfg, "head")
 
     assert str(composite) in str(refused.value)
-    assert version == SHOT_INDEX
+    assert version == OWNER_FIX
 
 
 async def _index_definition(migrated_pg: str, name: str) -> str:
@@ -1612,3 +1617,318 @@ async def test_shot_index_migration_refuses_values_it_cannot_carry(
 
     assert str(take if field == "shot" else composite) in str(refused.value), "报错要点名是哪一行"
     assert version == OPERATION, "整个迁移回滚，列没加上"
+
+
+async def _insert_account(
+    conn: AsyncConnection, user_id: uuid.UUID, username: str | None, *, email: str | None = None
+) -> None:
+    """一个账号；``username`` 可以为空，SSO 显示名撞名时就是这样。"""
+
+    await conn.execute(
+        text(
+            "INSERT INTO iclip.users (id, username, email, hashed_password, is_active, "
+            "is_superuser, is_verified, display_name, avatar_url, roles, direct_permissions, "
+            "city, job_title, departments) VALUES (:id, :username, :email, 'x', true, false, "
+            "true, :display, '', '[]', '[]', '', '', '[]')"
+        ),
+        {
+            "id": user_id,
+            "username": username,
+            "email": email or f"{user_id}@example.com",
+            "display": username or "没有用户名",
+        },
+    )
+
+
+async def _insert_named(
+    conn: AsyncConnection,
+    job_id: uuid.UUID,
+    owner: uuid.UUID,
+    *,
+    request: Mapping[str, object],
+    kind: str = "video",
+    operation: str = "generate",
+    conversation: uuid.UUID | None = None,
+    source: uuid.UUID | None = None,
+    root: uuid.UUID | None = None,
+    span: tuple[int, int] | None = None,
+    api_key_id: uuid.UUID | None = None,
+) -> None:
+    """按 0018 的形状插一行已完成的记录，请求原样给：名字写在哪个键、有没有，都由用例定。"""
+
+    await conn.execute(
+        text(
+            "INSERT INTO iclip.generation_jobs (id, owner_user_id, api_key_id, conversation_id, "
+            "kind, operation, provider, request, status, source_job_id, root_job_id, "
+            "range_start_ms, range_end_ms, output_url, created_at, updated_at, finished_at) "
+            "VALUES (:id, :owner, :key, :conversation, :kind, :operation, 'test', "
+            "CAST(:request AS jsonb), 'completed', :source, :root, :start, :end, "
+            "'https://example.test/v.mp4', now(), now(), now())"
+        ),
+        {
+            "id": job_id,
+            "owner": owner,
+            "key": api_key_id,
+            "conversation": conversation,
+            "kind": kind,
+            "operation": operation,
+            "request": json.dumps(request),
+            "source": source,
+            "root": root,
+            "start": None if span is None else span[0],
+            "end": None if span is None else span[1],
+        },
+    )
+
+
+async def _jobs(migrated_pg: str) -> dict[uuid.UUID, tuple[object, object, object]]:
+    """全表每行的（属主，钥匙，请求）：校正会换属主，按属主选行会漏掉换走的。"""
+
+    engine = create_async_engine(migrated_pg)
+    try:
+        async with engine.connect() as conn:
+            rows = await conn.execute(
+                text("SELECT id, owner_user_id, api_key_id, request FROM iclip.generation_jobs")
+            )
+            return {
+                row.id: (row.owner_user_id, row.api_key_id, _jsonb(row.request)) for row in rows
+            }
+    finally:
+        await engine.dispose()
+
+
+async def _users(migrated_pg: str) -> dict[uuid.UUID, dict[str, object]]:
+    engine = create_async_engine(migrated_pg)
+    try:
+        async with engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    text(
+                        "SELECT id, username, email, hashed_password, display_name, roles, "
+                        "direct_permissions, is_active, is_superuser, is_verified, last_login_at "
+                        "FROM iclip.users"
+                    )
+                )
+            ).mappings()
+            return {
+                row["id"]: {
+                    key: _jsonb(value) if key in ("roles", "direct_permissions") else value
+                    for key, value in row.items()
+                    if key != "id"
+                }
+                for row in rows
+            }
+    finally:
+        await engine.dispose()
+
+
+async def test_owner_fix_migration_reassigns_rows_to_the_named_account(migrated_pg: str) -> None:
+    """0019：属主与请求里的名字对不上的行改归那个名字的账号，没有账号的建一个占位账号、同名只建
+    一个；名字写在 user_name 或 userName 里都认，属主没有用户名也算对不上。名字为空的、与属主一致
+    的、所在对话是分叉副本的不动；钥匙身份与请求原样。降级不改回，重升空转。"""
+
+    cfg = _alembic(migrated_pg)
+    luke, shan, bare, key = (uuid.uuid4() for _ in range(4))
+    source_conversation, copy_conversation = uuid.uuid4(), uuid.uuid4()
+    same, to_shan, edit, composite, to_new, image_new = (uuid.uuid4() for _ in range(6))
+    from_bare, unnamed, null_name, blank, in_copy = (uuid.uuid4() for _ in range(5))
+    video: dict[str, object] = {"model": "m", "prompt": "p"}
+    requests: dict[uuid.UUID, Mapping[str, object]] = {
+        same: {**video, "user_name": "Luke.Lu"},
+        to_shan: {**video, "user_name": "Shan.Hu"},
+        edit: {**video, "user_name": "Shan.Hu"},
+        composite: {"segments": [], "userName": "Shan.Hu"},
+        to_new: {**video, "user_name": "Edna.Li"},
+        image_new: {"prompt": "p", "userName": "Edna.Li"},
+        from_bare: {**video, "user_name": "Shan.Hu"},
+        unnamed: video,
+        null_name: {**video, "user_name": None},
+        blank: {"prompt": "p", "userName": "  "},
+        in_copy: {**video, "user_name": "Shan.Hu"},
+    }
+    engine = create_async_engine(migrated_pg)
+    try:
+        command.downgrade(cfg, SHOT_INDEX)
+        async with engine.begin() as conn:
+            await _insert_account(conn, luke, "Luke.Lu")
+            await _insert_account(conn, shan, "Shan.Hu")
+            await _insert_account(conn, bare, None)
+            for conversation_id, parent, minute in (
+                (source_conversation, None, 0),
+                (copy_conversation, source_conversation, 1),
+            ):
+                await conn.execute(
+                    _INSERT_FORK_CONVERSATION,
+                    {
+                        "id": conversation_id,
+                        "owner": luke,
+                        "at": _minute(minute),
+                        "parent": parent,
+                        "turn": None if parent is None else 1,
+                    },
+                )
+            await _insert_named(conn, same, luke, request=requests[same])
+            await _insert_named(
+                conn,
+                to_shan,
+                luke,
+                request=requests[to_shan],
+                conversation=source_conversation,
+                api_key_id=key,
+            )
+            await _insert_named(
+                conn,
+                edit,
+                luke,
+                request=requests[edit],
+                conversation=source_conversation,
+                source=to_shan,
+                root=to_shan,
+                span=(1000, 4000),
+            )
+            await _insert_named(
+                conn,
+                composite,
+                luke,
+                request=requests[composite],
+                operation="compose",
+                conversation=source_conversation,
+                source=edit,
+                root=to_shan,
+            )
+            await _insert_named(conn, to_new, luke, request=requests[to_new])
+            await _insert_named(conn, image_new, luke, request=requests[image_new], kind="image")
+            await _insert_named(conn, from_bare, bare, request=requests[from_bare])
+            await _insert_named(conn, unnamed, luke, request=requests[unnamed])
+            await _insert_named(conn, null_name, luke, request=requests[null_name])
+            await _insert_named(conn, blank, luke, request=requests[blank], kind="image")
+            await _insert_named(
+                conn, in_copy, luke, request=requests[in_copy], conversation=copy_conversation
+            )
+        await engine.dispose()
+        seeded = set(await _users(migrated_pg))
+        command.upgrade(cfg, OWNER_FIX)
+        fixed = await _jobs(migrated_pg)
+        users = await _users(migrated_pg)
+        command.downgrade(cfg, SHOT_INDEX)
+        command.upgrade(cfg, OWNER_FIX)
+        replayed = await _jobs(migrated_pg)
+        replayed_users = await _users(migrated_pg)
+    finally:
+        await engine.dispose()
+        await _clear(migrated_pg)
+        command.upgrade(cfg, "head")
+
+    [edna] = set(users) - seeded
+    assert {job_id: owner for job_id, (owner, _, _) in fixed.items()} == {
+        same: luke,
+        to_shan: shan,
+        edit: shan,
+        composite: shan,
+        to_new: edna,
+        image_new: edna,
+        from_bare: shan,
+        unnamed: luke,
+        null_name: luke,
+        blank: luke,
+        in_copy: luke,
+    }
+    assert fixed[to_shan][1] == key, "钥匙身份不动"
+    assert {job_id: request for job_id, (_, _, request) in fixed.items()} == requests
+    account = users[edna]
+    assert account["email"] == placeholder_email("Edna.Li"), "SSO 首登按这个邮箱认领"
+    assert {
+        field: value
+        for field, value in account.items()
+        if field not in ("email", "hashed_password")
+    } == {
+        "username": "Edna.Li",
+        "display_name": "Edna.Li",
+        "roles": [],
+        "direct_permissions": [],
+        "is_active": True,
+        "is_superuser": False,
+        "is_verified": False,
+        "last_login_at": None,
+    }
+    assert PasswordHelper().verify_and_update("x", str(account["hashed_password"])) == (
+        False,
+        None,
+    ), "密码是真哈希：拿这个用户名走密码登录是干净的密码错误"
+    assert (replayed, replayed_users) == (fixed, users), "降级不改回，重升空转"
+
+
+@pytest.mark.parametrize(
+    ("flaw", "message"),
+    [
+        ("too_long", "放不进用户名"),
+        ("padded", "放不进用户名"),
+        ("case_of_account", "与已有账号只差大小写"),
+        ("case_of_each_other", "占位账号之间只差大小写"),
+        ("both_keys", "同时带 user_name 与 userName"),
+        ("email_taken", "占位邮箱已被别的账号占用"),
+    ],
+    ids=[
+        "超长",
+        "首尾空白",
+        "与已有账号只差大小写",
+        "待建名字之间只差大小写",
+        "两个键",
+        "占位邮箱被占",
+    ],
+)
+async def test_owner_fix_migration_refuses_names_it_cannot_place(
+    migrated_pg: str, flaw: str, message: str
+) -> None:
+    """放不进用户名、对不准账号的名字不猜：点名报错，库停在 0018，占位账号不留，别的行也不改。"""
+
+    cfg = _alembic(migrated_pg)
+    luke, shan = uuid.uuid4(), uuid.uuid4()
+    fine, offender, twin = (uuid.uuid4() for _ in range(3))
+    names: dict[uuid.UUID, Mapping[str, object]] = {fine: {"user_name": "Shan.Hu"}}
+    named = [str(offender)]
+    if flaw == "too_long":
+        names[offender] = {"user_name": "x" * 151}
+    elif flaw == "padded":
+        names[offender] = {"user_name": " Shan.Hu"}
+    elif flaw == "case_of_account":
+        names[offender] = {"user_name": "shan.hu"}
+    elif flaw == "case_of_each_other":
+        names[offender] = {"user_name": "Edna.Li"}
+        names[twin] = {"userName": "edna.li"}
+        named.append(str(twin))
+    elif flaw == "both_keys":
+        names[offender] = {"user_name": "Shan.Hu", "userName": "Shan.Hu"}
+    else:
+        names[offender] = {"user_name": "Edna.Li"}
+        named = [placeholder_email("Edna.Li")]
+    engine = create_async_engine(migrated_pg)
+    try:
+        command.downgrade(cfg, SHOT_INDEX)
+        async with engine.begin() as conn:
+            await _insert_account(conn, luke, "Luke.Lu")
+            await _insert_account(conn, shan, "Shan.Hu")
+            if flaw == "email_taken":
+                await _insert_account(
+                    conn, uuid.uuid4(), "Other", email=placeholder_email("Edna.Li")
+                )
+            for job_id, name in names.items():
+                await _insert_named(
+                    conn, job_id, luke, request={"model": "m", "prompt": "p", **name}
+                )
+        await engine.dispose()
+        seeded = set(await _users(migrated_pg))
+        with pytest.raises(RuntimeError, match=message) as refused:
+            command.upgrade(cfg, OWNER_FIX)
+        version = await _alembic_version(migrated_pg)
+        users = set(await _users(migrated_pg))
+        owners = {job_id: owner for job_id, (owner, _, _) in (await _jobs(migrated_pg)).items()}
+    finally:
+        await engine.dispose()
+        await _clear(migrated_pg)
+        command.upgrade(cfg, "head")
+
+    assert all(item in str(refused.value) for item in named), "报错要点名是哪几行或哪个邮箱"
+    assert version == SHOT_INDEX, "整个迁移回滚"
+    assert users == seeded, "占位账号没留下"
+    assert owners[fine] == luke, "能校正的那行也跟着回滚"
