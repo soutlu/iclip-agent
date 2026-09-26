@@ -442,14 +442,15 @@ export const zErrorModel = z.object({
 /**
  * FaceOut
  *
- * 卡面放哪一条：这一镜最新的成片，没有成片就是最新一次出片。
+ * 一版成片的版本头：卡面放的那一版，也是详情里每一版的公共部分。
  */
 export const zFaceOut = z.object({
-  createdAt: z.iso.datetime(),
   durationMs: z.int().nullable(),
+  finishedAt: z.iso.datetime(),
   jobId: z.uuid(),
-  kind: z.enum(['take', 'master']),
+  kind: z.enum(['take', 'composite']),
   outputUrl: z.string(),
+  userName: z.string().nullable(),
   watermarkOutputUrl: z.string().nullable(),
 })
 
@@ -619,18 +620,6 @@ export const zLibraryAuthorOut = z.object({
  */
 export const zLibraryAuthorsOut = z.object({
   items: z.array(zLibraryAuthorOut),
-})
-
-/**
- * MasterOut
- *
- * 挂在一次出片名下的成片（视频编辑确认合成的那条）。
- */
-export const zMasterOut = z.object({
-  createdAt: z.iso.datetime(),
-  durationMs: z.int().nullable(),
-  id: z.uuid(),
-  outputUrl: z.string(),
 })
 
 /**
@@ -835,49 +824,38 @@ export const zStyleMatchOut = z.object({
 /**
  * TakeOut
  *
- * 一次成功出片。参数与脚本照出片那一刻的请求。
+ * 一版成片对应的出片：参数与脚本照出片那一刻的请求。合成沿原作取，原作可以在祖先对话里。
  */
 export const zTakeOut = z.object({
   aspectRatio: z.string().nullable(),
-  createdAt: z.iso.datetime(),
   generateAudio: z.boolean().nullable(),
   id: z.uuid(),
-  masters: z.array(zMasterOut),
   model: z.string().nullable(),
-  outputUrl: z.string(),
   prompt: z.string(),
   referenceImageUrls: z.array(z.string()),
   resolution: z.string().nullable(),
   script: zScriptOut.nullable(),
   seconds: z.int().nullable(),
-  userName: z.string().nullable(),
-  watermarkOutputUrl: z.string().nullable(),
 })
 
 /**
  * LibraryVideoOut
  *
- * 资料库的一张卡：一镜，即（对话，镜号）下的全部成功出片；没有镜号的出片一条一张。
+ * 资料库的一张卡：一段对话的分镜，装着这段对话读得到的全部成片（自己的加继承来的）；
+ * 不挂对话的出片一条一张卡，同原作的合成跟着它。
  */
 export const zLibraryVideoOut = z.object({
   agentId: z.string().nullable(),
+  canOpenConversation: z.boolean(),
   conversationId: z.uuid().nullable(),
   face: zFaceOut,
+  groupCount: z.int(),
   id: z.uuid(),
-  shotIndex: z.int().nullable(),
   take: zTakeOut,
-  takeCount: z.int(),
   taskId: z.uuid().nullable(),
   title: z.string().nullable(),
-})
-
-/**
- * LibraryVideoDetailOut
- */
-export const zLibraryVideoDetailOut = z.object({
-  siblings: z.array(zLibraryVideoOut),
-  takes: z.array(zTakeOut),
-  video: zLibraryVideoOut,
+  userName: z.string().nullable(),
+  versionCount: z.int(),
 })
 
 /**
@@ -1404,6 +1382,40 @@ export const zUsersPageOut = z.object({
   page: z.int(),
   pageSize: z.int(),
   total: z.int(),
+})
+
+/**
+ * VersionOut
+ *
+ * 详情里的一版：版本头加它对应的出片。
+ */
+export const zVersionOut = z.object({
+  durationMs: z.int().nullable(),
+  finishedAt: z.iso.datetime(),
+  jobId: z.uuid(),
+  kind: z.enum(['take', 'composite']),
+  outputUrl: z.string(),
+  take: zTakeOut,
+  userName: z.string().nullable(),
+  watermarkOutputUrl: z.string().nullable(),
+})
+
+/**
+ * ShotGroupOut
+ *
+ * 卡里的一个镜头组：有镜号的按镜号成组；没有镜号的是一条出片连同同原作的合成。
+ */
+export const zShotGroupOut = z.object({
+  shotIndex: z.int().nullable(),
+  versions: z.array(zVersionOut),
+})
+
+/**
+ * LibraryVideoDetailOut
+ */
+export const zLibraryVideoDetailOut = z.object({
+  groups: z.array(zShotGroupOut),
+  video: zLibraryVideoOut,
 })
 
 /**

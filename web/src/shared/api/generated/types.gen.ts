@@ -920,17 +920,17 @@ export type ErrorModel = {
 /**
  * FaceOut
  *
- * 卡面放哪一条：这一镜最新的成片，没有成片就是最新一次出片。
+ * 一版成片的版本头：卡面放的那一版，也是详情里每一版的公共部分。
  */
 export type FaceOut = {
-  /**
-   * Createdat
-   */
-  createdAt: string
   /**
    * Durationms
    */
   durationMs: number | null
+  /**
+   * Finishedat
+   */
+  finishedAt: string
   /**
    * Jobid
    */
@@ -938,11 +938,15 @@ export type FaceOut = {
   /**
    * Kind
    */
-  kind: 'take' | 'master'
+  kind: 'take' | 'composite'
   /**
    * Outputurl
    */
   outputUrl: string
+  /**
+   * Username
+   */
+  userName: string | null
   /**
    * Watermarkoutputurl
    */
@@ -1315,20 +1319,17 @@ export type LibraryAuthorsOut = {
  */
 export type LibraryVideoDetailOut = {
   /**
-   * Siblings
+   * Groups
    */
-  siblings: Array<LibraryVideoOut>
-  /**
-   * Takes
-   */
-  takes: Array<TakeOut>
+  groups: Array<ShotGroupOut>
   video: LibraryVideoOut
 }
 
 /**
  * LibraryVideoOut
  *
- * 资料库的一张卡：一镜，即（对话，镜号）下的全部成功出片；没有镜号的出片一条一张。
+ * 资料库的一张卡：一段对话的分镜，装着这段对话读得到的全部成片（自己的加继承来的）；
+ * 不挂对话的出片一条一张卡，同原作的合成跟着它。
  */
 export type LibraryVideoOut = {
   /**
@@ -1336,23 +1337,23 @@ export type LibraryVideoOut = {
    */
   agentId: string | null
   /**
+   * Canopenconversation
+   */
+  canOpenConversation: boolean
+  /**
    * Conversationid
    */
   conversationId: string | null
   face: FaceOut
   /**
+   * Groupcount
+   */
+  groupCount: number
+  /**
    * Id
    */
   id: string
-  /**
-   * Shotindex
-   */
-  shotIndex: number | null
   take: TakeOut
-  /**
-   * Takecount
-   */
-  takeCount: number
   /**
    * Taskid
    */
@@ -1361,6 +1362,14 @@ export type LibraryVideoOut = {
    * Title
    */
   title: string | null
+  /**
+   * Username
+   */
+  userName: string | null
+  /**
+   * Versioncount
+   */
+  versionCount: number
 }
 
 /**
@@ -1379,30 +1388,6 @@ export type LibraryVideosOut = {
    * Total
    */
   total: number | null
-}
-
-/**
- * MasterOut
- *
- * 挂在一次出片名下的成片（视频编辑确认合成的那条）。
- */
-export type MasterOut = {
-  /**
-   * Createdat
-   */
-  createdAt: string
-  /**
-   * Durationms
-   */
-  durationMs: number | null
-  /**
-   * Id
-   */
-  id: string
-  /**
-   * Outputurl
-   */
-  outputUrl: string
 }
 
 /**
@@ -1805,6 +1790,22 @@ export type ScriptOut = {
 }
 
 /**
+ * ShotGroupOut
+ *
+ * 卡里的一个镜头组：有镜号的按镜号成组；没有镜号的是一条出片连同同原作的合成。
+ */
+export type ShotGroupOut = {
+  /**
+   * Shotindex
+   */
+  shotIndex: number | null
+  /**
+   * Versions
+   */
+  versions: Array<VersionOut>
+}
+
+/**
  * ShotOut
  */
 export type ShotOut = {
@@ -2051,17 +2052,13 @@ export type SummaryOut = {
 /**
  * TakeOut
  *
- * 一次成功出片。参数与脚本照出片那一刻的请求。
+ * 一版成片对应的出片：参数与脚本照出片那一刻的请求。合成沿原作取，原作可以在祖先对话里。
  */
 export type TakeOut = {
   /**
    * Aspectratio
    */
   aspectRatio: string | null
-  /**
-   * Createdat
-   */
-  createdAt: string
   /**
    * Generateaudio
    */
@@ -2071,17 +2068,9 @@ export type TakeOut = {
    */
   id: string
   /**
-   * Masters
-   */
-  masters: Array<MasterOut>
-  /**
    * Model
    */
   model: string | null
-  /**
-   * Outputurl
-   */
-  outputUrl: string
   /**
    * Prompt
    */
@@ -2099,14 +2088,6 @@ export type TakeOut = {
    * Seconds
    */
   seconds: number | null
-  /**
-   * Username
-   */
-  userName: string | null
-  /**
-   * Watermarkoutputurl
-   */
-  watermarkOutputUrl: string | null
 }
 
 /**
@@ -3269,6 +3250,43 @@ export type UsersPageOut = {
    * Total
    */
   total: number
+}
+
+/**
+ * VersionOut
+ *
+ * 详情里的一版：版本头加它对应的出片。
+ */
+export type VersionOut = {
+  /**
+   * Durationms
+   */
+  durationMs: number | null
+  /**
+   * Finishedat
+   */
+  finishedAt: string
+  /**
+   * Jobid
+   */
+  jobId: string
+  /**
+   * Kind
+   */
+  kind: 'take' | 'composite'
+  /**
+   * Outputurl
+   */
+  outputUrl: string
+  take: TakeOut
+  /**
+   * Username
+   */
+  userName: string | null
+  /**
+   * Watermarkoutputurl
+   */
+  watermarkOutputUrl: string | null
 }
 
 /**
