@@ -1,6 +1,7 @@
 # ADR-0001：视频领域按操作建模——一张 `generation_jobs`，一行一次操作，镜头组按编号认
 
 - 状态：已接受（2026-09-25）
+- 修订（2026-09-25，ADR-0002）：第 3 条「版本组是原作的（对话，`shot_index`）；原作没有 `shot_index` 时自己一组」与「在副本里剪继承来的出片，合成那行属于副本，版本归源那一组」、第 10 条「资料库：一组一张卡，卡面是最新一版」由 [ADR-0002](0002-library-card-per-storyboard.md) 取代。
 - 取代现行实现中的做法：#303 与 #401（镜头组编号升为列，查询、分组不再读 `metadata`；衍生记录在原作号之外再记直接来源）、#305（上传确认落一行，外部地址仍不登记）、#353（参考片段不落行，切片与合成由服务端按编辑段完成，`/generations/clips` 下线）。
 - 沿用：#466（分叉不拷记录，副本按血缘继承祖先已完成的记录）；替人办事（持 `users:act_as` 的钥匙按 `user_name` 换属主）。
 - 影响：[CONTEXT.md](../CONTEXT.md) 术语「分镜」「镜头组」「成片」「生成任务」「审计口径」；合同 [§10 上传](../../contract/conventions.md#10-上传-uploads)、[§11 媒体生成](../../contract/conventions.md#11-媒体生成-generations)、[§12 审计报表](../../contract/conventions.md#12-审计报表-audit)、[§13 资料库](../../contract/conventions.md#13-资料库-library)；[openapi.json](../../contract/openapi.json) 的 `/generations/*` 与 `/uploads/*`。

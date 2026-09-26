@@ -151,7 +151,7 @@ class GenerationService:
     async def submit_video_compose(
         self, principal: Principal, request: VideoComposeIn
     ) -> GenerationJob:
-        """受理一次合成：把编辑段夹回它的基底，拼成同一原作下的新一版成片，镜号随编辑段。
+        """受理一次合成：把编辑段夹回它的基底，拼成一条新成片，原作与镜号随编辑段。
 
         段按编辑段上记的实际区间算：基底从头到起点（起点为 0 时没有这段）、编辑段产物整条、
         基底从终点到结尾。后两段取到结尾，执行方按下载下来的素材补齐。不经外部服务。"""
