@@ -41,11 +41,7 @@ describe('frameImageEntries', () => {
           id: 'j1',
           createdAt: '2026-09-13T02:00:00Z',
           outputUrl: 'https://cdn.test/b.png',
-          metadata: {
-            shot: 1,
-            frame: 1,
-            sourceUrl: 'https://cdn.test/gone.png',
-          },
+          sourceUrl: 'https://cdn.test/gone.png',
         }),
       ],
       CURRENT,
@@ -65,11 +61,8 @@ describe('frameImageEntries', () => {
           id: 'second',
           createdAt: '2026-09-13T03:00:00Z',
           outputUrl: 'https://cdn.test/c.png',
-          metadata: {
-            shot: 1,
-            frame: 1,
-            sourceUrl: 'https://cdn.test/b.png',
-          },
+          sourceJobId: 'first',
+          sourceUrl: 'https://cdn.test/b.png',
         }),
         job({
           id: 'first',
@@ -128,11 +121,7 @@ describe('entryBaseUrl', () => {
           id: 'live',
           createdAt: '2026-09-13T04:00:00Z',
           status: 'submitted',
-          metadata: {
-            shot: 1,
-            frame: 1,
-            sourceUrl: 'https://cdn.test/base.png',
-          },
+          sourceUrl: 'https://cdn.test/base.png',
         }),
       ],
       CURRENT,
@@ -140,11 +129,27 @@ describe('entryBaseUrl', () => {
     expect(entryBaseUrl(at(entries, 1), CURRENT)).toBe('https://cdn.test/base.png')
   })
 
-  it('存量任务没记底图时落回当前帧', () => {
+  it('没有来源（旧记录或纯出图）时落回当前帧', () => {
     const entries = frameImageEntries(
       [job({ id: 'live', createdAt: '2026-09-13T04:00:00Z', status: 'failed' })],
       CURRENT,
     )
+    expect(entryBaseUrl(at(entries, 1), CURRENT)).toBe(CURRENT)
+  })
+
+  it('metadata 里残留的 sourceUrl 不当底图读', () => {
+    const entries = frameImageEntries(
+      [
+        job({
+          id: 'live',
+          createdAt: '2026-09-13T04:00:00Z',
+          status: 'failed',
+          metadata: { shot: 1, frame: 1, sourceUrl: 'https://cdn.test/stale.png' },
+        }),
+      ],
+      CURRENT,
+    )
+    expect(entries.map((entry) => entry.key)).toEqual(['current', 'live'])
     expect(entryBaseUrl(at(entries, 1), CURRENT)).toBe(CURRENT)
   })
 })

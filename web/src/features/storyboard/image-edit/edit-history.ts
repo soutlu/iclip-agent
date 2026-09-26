@@ -1,7 +1,6 @@
 /** 这一帧出现过的图，摊成编辑器缩略图条的条目。 */
 
 import { isAppliedResult } from '../frame-status'
-import { readStoryboardMetadata } from '../generation-metadata'
 import { phaseOfStatus } from '../shots'
 import type { GenerationJob } from '../storyboard.api'
 
@@ -19,9 +18,10 @@ type Seed = { url: string; job: GenerationJob | null; createdAt: string }
 
 /** 这一帧出现过的所有图：当前帧固定在头一个，其余按时间倒序。
  *
- * 图有两个来源：任务的产出，以及任务记下的底图——底图未必还在分镜里，它可能是上一轮没
- * 落盘的结果，也可能已被后来的编辑覆盖，只有这样才找得回来。同一张图两处都出现时留下
- * 产出它的那条任务；底图只说明这张图那时已经存在，说不出它从哪来。
+ * 图从两处来：任务的产出，以及任务的来源地址（`sourceUrl`，库内底图与外部底图都有）。
+ * 底图未必还在分镜里，它可能是上一轮没落盘的结果，也可能已被后来的编辑覆盖，只有这样
+ * 才找得回来。同一张图两处都出现时留下产出它的那条任务；底图只说明这张图那时已经存在，
+ * 说不出它从哪来。
  *
  * `jobs` 按这一格筛过即可，这里不再认坐标；顺序照服务端给的（新的在前），同一张图有几条
  * 任务都产出过时留最前那条。 */
@@ -49,8 +49,8 @@ export function frameImageEntries(
     else if (isAppliedResult(job, currentUrl)) currentJob ??= job
     else if (job.outputUrl !== null) remember(job.outputUrl, job, job.createdAt)
 
-    const base = readStoryboardMetadata(job)?.sourceUrl
-    if (base !== undefined && base !== currentUrl) remember(base, null, job.createdAt)
+    const base = job.sourceUrl
+    if (base != null && base !== currentUrl) remember(base, null, job.createdAt)
   }
 
   const images = [...seeds.values()].map((seed): StripEntry => ({
@@ -75,4 +75,4 @@ const entryTime = (entry: StripEntry): string =>
 export const entryBaseUrl = (entry: StripEntry, currentUrl: string): string =>
   entry.kind === 'current' || entry.kind === 'image'
     ? entry.url
-    : (readStoryboardMetadata(entry.job)?.sourceUrl ?? currentUrl)
+    : (entry.job.sourceUrl ?? currentUrl)

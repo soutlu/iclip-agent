@@ -16,6 +16,7 @@ export const makeGenerationJob = (overrides: Partial<GenerationJob> = {}): Gener
   shotIndex: null,
   rootJobId: null,
   sourceJobId: null,
+  sourceUrl: null,
   rangeStartMs: null,
   rangeEndMs: null,
   clipStage: null,

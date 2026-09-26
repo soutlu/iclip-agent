@@ -59,10 +59,13 @@ test('普通编辑只填写要求即可提交编辑底图', async ({ page }) => 
     (request) => request.url().endsWith('/api/generations/image') && request.method() === 'POST',
   )
   await dialog.getByRole('button', { name: '生成图片', exact: true }).click()
-  expect((await submission).postDataJSON()).toMatchObject({
+  const body = (await submission).postDataJSON() as Record<string, unknown>
+  expect(body).toMatchObject({
     referenceImageUrls: [sourceUrl],
     prompt: '将衣服改成蓝色',
+    sourceUrl,
   })
+  expect(body['metadata']).toEqual({ shot: 1, frame: 1 })
 })
 
 for (const width of [1600, 390]) {

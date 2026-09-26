@@ -19,6 +19,14 @@ describe('readStoryboardMetadata', () => {
     })
   })
 
+  it('坐标以外的键不读', () => {
+    expect(
+      readStoryboardMetadata({
+        metadata: { shot: 1, frame: 2, sourceUrl: 'https://cdn.test/base.png' },
+      }),
+    ).toEqual({ frame: 2, shot: 1 })
+  })
+
   it.each([
     ['没有坐标', null],
     ['别的调用方的形状', { batch: 'x' }],

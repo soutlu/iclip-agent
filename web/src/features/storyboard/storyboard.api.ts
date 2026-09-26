@@ -63,7 +63,7 @@ export type VideoGenerationInput = {
  *
  * 记录里没有 shot 的（接口调用方自己写的正文）回填不了，返回 undefined。 */
 export const historyShotOf = (job: GenerationJob): Shot['prompt'] | undefined => {
-  const parsed = zVideoShotIn.safeParse(job.request['shot'])
+  const parsed = zVideoShotIn.safeParse(job.request?.['shot'])
   return parsed.success ? parsed.data : undefined
 }
 

@@ -1,5 +1,7 @@
-import { QueryClient } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { renderHook, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
+import { createElement, type ReactNode } from 'react'
 import { describe, expect, it } from 'vitest'
 import { makeGenerationJob } from '@/testing/generation-job'
 import { server } from '@/testing/mocks/server'
@@ -13,6 +15,7 @@ import {
   resolveImageOptions,
   seedImageEditJob,
   submitImageEdit,
+  useFrameImageJobs,
 } from './image-edit.api'
 import type { ImageModel } from './image-edit.api'
 import type { FrameEditDraft, FrameEditTarget } from './image-edit-types'
@@ -78,6 +81,27 @@ const target: FrameEditTarget = {
   frameNumber: 3,
 }
 
+describe('useFrameImageJobs', () => {
+  it('帧状态只取调模型的图片记录：切图没有坐标，不占 100 条的窗口', async () => {
+    let query: URLSearchParams | undefined
+    server.use(
+      http.get('*/api/generations', ({ request }) => {
+        query = new URL(request.url).searchParams
+        return HttpResponse.json({ items: [] })
+      }),
+    )
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { result } = renderHook(() => useFrameImageJobs(target.conversationId), {
+      wrapper: ({ children }: { children: ReactNode }) =>
+        createElement(QueryClientProvider, { client: queryClient }, children),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(query?.get('kind')).toBe('image')
+    expect(query?.get('operation')).toBe('generate')
+  })
+})
+
 describe('imageEditJobsRefetchInterval', () => {
   const done = makeGenerationJob({ kind: 'image', status: 'completed' })
   const running = makeGenerationJob({ kind: 'image', status: 'submitted' })
@@ -134,7 +158,7 @@ describe('seedImageEditJob', () => {
 })
 
 describe('submitImageEdit', () => {
-  it('坐标里带上这次改的是哪张图，参考图与编译好的正文照发', async () => {
+  it('改的是哪张图走 sourceUrl，坐标只记这一格，参考图照发', async () => {
     let body: Record<string, unknown> = {}
     server.use(
       http.post('*/api/generations/image', async ({ request }) => {
@@ -153,6 +177,7 @@ describe('submitImageEdit', () => {
               status: 'pending',
               taskId: null,
               rootJobId: null,
+              sourceUrl: body['sourceUrl'],
               clipStage: null,
               durationMs: null,
               watermarkOutputUrl: null,
@@ -171,11 +196,8 @@ describe('submitImageEdit', () => {
     })
 
     expect(job.status).toBe('pending')
-    expect(body['metadata']).toEqual({
-      shot: 2,
-      frame: 3,
-      sourceUrl: 'https://cdn.test/frame.png',
-    })
+    expect(body['sourceUrl']).toBe('https://cdn.test/frame.png')
+    expect(body['metadata']).toEqual({ shot: 2, frame: 3 })
     expect(body['referenceImageUrls']).toEqual([
       'https://cdn.test/frame.png',
       'https://cdn.test/annotated.png',

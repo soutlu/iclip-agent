@@ -10,7 +10,6 @@ import { MediaFallback } from '@/shared/ui/media-fallback'
 import { MediaLightbox } from '@/shared/ui/media-lightbox'
 import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { toast } from '@/shared/ui/toast'
-import { readStoryboardMetadata } from '../generation-metadata'
 import { AnnotationCanvas } from './annotation-canvas'
 import { exportAnnotatedImage } from './annotation-export'
 import { EditGenerationSettings } from './edit-generation-settings'
@@ -221,7 +220,7 @@ export function FrameImageEditor({
       return
     }
     // 草稿归属于底图。恢复时也切回它，避免画面和装回的输入指向不同图片。
-    const wanted = readStoryboardMetadata(job)?.sourceUrl ?? currentUrl
+    const wanted = job.sourceUrl ?? currentUrl
     const onBase = entries.find(
       (entry) => (entry.kind === 'image' || entry.kind === 'current') && entry.url === wanted,
     )
