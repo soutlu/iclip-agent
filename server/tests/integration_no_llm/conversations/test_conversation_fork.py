@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import NoReturn
 
 import httpx
@@ -22,13 +23,15 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from iclip.app.bootstrap import build_app
 from iclip.common.errors import Conflict, NotFound
+from iclip.config import ResolvedAgent
 from iclip.domains.conversations.infra_sql import SqlConversationRepository
 from iclip.domains.conversations.service import ConversationService
 from iclip.domains.generation.infra_sql import SqlGenerationRepository
 from iclip.domains.generation.models import GenerationJob
 from iclip.domains.identity.public import Principal
 from iclip.harness.step_store_pg import PgStepStore
-from tests.helpers.app import make_client
+from tests.helpers.agents import declared_agent
+from tests.helpers.app import make_client, settled
 from tests.helpers.auth import register_and_login, set_roles_in_db
 from tests.helpers.generation import (
     MEDIA_ENVS,
@@ -42,6 +45,15 @@ from tests.helpers.pg import connected, reset_database
 URL = "/conversations"
 AGENT_ID = "storyboard"
 BASE = datetime(2026, 9, 1, tzinfo=UTC)
+INHERITED_DETAIL = "分叉带过来的历史不能重新生成或编辑，只能接着往下聊。"
+"""继承轮重新生成的 404 文案；前端原样弹出。"""
+
+
+@pytest.fixture
+def agent_declarations(tmp_path: Path) -> tuple[ResolvedAgent, ...]:
+    """装上源对话用的 agent，要真跑出消息行的用例才跑得起来。"""
+
+    return (declared_agent(tmp_path, AGENT_ID),)
 
 
 async def login_as(
@@ -151,6 +163,34 @@ async def side_data(pg_url: str, namespace: str) -> tuple[list[str], list[str]]:
 
 async def fork(client: httpx.AsyncClient, conversation_id: str, **body: object) -> httpx.Response:
     return await client.post(f"{URL}/{conversation_id}:fork", json={"turn": 1, **body})
+
+
+async def say(client: httpx.AsyncClient, conversation_id: str, said: str) -> None:
+    """发一条消息并等它跑完。"""
+
+    sent = await client.post(
+        f"{URL}/{conversation_id}/prompts",
+        json={
+            "prompt_id": f"prm_{uuid.uuid4().hex[:16]}",
+            "content": [{"type": "text", "text": said}],
+        },
+    )
+    assert sent.status_code == 200, sent.text
+    await settled(client, conversation_id)
+
+
+async def prompt_rows(pg_url: str, conversation_id: str) -> int:
+    async with connected(pg_url) as conn:
+        return int(
+            (
+                await conn.execute(
+                    text(
+                        "SELECT count(*) FROM agent_runtime.agent_jobs WHERE conversation_id = :cid"
+                    ),
+                    {"cid": conversation_id},
+                )
+            ).scalar_one()
+        )
 
 
 def _untouched(*_: object, **__: object) -> NoReturn:
@@ -400,15 +440,29 @@ async def test_a_fork_of_a_fork_points_at_its_direct_parent(
 async def test_inherited_turns_cannot_be_regenerated(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """继承轮是照片，副本下没有它们对应的消息行；往后接着说才是副本自己的轮。"""
+    """继承轮的消息行在源对话名下，副本里不能拿它重跑；往后接着说才是副本自己的轮。"""
 
     await login_as(client, pg_url, username="luke")
     source = await open_conversation(client)
-    await seed_turns(pg_url, source, ["第一句"])
+    await say(client, source, "第一句")
 
     copy = (await fork(client, source)).json()["conversation"]["id"]
     retried = await client.post(f"{URL}/{copy}/turns/t1:regenerate", json={})
     assert retried.status_code == 404, retried.text
+    assert retried.json()["detail"] == INHERITED_DETAIL
+    assert await prompt_rows(pg_url, copy) == 0, "副本名下不能冒出一条抄源对话的消息"
+    history = await client.get(f"{URL}/{copy}/transcript")
+    assert [turn["content"] for turn in history.json()["items"]] == [
+        [{"type": "text", "text": "第一句"}]
+    ], "挡在截断之前，继承轮还在"
+
+    await say(client, copy, "接着说")
+    replayed = await client.post(f"{URL}/{copy}/turns/t2:regenerate", json={})
+    assert replayed.status_code == 200, replayed.text
+    await settled(client, copy)
+    history = await client.get(f"{URL}/{copy}/transcript")
+    assert [turn["turnId"] for turn in history.json()["items"]] == ["t1", "t2"]
+    assert await prompt_rows(pg_url, copy) == 2
 
 
 @pytest.fixture

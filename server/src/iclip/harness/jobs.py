@@ -275,8 +275,11 @@ class JobQueue:
         )
         return found[0] if found else None
 
-    async def get_by_run(self, run_id: str) -> JobRow | None:
-        """通过 agent_job_runs 查询发起运行的消息；agent_jobs.run_id 仅表示最近运行且包含插话。"""
+    async def get_by_run(self, run_id: str, *, conversation_id: str) -> JobRow | None:
+        """通过 agent_job_runs 查询本对话里发起运行的消息；agent_jobs.run_id 仅表示最近运行且包含插话。
+
+        分叉副本里继承来的 run 记在源对话名下，查不到。
+        """
 
         stmt = (
             select(agent_jobs_table)
@@ -285,6 +288,7 @@ class JobQueue:
                 agent_job_runs_table.c.prompt_id == agent_jobs_table.c.prompt_id,
             )
             .where(agent_job_runs_table.c.run_id == run_id)
+            .where(agent_jobs_table.c.conversation_id == conversation_id)
         )
         found = await self._rows(stmt)
         return found[0] if found else None
