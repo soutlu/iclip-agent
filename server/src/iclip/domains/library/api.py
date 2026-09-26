@@ -33,10 +33,11 @@ def create_library_router(service: LibraryService) -> APIRouter:
         limit: Annotated[int, Query(ge=1, le=MAX_LIST_LIMIT)] = DEFAULT_LIST_LIMIT,
         cursor: str | None = None,
     ) -> LibraryVideosOut:
-        """全站的成功出片，一镜一张卡，卡面时刻晚的排前面。
+        """全站的成片，一段对话一张卡，卡面成片完成得晚的排前面。
 
-        时间窗 ``[since, until)`` 作用在卡面时刻上；``q`` 按字面包含匹配卡面那次出片的正文与
-        对话标题。``total`` 只在第一页给。来源对话只交给对话属主与治理者。
+        ``userName`` 筛卡的作者（对话属主）；时间窗 ``[since, until)`` 作用在卡面成片的完成时刻上；
+        ``q`` 按字面包含匹配卡面成片对应那条出片的正文与对话标题。``total`` 只在第一页给。
+        来源对话人人拿得到，``canOpenConversation`` 说这位读者打不打得开。
         """
 
         return await service.videos(
@@ -55,9 +56,10 @@ def create_library_router(service: LibraryService) -> APIRouter:
         principal: Annotated[Principal, require_permission("generation:read")],
         video_id: uuid.UUID,
     ) -> LibraryVideoDetailOut:
-        """这次出片所在那一镜：卡片本身、全部成功出片与名下成片、同一段对话的其他镜。
+        """一张卡：卡片本身与按镜头组分好的全部版本，含继承来的。
 
-        ``video_id`` 可以是这一镜里任何一次出片的 id；不在资料库里的是 ``404``。
+        ``video_id`` 是卡 id（对话 id，不挂对话的卡是出片 id），别的 id 一律 ``404``；
+        对话删了照常返回。
         """
 
         return await service.video(principal, video_id)
@@ -66,7 +68,7 @@ def create_library_router(service: LibraryService) -> APIRouter:
     async def authors(
         _: Annotated[Principal, require_permission("generation:read")],
     ) -> LibraryAuthorsOut:
-        """名下有卡的人与各自的卡数，多的排前面；给按人筛选用。"""
+        """卡的作者与各自的卡数，多的排前面；给按人筛选用。"""
 
         return await service.authors()
 
