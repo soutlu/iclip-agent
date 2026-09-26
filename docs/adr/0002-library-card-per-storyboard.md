@@ -2,7 +2,7 @@
 
 - 状态：已接受（2026-09-25）
 - 取代 [ADR-0001](0001-video-domain-model.md) 第 3 条里「版本组是原作的（对话，`shot_index`）；原作没有 `shot_index` 时自己一组」与「在副本里剪继承来的出片，合成那行属于副本，版本归源那一组」，以及第 10 条「资料库：一组一张卡，卡面是最新一版」。沿用 #466 的继承规则本身（副本读得到祖先在分叉前完成的记录，不拥有它们）。
-- 影响：[CONTEXT.md](../CONTEXT.md) 术语「镜头组」「生成任务」「继承」「资料库」；合同 [§11 媒体生成](../../contract/conventions.md#11-媒体生成-generations)（合成那句的「同一原作下的新一版」改为所在镜头组的新一版）、[§13 资料库](../../contract/conventions.md#13-资料库-library)；[openapi.json](../../contract/openapi.json) 的 `/library/*`。
+- 影响：[CONTEXT.md](../CONTEXT.md) 术语「镜头组」「生成任务」「继承」「资料库」；合同 [§11 媒体生成](../../contract/conventions.md#11-媒体生成-generations)（合成不再说成「同一原作下的新一版」，版本改按镜头组排）、[§13 资料库](../../contract/conventions.md#13-资料库-library)；[openapi.json](../../contract/openapi.json) 的 `/library/*`。
 
 ## 背景
 
