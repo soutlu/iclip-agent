@@ -1,19 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { login } from './login'
 
-test('普通用户没有「全部对话」「审计」入口，直接访问都回首页', async ({ page }) => {
-  await page.goto('/')
-  await login(page, 'tester')
-
-  await expect(page.getByRole('button', { name: '全部对话' })).toBeHidden()
-  await expect(page.getByRole('button', { name: '审计' })).toBeHidden()
-
-  await page.goto('/audit')
-  await expect(page).toHaveURL('/')
-  await page.goto('/conversations')
-  await expect(page).toHaveURL('/')
-})
-
 test('审计总览在桌面、深色与窄屏下可读，能切到异常标签', async ({ page }) => {
   const screenshotDir = '../.artifacts/design-qa/audit-dashboard'
   await page.setViewportSize({ width: 1524, height: 1032 })

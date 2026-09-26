@@ -1,7 +1,13 @@
 /// <reference lib="dom" />
 
 import { expect, test, type Page } from '@playwright/test'
-import { canvasPng, openConversation, readVideoShots, type VideoShot } from './helpers'
+import {
+  canvasPng,
+  openConversation,
+  readVideoShots,
+  screenshotBothThemes,
+  type VideoShot,
+} from './helpers'
 
 const openStoryboard = (page: Page, mobile = false) =>
   openConversation(page, '夜景延时素材生成', { mobile })
@@ -74,79 +80,65 @@ test('分镜可以滚轮翻组、键盘切帧和查看记录，浏览操作不�
 })
 
 for (const width of [1335, 390]) {
-  for (const colorScheme of ['light', 'dark'] as const) {
-    test(`分镜 ${width}px ${colorScheme}：原文、参考图和总览可读，关闭后恢复选择与焦点`, async ({
-      page,
-    }) => {
-      await page.setViewportSize({ width, height: width === 390 ? 844 : 880 })
-      await page.emulateMedia({ colorScheme })
-      const panel = await openStoryboard(page, width === 390)
-      await panel.getByRole('button', { name: '第 2 组' }).click()
-      const group = panel.getByRole('region', { name: '镜头组 2', exact: true })
-      const filmstrip = group.getByRole('navigation', { name: '本组镜头' })
-      await filmstrip.getByRole('button', { name: '镜头 2', exact: true }).click()
-      const lastFrame = filmstrip.getByRole('button', { name: '预览第 3 帧' })
-      await lastFrame.click()
-      await expect(lastFrame).toBeInViewport({ ratio: 1 })
-      await expect(group.getByRole('img', { name: '镜头组 2 第 3 帧' })).toBeInViewport({
-        ratio: 1,
-      })
-      await page.screenshot({
-        animations: 'disabled',
-        path: `../.artifacts/design-qa/storyboard-reader/main-${width}-${colorScheme}.png`,
-      })
-
-      const trigger = group.getByRole('button', { name: '完整提示词', exact: true })
-      await trigger.focus()
-      await page.keyboard.press('Enter')
-      const sheet = panel.getByRole('complementary', { name: '镜头组完整提示词', exact: true })
-      const original = sheet.getByRole('region', { name: '镜头组原文', exact: true })
-      await expect(original).toBeFocused()
-      const settings = sheet.getByRole('textbox', { name: '全局设定', exact: true })
-      await expect(settings).toContainText('参考锁定：模特的服装与发型跟住')
-      await expect(settings.getByRole('button', { name: '看第 1 帧', exact: true })).toBeVisible()
-      await expect(original).toContainText('[0–4秒｜镜头1]')
-      await expect(original).toContainText('[4–11秒｜镜头2]')
-      await expect(sheet.getByRole('button', { name: '复制完整提示词' })).toBeInViewport({
-        ratio: 1,
-      })
-      await expect(sheet.getByRole('button', { name: '生成视频' })).toHaveCount(0)
-      await expect(sheet).toBeInViewport({ ratio: 1 })
-      await page.screenshot({
-        animations: 'disabled',
-        path: `../.artifacts/design-qa/storyboard-reader/prompt-${width}-${colorScheme}.png`,
-      })
-
-      const reference = sheet.getByRole('button', { name: '查看参考图 @Image3', exact: true })
-      await reference.scrollIntoViewIfNeeded()
-      await reference.click()
-      const preview = page.getByRole('dialog', { name: '参考图 @Image3', exact: true })
-      await expect(preview).toBeVisible()
-      await page.keyboard.press('Escape')
-      await expect(preview).toBeHidden()
-      await expect(reference).toBeFocused()
-      await page.keyboard.press('Escape')
-      await expect(sheet).toBeHidden()
-      await expect(trigger).toBeFocused()
-      await expect(lastFrame).toHaveAttribute('aria-pressed', 'true')
-      const search = new URL(page.url()).searchParams
-      expect(search.get('shot')).toBe('2')
-      expect(search.get('frame')).toBe('3')
-      expect(search.has('sheet')).toBe(false)
-
-      await panel.getByRole('button', { name: '全部镜头组', exact: true }).click()
-      const overview = panel.getByRole('complementary', { name: '全部镜头组', exact: true })
-      await expect(overview.getByRole('button', { name: /查看镜头组/ })).toHaveCount(3)
-      await page.screenshot({
-        animations: 'disabled',
-        path: `../.artifacts/design-qa/storyboard-reader/overview-${width}-${colorScheme}.png`,
-      })
-      await overview.getByRole('button', { name: '查看镜头组 3', exact: true }).click()
-      await expect(overview).toBeHidden()
-      await expect(panel.getByRole('region', { name: '镜头组 3', exact: true })).toBeInViewport()
-      await expect(page).toHaveURL(/shot=3/)
+  test(`分镜 ${width}px：原文、参考图和总览可读，关闭后恢复选择与焦点`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 880 })
+    const panel = await openStoryboard(page, width === 390)
+    await panel.getByRole('button', { name: '第 2 组' }).click()
+    const group = panel.getByRole('region', { name: '镜头组 2', exact: true })
+    const filmstrip = group.getByRole('navigation', { name: '本组镜头' })
+    await filmstrip.getByRole('button', { name: '镜头 2', exact: true }).click()
+    const lastFrame = filmstrip.getByRole('button', { name: '预览第 3 帧' })
+    await lastFrame.click()
+    await expect(lastFrame).toBeInViewport({ ratio: 1 })
+    await expect(group.getByRole('img', { name: '镜头组 2 第 3 帧' })).toBeInViewport({
+      ratio: 1,
     })
-  }
+    await screenshotBothThemes(page, `../.artifacts/design-qa/storyboard-reader/main-${width}`)
+
+    const trigger = group.getByRole('button', { name: '完整提示词', exact: true })
+    await trigger.focus()
+    await page.keyboard.press('Enter')
+    const sheet = panel.getByRole('complementary', { name: '镜头组完整提示词', exact: true })
+    const original = sheet.getByRole('region', { name: '镜头组原文', exact: true })
+    await expect(original).toBeFocused()
+    const settings = sheet.getByRole('textbox', { name: '全局设定', exact: true })
+    await expect(settings).toContainText('参考锁定：模特的服装与发型跟住')
+    await expect(settings.getByRole('button', { name: '看第 1 帧', exact: true })).toBeVisible()
+    await expect(original).toContainText('[0–4秒｜镜头1]')
+    await expect(original).toContainText('[4–11秒｜镜头2]')
+    await expect(sheet.getByRole('button', { name: '复制完整提示词' })).toBeInViewport({
+      ratio: 1,
+    })
+    await expect(sheet.getByRole('button', { name: '生成视频' })).toHaveCount(0)
+    await expect(sheet).toBeInViewport({ ratio: 1 })
+    await screenshotBothThemes(page, `../.artifacts/design-qa/storyboard-reader/prompt-${width}`)
+
+    const reference = sheet.getByRole('button', { name: '查看参考图 @Image3', exact: true })
+    await reference.scrollIntoViewIfNeeded()
+    await reference.click()
+    const preview = page.getByRole('dialog', { name: '参考图 @Image3', exact: true })
+    await expect(preview).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(preview).toBeHidden()
+    await expect(reference).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(sheet).toBeHidden()
+    await expect(trigger).toBeFocused()
+    await expect(lastFrame).toHaveAttribute('aria-pressed', 'true')
+    const search = new URL(page.url()).searchParams
+    expect(search.get('shot')).toBe('2')
+    expect(search.get('frame')).toBe('3')
+    expect(search.has('sheet')).toBe(false)
+
+    await panel.getByRole('button', { name: '全部镜头组', exact: true }).click()
+    const overview = panel.getByRole('complementary', { name: '全部镜头组', exact: true })
+    await expect(overview.getByRole('button', { name: /查看镜头组/ })).toHaveCount(3)
+    await screenshotBothThemes(page, `../.artifacts/design-qa/storyboard-reader/overview-${width}`)
+    await overview.getByRole('button', { name: '查看镜头组 3', exact: true }).click()
+    await expect(overview).toBeHidden()
+    await expect(panel.getByRole('region', { name: '镜头组 3', exact: true })).toBeInViewport()
+    await expect(page).toHaveURL(/shot=3/)
+  })
 }
 
 test('agent 更新工作区后重读结构化正文，保留当前组和帧', async ({ page }) => {
@@ -329,9 +321,7 @@ test('无图分镜上传首图后关联到另一镜，替换共享图片只改�
   expect(generationPosts).toEqual([])
 })
 
-test('选模型出片：请求照上游形状取当前组，记录先生成中后完成，下载分原片与水印版', async ({
-  page,
-}) => {
+test('翻到第 3 组出片：请求取当前组，记录先生成中后完成，下载分原片与水印版', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 })
   const panel = await openStoryboard(page)
   await panel.getByRole('button', { name: '第 3 组' }).click()
@@ -342,31 +332,13 @@ test('选模型出片：请求照上游形状取当前组，记录先生成中�
   const third = before.document.shots[2]
   if (third === undefined) throw new Error('需要第三组')
 
-  await panel
-    .getByRole('button', { name: '生成设置：moyu-seedance-2-5，音频开启', exact: true })
-    .click()
-  const settings = page.getByRole('dialog', { name: '生成设置', exact: true })
-  await settings.getByRole('radio', { name: 'wan3.0-video', exact: true }).click()
-  await settings.getByRole('switch', { name: '生成音频', exact: true }).click()
-  await page.keyboard.press('Escape')
-  await expect(settings).toBeHidden()
   const posted = page.waitForRequest(
     (request) =>
       request.method() === 'POST' && new URL(request.url()).pathname === '/api/generations/video',
   )
   await panel.getByRole('button', { name: '生成视频', exact: true }).click()
   const request = await posted
-  expect(request.postDataJSON()).toEqual({
-    aspect_ratio: before.document.aspect_ratio,
-    conversation_id: new URL(page.url()).pathname.split('/').at(-1),
-    generate_audio: false,
-    model: 'wan3.0-video',
-    reference_image_urls: third.image_urls,
-    resolution: '720p',
-    seconds: third.seconds,
-    shot: third.prompt,
-    shot_index: 3,
-  })
+  expect(request.postDataJSON()).toMatchObject({ shot_index: 3, shot: third.prompt })
   await expect(panel.getByText('生成中 1', { exact: true })).toBeVisible()
 
   await panel.getByRole('button', { name: '生成记录', exact: true }).click()

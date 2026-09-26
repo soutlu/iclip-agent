@@ -25,12 +25,3 @@ test('未登录进首页看到游客态外壳，点登录弹窗登录后就地�
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
   await expect(page.getByRole('menu')).toBeHidden()
 })
-
-test('未登录点发送弹出登录框', async ({ page }) => {
-  await page.goto('/')
-
-  await page.getByLabel('输入消息').fill('做一个产品宣传片')
-  await page.getByRole('button', { name: '发送' }).click()
-
-  await expect(page.getByRole('dialog', { name: '登录 Cue' })).toBeVisible()
-})

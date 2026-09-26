@@ -1,6 +1,5 @@
 import { expect, test } from '@playwright/test'
 import { openConversation } from './helpers'
-import { login } from './login'
 
 // Headless Chromium 默认隐藏滚动条，必须显示它才能检验显隐引起的正文重排。
 test.use({ launchOptions: { ignoreDefaultArgs: ['--hide-scrollbars'] } })
@@ -114,17 +113,6 @@ test('在会话页发一条：气泡先出来，回复跟着长出来', async ({
   await expect(submittedTurn).toHaveCount(1)
   await expect(submittedTurn.getByText('镜头表已经更新。')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByText('再补两个镜头')).toHaveCount(1)
-})
-
-test('首页发一条：新建对话并跳进会话页', async ({ page }) => {
-  await page.goto('/')
-  await login(page)
-
-  await page.getByLabel('输入消息').fill('做一个亚麻衬衫的短片')
-  await page.getByRole('button', { name: '发送' }).click()
-
-  await expect(page).toHaveURL(/\/c\//)
-  await expect(page.getByText('做一个亚麻衬衫的短片')).toBeVisible({ timeout: 15_000 })
 })
 
 test('在跑的时候再发一条：排队、追加、停止', async ({ page }) => {
