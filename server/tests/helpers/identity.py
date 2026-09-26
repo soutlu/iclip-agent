@@ -6,7 +6,7 @@ import uuid
 from dataclasses import replace
 from datetime import UTC, datetime
 
-from iclip.domains.identity.models import ApiKeyRecord, PmsDepartment, UserAccount
+from iclip.domains.identity.models import ApiKeyRecord, UserAccount
 
 
 def make_account(
@@ -32,21 +32,6 @@ def make_account(
         departments=(),
         created_at=datetime.now(UTC),
         last_login_at=None,
-    )
-
-
-def make_department(name: str = "市场部") -> PmsDepartment:
-    return PmsDepartment(
-        id=1,
-        uid="d-1",
-        name=name,
-        parent_id=None,
-        parent_uid="",
-        leader_user_id=None,
-        leader_user_uid="",
-        source="pms",
-        type="dept",
-        order=1,
     )
 
 

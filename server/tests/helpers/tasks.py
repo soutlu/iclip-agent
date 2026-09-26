@@ -14,7 +14,6 @@ from iclip.domains.tasks.models import (
     ACTIVE_STATUSES,
     STATUS_CONFIRMED,
     STATUS_DRAFT,
-    STATUS_PUBLISHED,
     Task,
     TaskCursor,
     TaskStatus,
@@ -116,10 +115,7 @@ def make_task(
 
 
 class InMemoryTaskRepository:
-    """TaskRepository 内存替身，保留 expect 状态守卫。
-
-    期限使用进程时钟；数据库时钟的一致性由集成测试验证。
-    """
+    """TaskRepository 内存替身，保留 expect 状态守卫。"""
 
     def __init__(self, tasks: list[Task] | None = None) -> None:
         self.tasks: dict[uuid.UUID, Task] = {task.id: task for task in tasks or []}
@@ -199,11 +195,6 @@ class InMemoryTaskRepository:
         )
 
     async def publish(self, task_id: uuid.UUID) -> Task | None:
-        found = self.tasks.get(task_id)
-        if found is None or found.status != STATUS_DRAFT:
-            return None
-        if found.deadline is not None and found.deadline <= datetime.now(UTC):
-            return None
         return self._replace(task_id, STATUS_DRAFT, status="published")
 
     async def confirm(self, task_id: uuid.UUID, *, user_id: uuid.UUID) -> Task | None:
@@ -216,9 +207,6 @@ class InMemoryTaskRepository:
         if user_id not in assignees:
             assignees = (*assignees, user_id)
         updated = replace(found, status=STATUS_CONFIRMED, assignee_user_ids=assignees)
-        # 仅首次确认更新需求单时间；后续认领只新增认领记录。
-        if found.status == STATUS_PUBLISHED:
-            updated = replace(updated, updated_at=datetime.now(UTC))
         self.tasks[task_id] = updated
         return updated
 

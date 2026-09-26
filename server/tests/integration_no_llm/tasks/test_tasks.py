@@ -3,31 +3,25 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import AsyncEngine
 
+from iclip.domains.tasks.infra_sql import SqlTaskRepository
 from tests.helpers.app import make_client
 from tests.helpers.auth import login_as_editor, register_and_login, set_roles_in_db
+from tests.helpers.fork_lineage import make_user
 from tests.helpers.pg import connected
-from tests.helpers.tasks import INPUTS, URL, create
+from tests.helpers.tasks import INPUTS, URL, create, make_task
 
 
 def future(days: int = 7) -> str:
     return (datetime.now(UTC) + timedelta(days=days)).isoformat()
-
-
-async def set_status_directly(pg_url: str, task_id: str, status: str) -> None:
-    """绕过 API 更新状态，模拟读取后的并发修改。"""
-
-    async with connected(pg_url) as conn:
-        await conn.execute(
-            text("UPDATE iclip.tasks SET status = :status WHERE id = CAST(:id AS uuid)"),
-            {"status": status, "id": task_id},
-        )
 
 
 async def test_full_lifecycle_over_http(client: httpx.AsyncClient, pg_url: str) -> None:
@@ -94,25 +88,32 @@ async def test_inputs_survive_http_and_jsonb_round_trip(
     assert stored == INPUTS
 
 
-async def test_timestamps_come_from_the_database_clock(
+async def test_timestamps_come_from_the_database_clock(engine: AsyncEngine) -> None:
+
+    repo = SqlTaskRepository(engine)
+    stale = datetime.now(UTC) - timedelta(days=365)
+    draft = make_task(creator_user_id=await make_user(engine))
+
+    task, _ = await repo.create_if_absent(replace(draft, created_at=stale, updated_at=stale))
+
+    assert task.created_at.tzinfo is not None
+    assert task.created_at > stale + timedelta(days=1), "应用传进来的时刻被数据库改写了"
+    assert task.updated_at > stale + timedelta(days=1)
+
+
+async def test_a_draft_without_a_deadline_can_be_published(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
+    """期限可以不填，不填的草稿照样能发布。"""
 
     await login_as_editor(client, pg_url)
-    task = (await create(client)).json()["task"]
+    task = (await create(client, deadline=None)).json()["task"]
 
-    async with connected(pg_url) as conn:
-        drift = (
-            await conn.execute(
-                text(
-                    "SELECT extract(epoch FROM (now() - created_at)) FROM iclip.tasks"
-                    " WHERE id = CAST(:id AS uuid)"
-                ),
-                {"id": task["id"]},
-            )
-        ).scalar_one()
+    published = await client.post(f"{URL}/{task['id']}/publish")
 
-    assert 0 <= float(drift) < 60
+    assert published.status_code == 200, published.text
+    assert published.json()["task"]["status"] == "published"
+    assert published.json()["task"]["deadline"] is None
 
 
 async def test_a_deadline_in_the_past_cannot_be_published(
@@ -128,20 +129,23 @@ async def test_a_deadline_in_the_past_cannot_be_published(
     assert (await client.get(f"{URL}/{task['id']}")).json()["task"]["status"] == "draft"
 
 
-async def test_status_guard_stops_a_write_built_on_stale_reading(
-    client: httpx.AsyncClient, pg_url: str
-) -> None:
-    """读取与写入间存在 await；WHERE 状态守卫须原子地拒绝基于过时状态的写入。"""
+async def test_status_guard_refuses_a_write_built_on_a_stale_status(engine: AsyncEngine) -> None:
+    """服务读完状态再写，中间可能被别人改过；仓储按读到的状态条件写入，对不上就一行不动。"""
 
-    await login_as_editor(client, pg_url)
-    task = (await create(client)).json()["task"]
-    await client.post(f"{URL}/{task['id']}/publish")
-    await set_status_directly(pg_url, task["id"], "withdrawn")
+    repo = SqlTaskRepository(engine)
+    draft, _ = await repo.create_if_absent(make_task(creator_user_id=await make_user(engine)))
+    assert await repo.publish(draft.id) is not None
+    confirmed = await repo.confirm(draft.id, user_id=draft.creator_user_id)
+    assert confirmed is not None and confirmed.status == "confirmed"
 
-    stale = await client.post(f"{URL}/{task['id']}/confirm")
-
-    assert stale.status_code == 409
-    assert (await client.get(f"{URL}/{task['id']}")).json()["task"]["status"] == "withdrawn"
+    assert await repo.publish(draft.id) is None
+    assert await repo.set_status(draft.id, expect="published", status="withdrawn") is None
+    saved = await repo.save(
+        draft.id, expect="draft", title="改个名", priority=1, deadline=None, inputs=draft.inputs
+    )
+    assert saved is None
+    assert await repo.delete(draft.id, expect="draft") is False
+    assert await repo.get(draft.id) == confirmed
 
 
 @pytest.mark.parametrize(
@@ -229,6 +233,26 @@ async def test_list_pages_by_cursor_and_reads_a_batch_by_ids(
     batch = (await client.get(URL, params=(("ids", created[0]), ("ids", created[2])))).json()
     assert [item["id"] for item in batch["items"]] == [created[2], created[0]]
     assert batch["total"] == 2
+
+
+async def test_tasks_made_at_the_same_moment_page_by_id(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """同一时刻建的按 id 倒序兜底；续页接着这个排序键，不跳行也不重行。"""
+
+    await login_as_editor(client, pg_url)
+    low, high = map(str, sorted(uuid.uuid4() for _ in range(2)))
+    for minted in (low, high):
+        assert (await create(client, id=minted)).status_code == 201
+    async with connected(pg_url) as conn:
+        await conn.execute(text("UPDATE iclip.tasks SET created_at = now()"))
+
+    whole = (await client.get(URL, params={"limit": 2})).json()
+    first = (await client.get(URL, params={"limit": 1})).json()
+    rest = (await client.get(URL, params={"limit": 1, "cursor": first["nextCursor"]})).json()
+
+    assert [item["id"] for item in whole["items"]] == [high, low]
+    assert [item["id"] for page in (first, rest) for item in page["items"]] == [high, low]
 
 
 async def test_second_claim_adds_a_person_without_touching_the_task_row(

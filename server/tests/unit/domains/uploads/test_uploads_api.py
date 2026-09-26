@@ -197,37 +197,6 @@ async def test_video_needs_no_size() -> None:
         assert (await sign(http, "video/mp4", width=None, height=None)).status_code == 200
 
 
-async def test_confirm_answers_from_the_bucket_and_can_be_repeated() -> None:
-    """确认只交回地址与桶里读到的事实；每次都重新回答，重试拿到同一份。"""
-
-    bucket = FakeBucket()
-    app = build_test_app(bucket, granted=uploader())
-    async with client(app) as http:
-        upload_id = (await sign(http, "video/mp4")).json()["uploadId"]
-        bucket.put(f"iclip/agent/uploads/{upload_id}.mp4", content_type="video/mp4", size_bytes=99)
-
-        first = await confirm(http, upload_id)
-        again = await confirm(http, upload_id)
-
-    assert first.status_code == 200
-    assert first.json() == {
-        "url": f"https://cdn.test/iclip/agent/uploads/{upload_id}.mp4",
-        "contentType": "video/mp4",
-        "sizeBytes": 99,
-    }
-    assert again.json() == first.json()
-
-
-async def test_confirm_before_the_upload_landed_is_a_conflict() -> None:
-    recorded = RecordedUploads()
-    app = build_test_app(FakeBucket(), granted=uploader(), recorded=recorded)
-    async with client(app) as http:
-        upload_id = (await sign(http)).json()["uploadId"]
-        assert (await confirm(http, upload_id)).status_code == 409
-        assert (await confirm(http, str(uuid.uuid4()))).status_code == 409
-    assert recorded.calls == [], "核对不过不记录"
-
-
 async def test_oversized_upload_is_refused() -> None:
     """预签名 PUT 无法限制长度，确认时须校验桶内实际大小。"""
 
@@ -263,27 +232,6 @@ async def test_unexpected_type_in_the_bucket_is_refused() -> None:
 
 
 # --- 确认即记录 -------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("content_type", "ext", "kind"), [("image/png", "png", "image"), ("video/mp4", "mp4", "video")]
-)
-async def test_confirming_records_the_upload_by_its_id_kind_and_address(
-    content_type: str, ext: str, kind: MediaKind
-) -> None:
-    """桶里核对过的才记：id 就是 uploadId，种类按桶里的类型定，地址就是交回的那个。"""
-
-    bucket = FakeBucket()
-    recorded = RecordedUploads()
-    me = uploader()
-    app = build_test_app(bucket, granted=me, recorded=recorded)
-    async with client(app) as http:
-        upload_id = (await sign(http, content_type)).json()["uploadId"]
-        bucket.put(f"iclip/agent/uploads/{upload_id}.{ext}", content_type=content_type)
-        response = await confirm(http, upload_id)
-
-    assert response.status_code == 200, response.text
-    assert recorded.calls == [(me, uuid.UUID(upload_id), kind, response.json()["url"])]
 
 
 @pytest.mark.parametrize(

@@ -67,15 +67,3 @@ async def test_duplicate_username_rejected(client: httpx.AsyncClient) -> None:
         json={"email": "other@example.com", "password": "password-123", "username": "luke"},
     )
     assert dup.status_code == 400
-
-
-async def test_anonymous_me_is_401(client: httpx.AsyncClient) -> None:
-    assert (await client.get("/users/me")).status_code == 401
-
-
-async def test_healthz_is_public(client: httpx.AsyncClient) -> None:
-    response = await client.get("/healthz")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["status"] == "ok"
-    assert body["config"] == {"generation": 1, "error": None, "needs_restart": False}

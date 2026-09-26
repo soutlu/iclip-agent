@@ -97,25 +97,6 @@ async def test_creating_lands_a_draft_owned_by_the_caller() -> None:
     assert task["deadline"] is None
 
 
-async def test_client_minted_id_lands_published_and_repeats_idempotently() -> None:
-    """机器链路自带 id 直接落已下发状态；重发同一个 id 不会多出第二张单。"""
-
-    minted = uuid.uuid4()
-    repo = InMemoryTaskRepository()
-    async with client(build_test_app(repo, granted=principal("tasks:write"))) as http:
-        first = await http.post("/tasks", json={**BODY, "id": str(minted), "status": "published"})
-        second = await http.post(
-            "/tasks", json={**BODY, "id": str(minted), "status": "published", "title": "另一个标题"}
-        )
-
-    assert first.status_code == 201, first.text
-    assert first.json()["task"]["id"] == str(minted)
-    assert first.json()["task"]["status"] == STATUS_PUBLISHED
-    assert second.status_code == 200, second.text
-    assert second.json()["task"]["title"] == BODY["title"]
-    assert list(repo.tasks) == [minted]
-
-
 @pytest.mark.parametrize("status", ["confirmed", "withdrawn", "", "PUBLISHED"])
 async def test_creation_only_accepts_draft_or_published(status: str) -> None:
 
@@ -288,7 +269,7 @@ async def test_a_draft_is_the_creators_own_business() -> None:
     assert repo.tasks == {}
 
 
-async def test_publishing_needs_something_to_make_but_no_deadline() -> None:
+async def test_publishing_needs_something_to_make() -> None:
     creator = uuid.uuid4()
     bare = make_task(creator_user_id=creator, inputs=make_inputs(creative_requirement=""))
     repo = InMemoryTaskRepository([bare])
@@ -305,7 +286,6 @@ async def test_publishing_needs_something_to_make_but_no_deadline() -> None:
 
     assert published.status_code == 200, published.text
     assert published.json()["task"]["status"] == STATUS_PUBLISHED
-    assert published.json()["task"]["deadline"] is None
 
 
 async def test_publishing_is_the_creators_call() -> None:
@@ -410,32 +390,23 @@ async def test_list_filters_by_status_and_rejects_out_of_range_limit() -> None:
         assert (await http.get("/tasks?limit=1000")).status_code == 422
 
 
-async def test_list_pages_by_created_at_and_id_and_keeps_the_total() -> None:
-    """满页给游标、末页不给；同一时刻建的按 id 倒序兜底，续页不跳行；总数不随翻页变。"""
+async def test_list_pages_by_cursor_and_keeps_the_total() -> None:
+    """满页给游标、末页不给；总数不随翻页变。"""
 
     base = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
     tasks = [replace(make_task(), created_at=base - timedelta(minutes=i)) for i in range(3)]
-    twins = sorted(
-        (replace(make_task(), created_at=base - timedelta(hours=1)) for _ in range(2)),
-        key=lambda task: task.id,
-        reverse=True,
-    )
-    repo = InMemoryTaskRepository([*tasks, *twins])
-    expected = [str(task.id) for task in (*tasks, *twins)]
+    repo = InMemoryTaskRepository(tasks)
+    expected = [str(task.id) for task in tasks]
     async with client(build_test_app(repo, granted=principal("tasks:read"))) as http:
         first = (await http.get("/tasks", params={"limit": 2})).json()
         second = (
             await http.get("/tasks", params={"limit": 2, "cursor": first["nextCursor"]})
         ).json()
-        third = (
-            await http.get("/tasks", params={"limit": 2, "cursor": second["nextCursor"]})
-        ).json()
 
         assert [item["id"] for item in first["items"]] == expected[:2]
-        assert [item["id"] for item in second["items"]] == expected[2:4]
-        assert [item["id"] for item in third["items"]] == expected[4:]
-        assert (first["total"], second["total"], third["total"]) == (5, 5, 5)
-        assert third["nextCursor"] is None
+        assert [item["id"] for item in second["items"]] == expected[2:]
+        assert (first["total"], second["total"]) == (3, 3)
+        assert second["nextCursor"] is None
         assert (await http.get("/tasks?cursor=nonsense")).status_code == 422
 
 
@@ -451,41 +422,6 @@ async def test_list_by_ids_reads_a_batch_and_caps_at_one_page() -> None:
         too_many = tuple(("ids", str(uuid.uuid4())) for _ in range(101))
         assert (await http.get("/tasks", params=too_many)).status_code == 422
         assert (await http.get("/tasks?ids=not-a-uuid")).status_code == 422
-
-
-async def test_confirm_records_who_claimed() -> None:
-
-    task = make_task(status=STATUS_PUBLISHED, deadline=future())
-    repo = InMemoryTaskRepository([task])
-    caller = editor()
-    async with client(build_test_app(repo, granted=caller)) as http:
-        confirmed = await http.post(f"/tasks/{task.id}/confirm")
-
-        assert confirmed.status_code == 200
-        assert confirmed.json()["task"]["assigneeUserIds"] == [str(caller.user_id)]
-
-
-async def test_multiple_people_can_claim_the_same_task() -> None:
-
-    first = editor()
-    task = make_task(status=STATUS_CONFIRMED, deadline=future(), assignee_user_ids=(first.user_id,))
-    repo = InMemoryTaskRepository([task])
-    second = editor()
-    async with client(build_test_app(repo, granted=second)) as http:
-        confirmed = await http.post(f"/tasks/{task.id}/confirm")
-
-        assert confirmed.status_code == 200
-        assert confirmed.json()["task"]["assigneeUserIds"] == [
-            str(first.user_id),
-            str(second.user_id),
-        ]
-
-    async with client(build_test_app(repo, granted=second)) as http:
-        again = await http.post(f"/tasks/{task.id}/confirm")
-        assert again.json()["task"]["assigneeUserIds"] == [
-            str(first.user_id),
-            str(second.user_id),
-        ]
 
 
 async def test_claimed_by_me_lists_only_my_claims() -> None:

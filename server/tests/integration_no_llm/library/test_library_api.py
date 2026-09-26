@@ -129,7 +129,9 @@ async def test_everyone_gets_the_conversation_only_readers_can_open_it(
     colleague = as_colleague.json()["video"]
     assert colleague["conversationId"] == str(conversation_id)
     assert colleague["canOpenConversation"] is False
+    assert colleague["title"] == "凉鞋合集"
     assert colleague["take"]["prompt"] == "模特走向镜头。"
+    assert colleague["take"] == video["take"]
     assert [(item["id"], item["canOpenConversation"]) for item in listed["items"]] == [
         (str(conversation_id), False)
     ]
