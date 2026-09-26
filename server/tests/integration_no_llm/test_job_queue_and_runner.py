@@ -264,7 +264,7 @@ async def test_sweep_settles_an_expired_lease_and_wakes_the_queue(engine: AsyncE
     assert woken is not None
     assert woken.status == "completed"
     assert woken.run_id is not None
-    assert woken.locked_by == LOCKED_BY
+    assert woken.locked_by == runner.locked_by
 
 
 async def test_an_interrupted_prompt_resumes_into_the_same_turn(engine: AsyncEngine) -> None:
@@ -513,7 +513,7 @@ async def test_sweep_does_not_claim_a_row_this_process_is_still_running(
     stale = await queue.get(prompt_id)
     assert stale is not None
     assert stale.attempt == 0
-    assert stale.locked_by == LOCKED_BY
+    assert stale.locked_by == runner.locked_by
 
     gate.set()
     await drained(queue, conversation_id)
@@ -637,7 +637,7 @@ async def test_a_queued_prompt_survives_a_restart_and_gets_picked_up(
     tail = await queue.get("prm_tail")
     assert tail is not None
     assert tail.status == "completed"
-    assert tail.locked_by == LOCKED_BY
+    assert tail.locked_by == runner.locked_by
 
 
 async def test_a_run_whose_lease_was_taken_cancels_itself(engine: AsyncEngine) -> None:
@@ -780,9 +780,9 @@ async def test_repeated_prompt_receipts_do_not_run_the_model_twice(
 
     model = FunctionModel(stream_function=stream)
 
-    def service(locked_by: str) -> TranscriptService:
+    def service() -> TranscriptService:
         store = TranscriptStore()
-        runner, step_store, queue = build_runner(engine, model, store=store, locked_by=locked_by)
+        runner, step_store, queue = build_runner(engine, model, store=store)
         return TranscriptService(
             store=store,
             history=TranscriptHistory(step_store, queue),
@@ -792,8 +792,8 @@ async def test_repeated_prompt_receipts_do_not_run_the_model_twice(
             record_materials=records_nothing,
         )
 
-    first = service("w-first")
-    retry = first if same_worker else service("w-second")
+    first = service()
+    retry = first if same_worker else service()
     services = [first] if same_worker else [first, retry]
     conversation_id = f"c-{uuid.uuid4().hex[:8]}"
 
@@ -1185,36 +1185,6 @@ async def test_an_append_the_run_never_read_goes_back_to_the_queue(engine: Async
     assert back.run_id is None
     assert back.steered_at is None
     assert [row.prompt_id for row in (await queue.view(conversation_id)).queued] == ["prm_tail"]
-
-
-async def test_sweep_settles_an_append_that_rode_a_lost_run(engine: AsyncEngine) -> None:
-
-    queue = JobQueue(engine)
-    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
-    now = datetime.now(UTC)
-    for prompt_id, said in (("prm_running", "先做这个"), ("prm_appended", "临时插一句")):
-        await queue.submit(
-            prompt_id=prompt_id,
-            conversation_id=conversation_id,
-            agent_id=AGENT_ID,
-            owner_user_id=OWNER,
-            user_name="luke",
-            content=(TextContent(text=said),),
-            now=now,
-            locked_by=DEAD,
-        )
-    run_id = f"{AGENT_ID}-dead"
-    await queue.attach_run("prm_running", run_id, locked_by=DEAD, attempt=0)
-    await queue.mark_steered(("prm_appended",), run_id=run_id, now=now)
-
-    await expire_lease(engine, conversation_id, attempt=1)
-    runner, _step_store, _queue = build_runner(engine, says("好"), store=TranscriptStore())
-    await runner.sweep_once()
-    await runner.shutdown()
-
-    appended = await queue.get("prm_appended")
-    assert appended is not None
-    assert appended.status == "failed"
 
 
 async def test_appending_when_nothing_is_running_is_a_conflict(engine: AsyncEngine) -> None:

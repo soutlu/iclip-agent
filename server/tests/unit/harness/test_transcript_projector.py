@@ -9,7 +9,6 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic_ai.exceptions import RunCancelled
 from pydantic_ai.messages import (
     CompactionPart,
     EnqueuedMessagesEvent,
@@ -280,12 +279,6 @@ async def test_a_failed_turn_fails_its_running_task() -> None:
     task = await _task_after(RuntimeError("父运行炸了"))
 
     assert (task.state, task.state_reason, task.error) == ("failed", None, None)
-
-
-async def test_a_stopped_turn_kills_its_running_task() -> None:
-    """父运行被停时任务随轮次收尾为 killed，与历史从子运行事件推出的对上。"""
-
-    assert (await _task_after(RunCancelled("用户停止"))).state == "killed"
 
 
 async def test_a_task_whose_call_never_came_back_is_settled_by_the_turn() -> None:

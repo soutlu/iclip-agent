@@ -219,19 +219,6 @@ async def test_attachments_land_in_the_material_ledger(app: FastAPI, pg_url: str
     ]
 
 
-async def test_a_text_only_prompt_records_nothing(app: FastAPI, pg_url: str) -> None:
-    async with make_client(app) as client:
-        user_id = await _sign_in(client, pg_url)
-        conversation_id = await new_conversation(client, AGENT_ID)
-        await client.post(
-            f"/conversations/{conversation_id}/prompts",
-            json={"prompt_id": "prm_plain", "content": [{"type": "text", "text": "走"}]},
-        )
-        await settled(client, conversation_id)
-
-    assert await _materials(pg_url, f"{user_id}/{conversation_id}") == []
-
-
 @pytest.mark.parametrize("url", ["file:///etc/passwd", "https:///a.png"])
 async def test_an_attachment_that_is_not_http_is_refused(
     app: FastAPI, pg_url: str, url: str

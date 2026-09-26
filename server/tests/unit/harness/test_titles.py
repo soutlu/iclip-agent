@@ -49,10 +49,17 @@ async def test_起标题只用最低思考档() -> None:
 
 
 async def test_用户没打字就不叫模型() -> None:
-    generate = title_generator(_exploding())
+    calls: list[AgentInfo] = []
 
-    # 图片消息无可用文本；异常模型可检测不应发生的模型调用。
+    def script(_messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        calls.append(info)
+        return ModelResponse(parts=[TextPart("凭空起的标题")])
+
+    generate = title_generator(FunctionModel(script))
+
+    # 图片消息无可用文本，不应为它发一次模型请求。
     assert await generate("   ") is None
+    assert calls == []
 
 
 async def test_模型炸了不抛出去() -> None:
