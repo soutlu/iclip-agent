@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { FakeSocket } from '@/testing/ws'
+import { FakeSocket, SERVER_HELLO } from '@/testing/ws'
 import { TranscriptConnection, type SessionUpdate, type TranscriptOps } from './connection'
 
 const SNAPSHOT = {
@@ -27,11 +27,6 @@ function ops(seq: number, conversationId = 'c1', list: TranscriptOps = []) {
     session_id: conversationId,
     payload: { agent_id: 'main', ops: list, seq },
   }
-}
-
-const HELLO = {
-  type: 'server_hello',
-  payload: { ws_connection_id: 'w1', protocol_version: 2, heartbeat_ms: 10_000 },
 }
 
 /** 塞进坏帧里的正文，告警里不该出现。 */
@@ -93,7 +88,7 @@ describe('TranscriptConnection', () => {
         },
       })
     }
-    socket.deliver(HELLO)
+    socket.deliver(SERVER_HELLO)
     return connection
   }
 
@@ -162,7 +157,7 @@ describe('TranscriptConnection', () => {
     before.onclose?.()
     vi.advanceTimersByTime(2_000)
     // 测试工厂复用原 socket，重订帧仍发送到同一对象。
-    socket.deliver(HELLO)
+    socket.deliver(SERVER_HELLO)
 
     const resubscribed = before
       .frames()
@@ -200,7 +195,7 @@ describe('TranscriptConnection', () => {
 
     socket.onclose?.()
     vi.advanceTimersByTime(2_000)
-    socket.deliver(HELLO)
+    socket.deliver(SERVER_HELLO)
 
     expect(
       socket
@@ -280,7 +275,7 @@ describe('TranscriptConnection', () => {
     })
     connection.connect()
     connection.subscribe('c1', { onReset: () => undefined, onOps: () => true })
-    sockets[0]?.deliver(HELLO)
+    sockets[0]?.deliver(SERVER_HELLO)
     sockets[0]?.deliver(ops(7))
     expect(connection.watermarkOf('c1', 'main')).toBe(7)
 
@@ -290,7 +285,7 @@ describe('TranscriptConnection', () => {
     expect(sockets).toHaveLength(2)
     expect(sockets[0]?.onclose).toBeNull()
 
-    sockets[1]?.deliver(HELLO)
+    sockets[1]?.deliver(SERVER_HELLO)
     const sent = sockets[1]?.frames() ?? []
     expect(sent[0]?.type).toBe('subscribe_v2')
     expect(sent[0]?.payload?.['transcript_since']).toEqual({ main: 7 })
@@ -617,7 +612,7 @@ describe('TranscriptConnection', () => {
 
     before.onclose?.()
     vi.advanceTimersByTime(2_000)
-    socket.deliver(HELLO)
+    socket.deliver(SERVER_HELLO)
 
     const watches = before.frames().filter((frame) => frame.type === 'watch_fs_add')
     expect(watches).toHaveLength(2)

@@ -1,7 +1,7 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
 import { renderWithProviders } from '@/testing/render'
 import { TaskSpecPicker } from './task-spec-picker'
@@ -40,20 +40,6 @@ function PickerForm({
     </>
   )
 }
-
-// jsdom 不执行滚动；实际弹层定位和滚动由浏览器验收。
-const originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView')
-beforeAll(() => {
-  Object.defineProperty(Element.prototype, 'scrollIntoView', {
-    configurable: true,
-    value: () => {},
-  })
-})
-afterAll(() => {
-  if (originalScrollIntoView)
-    Object.defineProperty(Element.prototype, 'scrollIntoView', originalScrollIntoView)
-  else Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
-})
 
 describe('TaskSpecPicker', () => {
   it('回显已有值，输入已知显示名时选中合同值，并允许清空', async () => {

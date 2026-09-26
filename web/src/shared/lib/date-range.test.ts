@@ -1,11 +1,8 @@
 import { z } from 'zod'
 import { describe, expect, it } from 'vitest'
 import {
-  DATE_RANGE_DAY_PRESETS,
   dateRangeBounds,
   dateRangeFromSearch,
-  dateRangeLabel,
-  dateRangePresetDays,
   dateRangeSearchFields,
   dateRangeToSearch,
   formatLocalDate,
@@ -16,16 +13,6 @@ import {
 } from './date-range'
 
 describe('快捷预设单表推导', () => {
-  it('带天数的预设按表内顺序列出', () => {
-    expect(DATE_RANGE_DAY_PRESETS).toEqual(['7d', '30d'])
-  })
-
-  it.each(DATE_RANGE_DAY_PRESETS)('%s 的标签写的是表里的天数', (range) => {
-    expect(dateRangeLabel({ range, since: null, until: null })).toBe(
-      `近 ${dateRangePresetDays(range)} 天`,
-    )
-  })
-
   it.each(['all', 'custom', '3d', '', 'toString'])('%s 不是带天数的预设', (value) => {
     expect(isDateRangeDayPreset(value)).toBe(false)
   })

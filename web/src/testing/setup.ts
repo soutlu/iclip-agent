@@ -53,6 +53,15 @@ for (const proto of [Range.prototype, Element.prototype]) {
   }
 }
 
+// jsdom 不实现滚动；SearchList 与 TaskSpecPicker 移动活动项时调用。
+if (!('scrollIntoView' in Element.prototype)) {
+  Object.defineProperty(Element.prototype, 'scrollIntoView', {
+    configurable: true,
+    value: () => {},
+    writable: true,
+  })
+}
+
 // 未声明 handler 的请求直接报错，避免访问真实后端。
 beforeAll(() => {
   server.listen({ onUnhandledRequest: 'error' })

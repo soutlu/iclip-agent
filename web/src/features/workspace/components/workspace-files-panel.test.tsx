@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { server } from '@/testing/mocks/server'
 import { seedMockWorkspace } from '@/testing/mocks/workspace'
 import { renderWithProviders } from '@/testing/render'
-import { ArtifactRegistry, WorkbenchRegistryProvider, type ArtifactEntry } from '@/shared/workbench'
+import { ArtifactRegistry, WorkbenchRegistryProvider } from '@/shared/workbench'
 import { WorkspaceFilesPanel } from './workspace-files-panel'
 
 const CONVERSATION_ID = '4d3a7f8e-1b2c-4d5e-8f90-a1b2c3d4e5f6'
@@ -17,19 +17,17 @@ const artifact = {
   type: 'workspace',
 } as const
 
-const shotsEntry: ArtifactEntry = {
-  autoOpen: true,
-  component: () => null,
-  icon: 'grid',
-  label: '分镜',
-  match: { path: 'video_shot.json' },
-  title: () => '分镜',
-  type: 'storyboard',
-}
-
 const renderPanel = (initialPath = `/c/${CONVERSATION_ID}`) => {
   const registry = new ArtifactRegistry()
-  registry.register(shotsEntry)
+  registry.register({
+    autoOpen: true,
+    component: () => null,
+    icon: 'grid',
+    label: '分镜',
+    match: { path: 'video_shot.json' },
+    title: () => '分镜',
+    type: 'storyboard',
+  })
   return renderWithProviders(
     <WorkbenchRegistryProvider registry={registry}>
       <WorkspaceFilesPanel artifact={artifact} conversationId={CONVERSATION_ID} readOnly={false} />

@@ -1,4 +1,4 @@
-/** 文件按完整路径匹配，工具帧按 view 或 display.kind 匹配，工作区有文件即匹配；新增类型仅需登记渲染器。 */
+/** 文件按完整路径匹配，工具帧按 display.kind 匹配，工作区有文件即匹配；新增类型仅需登记渲染器。 */
 
 import {
   fileArtifactId,
@@ -18,8 +18,7 @@ const displayKindOf = (display: unknown): string | undefined => {
 }
 
 const matchesFrame = (entry: ArtifactEntry, frame: WorkbenchFrame): boolean =>
-  ('view' in entry.match && entry.match.view === frame.view) ||
-  ('displayKind' in entry.match && entry.match.displayKind === displayKindOf(frame.display))
+  'displayKind' in entry.match && entry.match.displayKind === displayKindOf(frame.display)
 
 /** 按路径或工作区命中的类型不随某张工具卡来去，菜单里常驻。 */
 export const isStanding = (entry: ArtifactEntry): boolean =>

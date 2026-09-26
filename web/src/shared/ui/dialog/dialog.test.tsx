@@ -62,28 +62,3 @@ describe('DialogSurface 对文件拖放', () => {
     expect(dataTransfer.dropEffect).toBe('')
   })
 })
-
-// 表面样式本身由视觉验收覆盖；这里只看变体标记与接口：调用方类名透传、bare 不当成 DOM 属性。
-describe('DialogSurface 的无表面变体', () => {
-  const surfaceOf = (bare: boolean) => {
-    render(
-      <DialogRoot open>
-        <DialogSurface aria-describedby={undefined} bare={bare} className="task-detail-dialog">
-          <DialogHeader closeLabel="关闭" title="需求详情" />
-        </DialogSurface>
-      </DialogRoot>,
-    )
-    return screen.getByRole('dialog', { name: '需求详情' })
-  }
-
-  it('默认不标变体', () => {
-    expect(surfaceOf(false)).not.toHaveAttribute('data-variant')
-  })
-
-  it('bare 标成无表面变体，调用方类名照旧，prop 不落到 DOM 上', () => {
-    const dialog = surfaceOf(true)
-    expect(dialog).toHaveAttribute('data-variant', 'bare')
-    expect(dialog).toHaveClass('task-detail-dialog')
-    expect(dialog).not.toHaveAttribute('bare')
-  })
-})

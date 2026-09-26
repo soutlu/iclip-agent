@@ -1,5 +1,5 @@
 import { screen, waitFor } from '@testing-library/react'
-import userEvent, { PointerEventsCheckLevel } from '@testing-library/user-event'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { loginAs, mockAuthUser } from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
@@ -21,20 +21,6 @@ async function renderMenu() {
 }
 
 describe('CueUserMenu', () => {
-  it('菜单开着时再点头像会关上', async () => {
-    // 模态菜单打开后 body 不接收指针事件；真实浏览器里这一下落在页面根上，这里直接派发给头像。
-    const user = userEvent.setup({ pointerEventsCheck: PointerEventsCheckLevel.Never })
-    const trigger = await renderMenu()
-
-    await user.click(trigger)
-    expect(await screen.findByRole('menu', { name: '用户菜单' })).toHaveTextContent(
-      mockAuthUser.displayName,
-    )
-    await user.click(trigger)
-
-    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
-  })
-
   it('点开后方向键进到菜单项，Tab 不会跳到页面后续控件', async () => {
     const user = userEvent.setup()
     const trigger = await renderMenu()

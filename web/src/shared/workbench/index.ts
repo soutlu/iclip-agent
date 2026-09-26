@@ -1,4 +1,4 @@
-export { frameArtifactId, type ArtifactEntry, type ArtifactRendererProps } from './artifact'
+export { frameArtifactId, type ArtifactRendererProps } from './artifact'
 export { ARTIFACT_SEARCH_KEY, useOpenArtifact } from './artifact-search'
 export { ArtifactRegistry } from './registry'
 export { useWorkbenchRegistry } from './use-workbench-registry'

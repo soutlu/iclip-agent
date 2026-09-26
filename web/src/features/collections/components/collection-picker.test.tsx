@@ -1,7 +1,7 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { renderWithProviders } from '@/testing/render'
 import { CollectionPicker, type CollectionOption } from './collection-picker'
 
@@ -38,20 +38,6 @@ function CollectionControls({
     />
   )
 }
-
-// jsdom 不执行滚动；真实浏览器验收负责检查活动项滚入视口。
-const originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView')
-beforeAll(() => {
-  Object.defineProperty(Element.prototype, 'scrollIntoView', {
-    configurable: true,
-    value: () => {},
-  })
-})
-afterAll(() => {
-  if (originalScrollIntoView)
-    Object.defineProperty(Element.prototype, 'scrollIntoView', originalScrollIntoView)
-  else Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
-})
 
 describe('CollectionPicker', () => {
   it('选中项置顶，搜索不区分大小写，并可用键盘选择或取消关联', async () => {
@@ -135,8 +121,9 @@ describe('CollectionPicker', () => {
 
   it('未提供创建权限时隐藏新建入口，仍可选择已有合集', async () => {
     const user = userEvent.setup()
+    const onChange = vi.fn()
     await renderWithProviders(
-      <CollectionPicker onChange={() => {}} options={OPTIONS} value={null} />,
+      <CollectionPicker onChange={onChange} options={OPTIONS} value={null} />,
     )
     await user.click(screen.getByRole('button', { name: '关联合集：未关联合集' }))
     expect(screen.getAllByRole('option')).toHaveLength(OPTIONS.length)
@@ -144,5 +131,9 @@ describe('CollectionPicker', () => {
     await user.type(screen.getByRole('combobox'), '不存在')
     expect(screen.queryByRole('button', { name: /新建/ })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '不关联合集' })).toBeEnabled()
+
+    await user.clear(screen.getByRole('combobox'))
+    await user.click(await screen.findByRole('option', { name: '品牌社媒' }))
+    expect(onChange).toHaveBeenCalledWith('social')
   })
 })

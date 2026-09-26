@@ -15,7 +15,7 @@ export interface FrameAgentRef {
   agentId: string
 }
 
-/** 工具帧由 view 或 display.kind 选择渲染器，metadata 提供展示结果。 */
+/** 工具帧由 display.kind 选择渲染器，metadata 提供展示结果。 */
 export interface FrameArtifactSource {
   kind: 'frame'
   toolCallId: string
@@ -52,8 +52,8 @@ export interface ArtifactRendererProps {
 
 export interface ArtifactEntry {
   type: string
-  /** 文件按路径；工具帧按结果渲染器 view，或按服务端 display 的 kind；工作区只要有文件就命中。 */
-  match: { path: string } | { view: string } | { displayKind: string } | { workspace: true }
+  /** 文件按路径；工具帧按服务端 display 的 kind；工作区只要有文件就命中。 */
+  match: { path: string } | { displayKind: string } | { workspace: true }
   /** 这一类产物的名字，菜单里还没有产物的常驻行也用它。 */
   label: string
   /** 某一件产物的标题，可以比 label 更具体。 */

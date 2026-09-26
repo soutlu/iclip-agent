@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { useState } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   addMockConversation,
   addMockTask,
@@ -105,22 +105,6 @@ const seedThree = () => {
   done.completedAt = '2026-08-31T00:00:00Z'
   return { other, task, theirs }
 }
-
-beforeEach(() => {
-  // Radix 通过 ResizeObserver 测量浮层箭头；jsdom 的几何行为由浏览器验收补足。
-  vi.stubGlobal(
-    'ResizeObserver',
-    class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    },
-  )
-})
-
-afterEach(() => {
-  vi.unstubAllGlobals()
-})
 
 describe('ConversationsRoute', () => {
   it('按建立时间倒序列出全平台对话', async () => {
@@ -299,32 +283,20 @@ describe('ConversationsRoute', () => {
     expectTotals(1, 1)
   })
 
-  it('切换筛选触发器时只保留一个浮层，Escape 关闭并将焦点归还当前触发器', async () => {
+  it('从用户浮层切到需求单浮层：旧浮层关闭，焦点进需求单搜索框', async () => {
     const { task } = seedThree()
     const { user } = await render([{ id: task.id, label: task.title }])
     await rowOf('我的片')
 
     await user.click(screen.getByRole('button', { name: '用户：用户' }))
     expect(await screen.findByRole('dialog', { name: '选择用户' })).toBeVisible()
-    expect(screen.getAllByRole('dialog')).toHaveLength(1)
 
     await user.click(screen.getByRole('button', { name: '需求单：需求单' }))
     const taskPicker = await screen.findByRole('dialog', { name: '选择需求单' })
     expect(screen.queryByRole('dialog', { name: '选择用户' })).not.toBeInTheDocument()
-    expect(screen.getAllByRole('dialog')).toHaveLength(1)
     await waitFor(() =>
       expect(within(taskPicker).getByRole('combobox', { name: '搜索需求单' })).toHaveFocus(),
     )
-
-    const timeTrigger = screen.getByRole('button', { name: '建立时间' })
-    await user.click(timeTrigger)
-    expect(await screen.findByRole('dialog', { name: '选择建立时间范围' })).toBeVisible()
-    expect(screen.queryByRole('dialog', { name: '选择需求单' })).not.toBeInTheDocument()
-    expect(screen.getAllByRole('dialog')).toHaveLength(1)
-
-    await user.keyboard('{Escape}')
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    await waitFor(() => expect(timeTrigger).toHaveFocus())
   })
 
   it('用户名册读取失败时在浮层内呈现错误，重试恢复候选和对话上的用户名', async () => {

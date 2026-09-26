@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   SearchListInput,
   SearchListOptions,
@@ -56,20 +56,6 @@ function QueryEcho() {
     </button>
   )
 }
-
-// jsdom 不执行滚动；浏览器验收负责活动项滚入可视区域。
-const originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView')
-beforeAll(() => {
-  Object.defineProperty(Element.prototype, 'scrollIntoView', {
-    configurable: true,
-    value: () => {},
-  })
-})
-afterAll(() => {
-  if (originalScrollIntoView)
-    Object.defineProperty(Element.prototype, 'scrollIntoView', originalScrollIntoView)
-  else Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
-})
 
 describe('SearchList', () => {
   it('键盘循环遍历、跳到首尾并用 Enter 选择，活动项由搜索框的 ARIA 关联表达', async () => {

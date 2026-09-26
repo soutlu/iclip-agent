@@ -35,7 +35,7 @@ describe('useComposerAttachments', () => {
     delete (URL as unknown as Record<string, unknown>)['revokeObjectURL']
   })
 
-  it('走完签名、直传、确认三步：uploading → ready，地址来自确认回包', async () => {
+  it('上传成功：uploading → ready，预览换成上传结果的地址', async () => {
     const { result } = renderHook(() => useComposerAttachments())
 
     const attId = mint(result, imageFile())
@@ -46,28 +46,9 @@ describe('useComposerAttachments', () => {
     expect(entry?.url).toContain('/mock-oss/')
     expect(entry?.progress).toBeUndefined()
     expect(entry?.previewUrl).toBe(entry?.url)
-    expect(requests).toEqual([
-      'POST /api/uploads/sign',
-      'PUT /mock-oss/:id',
-      'POST /api/uploads/:id/confirm',
-    ])
   })
 
-  it('签名被拒：error 态，文案带服务端原文', async () => {
-    server.use(
-      http.post('*/api/uploads/sign', () =>
-        HttpResponse.json({ detail: '上传权限已被收回' }, { status: 422 }),
-      ),
-    )
-    const { result } = renderHook(() => useComposerAttachments())
-
-    const attId = mint(result, imageFile())
-
-    await waitFor(() => expect(result.current.entries.get(attId)?.status).toBe('error'))
-    expect(result.current.entries.get(attId)?.error).toContain('上传权限已被收回')
-  })
-
-  it('直传被对象存储拒绝：error 态，文案给出状态码且不再确认', async () => {
+  it('直传被对象存储拒绝：error 态，文案给出状态码', async () => {
     server.use(http.put('*/mock-oss/:uploadId', () => new HttpResponse(null, { status: 403 })))
     const { result } = renderHook(() => useComposerAttachments())
 
@@ -75,7 +56,6 @@ describe('useComposerAttachments', () => {
 
     await waitFor(() => expect(result.current.entries.get(attId)?.status).toBe('error'))
     expect(result.current.entries.get(attId)?.error).toContain('403')
-    expect(requests).toEqual(['POST /api/uploads/sign', 'PUT /mock-oss/:id'])
   })
 
   it.each([

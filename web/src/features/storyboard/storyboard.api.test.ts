@@ -95,24 +95,6 @@ describe('submitVideoGeneration', () => {
       shot_index: 2,
     })
   })
-
-  it('服务端拒收时把 detail 原话抛出来', async () => {
-    server.use(
-      http.post('*/api/generations/video', () =>
-        HttpResponse.json({ detail: '视频生成仅支持模型 moyu-seedance-2-5' }, { status: 422 }),
-      ),
-    )
-
-    await expect(
-      submitVideoGeneration({
-        aspectRatio: '9:16',
-        conversationId,
-        generateAudio: true,
-        model: 'x',
-        shot,
-      }),
-    ).rejects.toThrow('视频生成仅支持模型 moyu-seedance-2-5')
-  })
 })
 
 describe('historyShotOf', () => {

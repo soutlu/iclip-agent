@@ -15,15 +15,17 @@ const shotsEntry: ArtifactEntry = {
   type: 'storyboard',
 }
 
-const gridEntry: ArtifactEntry = {
+const agentEntry: ArtifactEntry = {
   autoOpen: false,
   component: Placeholder,
-  icon: 'image',
-  label: '媒体墙',
-  match: { view: 'media_grid' },
-  title: (source) => (source.kind === 'frame' ? `媒体墙 ${source.toolCallId}` : '媒体墙'),
-  type: 'media-grid',
+  icon: 'agent',
+  label: '派活',
+  match: { displayKind: 'agent_call' },
+  title: () => '派活',
+  type: 'sub-agent',
 }
+
+const agentFrame = { display: { kind: 'agent_call' }, toolCallId: 'call_frames', view: 'generic' }
 
 const workspaceEntry: ArtifactEntry = {
   autoOpen: false,
@@ -59,37 +61,7 @@ describe('ArtifactRegistry', () => {
     ])
   })
 
-  it('工具帧按 view 命中，id 是 frame:<toolCallId>', () => {
-    const artifacts = registryWith(gridEntry).matchFrames([
-      { metadata: { items: [] }, toolCallId: 'call_frames', view: 'media_grid' },
-      { toolCallId: 'call_other', view: 'file_io' },
-    ])
-
-    expect(artifacts).toEqual([
-      {
-        id: 'frame:call_frames',
-        source: {
-          kind: 'frame',
-          metadata: { items: [] },
-          toolCallId: 'call_frames',
-          view: 'media_grid',
-        },
-        title: '媒体墙 call_frames',
-        type: 'media-grid',
-      },
-    ])
-  })
-
   it('工具帧按 display.kind 命中，来源带上 display 与 agentRefs', () => {
-    const agentEntry: ArtifactEntry = {
-      autoOpen: false,
-      component: Placeholder,
-      icon: 'agent',
-      label: '派活',
-      match: { displayKind: 'agent_call' },
-      title: () => '派活',
-      type: 'sub-agent',
-    }
     const display = { agent_name: 'shot-writer', kind: 'agent_call', prompt: '写三个镜头' }
 
     const artifacts = registryWith(agentEntry).matchFrames([
@@ -129,12 +101,12 @@ describe('ArtifactRegistry', () => {
   })
 
   it('三个来源合成一份列表：按路径命中的文件、工作区、工具帧', () => {
-    const registry = registryWith(shotsEntry, workspaceEntry, gridEntry)
+    const registry = registryWith(shotsEntry, workspaceEntry, agentEntry)
 
     const artifacts = composeArtifacts(
       registry,
       [{ path: 'video_shot.json', version: 1 }],
-      [{ toolCallId: 'call_frames', view: 'media_grid' }],
+      [agentFrame],
     )
 
     expect(artifacts.map((artifact) => artifact.id)).toEqual([
@@ -145,7 +117,7 @@ describe('ArtifactRegistry', () => {
   })
 
   it('常驻类型是按路径与按工作区命中的那些，按登记顺序给', () => {
-    const registry = registryWith(gridEntry, workspaceEntry, shotsEntry)
+    const registry = registryWith(agentEntry, workspaceEntry, shotsEntry)
 
     expect(registry.standing().map((entry) => entry.type)).toEqual(['workspace', 'storyboard'])
   })
@@ -156,11 +128,11 @@ describe('ArtifactRegistry', () => {
 })
 
 describe('pickArtifact', () => {
-  const registry = registryWith(shotsEntry, gridEntry)
+  const registry = registryWith(shotsEntry, agentEntry)
   const artifacts = composeArtifacts(
     registry,
     [{ path: 'video_shot.json', version: 1 }],
-    [{ toolCallId: 'call_frames', view: 'media_grid' }],
+    [agentFrame],
   )
 
   it('地址里点名了就选那件', () => {
@@ -177,11 +149,7 @@ describe('pickArtifact', () => {
   })
 
   it('一件 autoOpen 都没有就不替用户挑，宿主给选择页', () => {
-    const onlyFrames = composeArtifacts(
-      registry,
-      [],
-      [{ toolCallId: 'call_frames', view: 'media_grid' }],
-    )
+    const onlyFrames = composeArtifacts(registry, [], [agentFrame])
     expect(pickArtifact(registry, onlyFrames, undefined)).toBeUndefined()
   })
 

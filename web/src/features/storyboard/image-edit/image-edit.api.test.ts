@@ -16,6 +16,7 @@ import {
   seedImageEditJob,
   submitImageEdit,
   useFrameImageJobs,
+  useImageEditJobs,
 } from './image-edit.api'
 import type { ImageModel } from './image-edit.api'
 import type { FrameEditDraft, FrameEditTarget } from './image-edit-types'
@@ -99,6 +100,27 @@ describe('useFrameImageJobs', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(query?.get('kind')).toBe('image')
     expect(query?.get('operation')).toBe('generate')
+  })
+})
+
+describe('useImageEditJobs', () => {
+  it('按格查询把坐标编成 JSON 对象放进 metadata 参数', async () => {
+    let query: URLSearchParams | undefined
+    server.use(
+      http.get('*/api/generations', ({ request }) => {
+        query = new URL(request.url).searchParams
+        return HttpResponse.json({ items: [] })
+      }),
+    )
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { result } = renderHook(() => useImageEditJobs(target), {
+      wrapper: ({ children }: { children: ReactNode }) =>
+        createElement(QueryClientProvider, { client: queryClient }, children),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(query?.get('kind')).toBe('image')
+    expect(JSON.parse(query?.get('metadata') ?? 'null')).toEqual({ shot: 2, frame: 3 })
   })
 })
 

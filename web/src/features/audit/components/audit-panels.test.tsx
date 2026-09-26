@@ -87,7 +87,7 @@ describe('OverviewPanel', () => {
       deliveredOrphanConversations: 1,
       deliveredTasks: 1,
       deliveries: 2,
-      cycleSeconds: { avg: 7200, median: 7200, p90: 10_800 },
+      cycleSeconds: { avg: 9000, median: 7200, p90: 10_800 },
       // 四镜里一镜一次通过、三镜有人下载过。
       shots: 4,
       oneTakeShots: 1,
@@ -120,14 +120,15 @@ describe('OverviewPanel', () => {
     expect(within(deliveries).getByText('需求单 1 · 无单对话 1')).toBeVisible()
 
     const attempts = screen.getByRole('article', { name: '每镜平均出片次数' })
-    expect(within(attempts).getByText(/次$/)).toBeVisible()
+    expect(within(attempts).getByText('1.5 次')).toBeVisible()
 
     const oneTake = screen.getByRole('article', { name: '一次通过率' })
     expect(within(oneTake).getByText('25.0%')).toBeVisible()
     expect(within(oneTake).getByText('1 / 4 镜 · 有效率 75.0%')).toBeVisible()
 
     const cycle = screen.getByRole('article', { name: '交付周期' })
-    expect(within(cycle).getAllByText(/小时$/).length).toBeGreaterThan(0)
+    expect(within(cycle).getByText('2.0 小时')).toBeVisible()
+    expect(within(cycle).getByText('最慢一成 3.0 小时')).toBeVisible()
 
     const spreads = screen.getByRole('region', { name: '耗时分布' })
     expect(within(spreads).getAllByRole('rowheader')).toHaveLength(3)

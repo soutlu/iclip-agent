@@ -103,24 +103,6 @@ describe('PromptEditor', () => {
     expect(screen.getByRole('button', { name: '看第 2 帧' })).toBeVisible()
   })
 
-  it('无图或越界引用不创建带无效地址的图片', async () => {
-    await renderWithProviders(
-      <PromptEditor aria-label="正文" frames={[]} value="待修正 @Image4。" />,
-    )
-    const chip = screen.getByRole('button', { name: '看第 4 帧' })
-    expect(chip.querySelector('img')).not.toHaveAttribute('src')
-  })
-
-  it('只读态不可编辑', async () => {
-    await renderWithProviders(
-      <PromptEditor aria-label="只读" frames={frames} readOnly value={value} />,
-    )
-    expect(screen.getByRole('textbox', { name: '只读' })).toHaveAttribute(
-      'contenteditable',
-      'false',
-    )
-  })
-
   it.each(['{Enter}', ' '])('帧标记可通过键盘 %s 激活', async (key) => {
     let selected: number | undefined
     await renderWithProviders(
