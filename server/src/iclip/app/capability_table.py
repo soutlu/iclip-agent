@@ -25,7 +25,7 @@ from iclip.common.errors import ValidationFailed
 from iclip.config import ResolvedShotVideo, ResolvedVideo
 from iclip.domains.generation.models import GenerationJob
 from iclip.domains.generation.schemas import ImageGenerationIn
-from iclip.domains.generation.service import GenerationService
+from iclip.domains.generation.service import GenerationService, SettledRecords
 from iclip.domains.identity.public import Principal
 from iclip.harness.agents import AgentCapabilities, delegate_display_table
 from iclip.harness.media import image_info_url
@@ -49,10 +49,12 @@ class RequiresCapabilities(Protocol):
 
 
 class GenerationsAdapter:
-    """将能力请求转换为生成域的统一请求模型，并将任务记录收窄为能力协议字段。"""
+    """将能力请求转换为生成域的统一请求模型，并将任务记录收窄为能力协议字段；切出来的格子交给
+    生成域记成切图记录。"""
 
-    def __init__(self, service: GenerationService) -> None:
+    def __init__(self, service: GenerationService, records: SettledRecords) -> None:
         self._service = service
+        self._records = records
 
     async def submit(self, principal: Principal, request: ImageRequest) -> ImageJob:
         try:
@@ -78,6 +80,11 @@ class GenerationsAdapter:
 
     async def get(self, principal: Principal, job_id: uuid.UUID) -> ImageJob:
         return _job_view(await self._service.get(principal, job_id))
+
+    async def record_cuts(
+        self, principal: Principal, grid_job_id: uuid.UUID, urls: Sequence[str]
+    ) -> None:
+        await self._records.record_cuts(principal, grid_job_id, urls)
 
 
 _IMAGE_MEDIA_TYPES: Mapping[str, str] = {
@@ -165,6 +172,7 @@ def build_capability_table(
     material_ledger: MaterialLedger,
     http_client: httpx.AsyncClient,
     generation_service: GenerationService | None = None,
+    settled_records: SettledRecords | None = None,
     object_store: PublicBucket | None = None,
     video: ResolvedVideo | None = None,
     shot_video: ResolvedShotVideo | None = None,
@@ -173,7 +181,7 @@ def build_capability_table(
     """按组合根递进来的运行值登记能力名，没给的不登记。
 
     ``shot_video`` 由组合根按 ``ResolvedSettings.shot_tools_enabled`` 决定是否传入；传了却缺
-    媒体生成或对象存储是装配错误，直接报。
+    媒体生成、切图记录或对象存储是装配错误，直接报。
     """
 
     # 文件生产与读取共用 FileSpace，避免命名空间不一致。
@@ -201,15 +209,16 @@ def build_capability_table(
             ),
         )
     if shot_video is not None:
-        if generation_service is None or object_store is None:
+        if generation_service is None or settled_records is None or object_store is None:
             raise RuntimeError(
-                "装配 shot_video 要有媒体生成服务与对象存储；组合根应按 shot_tools_enabled 决定是否传入"
+                "装配 shot_video 要有媒体生成服务、切图记录与对象存储；"
+                "组合根应按 shot_tools_enabled 决定是否传入"
             )
         table["shot_video"] = (
             shot_video_capability(
                 space=space,
                 ledger=material_ledger,
-                generations=GenerationsAdapter(generation_service),
+                generations=GenerationsAdapter(generation_service, settled_records),
                 objects=ObjectWriterAdapter(object_store),
                 paths=MEDIA_PATHS,
                 client=http_client,

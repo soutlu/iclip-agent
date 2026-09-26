@@ -208,8 +208,10 @@ type MockJob = {
   durationMs?: number
   /** 原作号：编辑段与合成指最初那条出片，出片与图片不填。 */
   rootJobId?: string | null
-  /** 直接来源：编辑段指基底成片，合成指编辑段。 */
+  /** 直接来源：编辑段指基底成片，合成指编辑段，帧图编辑指底图那条。 */
   sourceJobId?: string | null
+  /** 来源的地址：帧图编辑是它改的底图，底图在不在库里都有。 */
+  sourceUrl?: string | null
   /** 编辑段改的区间，毫秒。 */
   rangeStartMs?: number | null
   rangeEndMs?: number | null
@@ -229,6 +231,7 @@ const job = (spec: MockJob) => ({
   shotIndex: spec.shotIndex ?? null,
   rootJobId: spec.rootJobId ?? null,
   sourceJobId: spec.sourceJobId ?? null,
+  sourceUrl: spec.sourceUrl ?? null,
   rangeStartMs: spec.rangeStartMs ?? null,
   rangeEndMs: spec.rangeEndMs ?? null,
   // 种子记录没有单独的完成时刻，到了终态就记在创建那一刻。
@@ -416,7 +419,9 @@ export const seedMockWorkspace = (
         prompt: '保留人物，背景换成傍晚的暖光。',
         referenceImageUrls: [frames.a],
       },
-      metadata: { shot: 2, frame: 3, sourceUrl: frames.a },
+      metadata: { shot: 2, frame: 3 },
+      sourceJobId: '8e5263a4-3e52-4063-b0cd-5b6c7d8e9fa0',
+      sourceUrl: frames.a,
       status: 'failed',
       errorMessage: [
         '图像服务未能完成编辑（400）：参考图片校验失败。',
@@ -741,14 +746,24 @@ export const workspaceHandlers = [
     return HttpResponse.json({ items })
   }),
 
+  // 与后端同一口径：底图地址对上本对话的一张图就记它为来源，对不上当外部底图；地址照请求回。
   http.post('*/api/generations/image', async ({ request }) => {
     const body = (await request.json()) as ImageGenerationIn
+    const sourceUrl = body.sourceUrl ?? null
+    const source =
+      sourceUrl === null
+        ? undefined
+        : generations
+            .get(body.conversationId ?? '')
+            ?.find((item) => item.kind === 'image' && item.outputUrl === sourceUrl)
     const created = acceptGeneration({
       kind: 'image',
       prompt: body.prompt,
       request: { ...body },
       conversationId: body.conversationId ?? null,
       metadata: body.metadata ?? null,
+      ...(source === undefined ? {} : { sourceJobId: source.id }),
+      sourceUrl,
       outputUrl: (workspaceFrames.get(body.conversationId ?? '') ?? DATA_FRAMES).c,
     })
     return HttpResponse.json({ generation: created }, { status: 202 })
@@ -867,6 +882,7 @@ function acceptGeneration(spec: {
   shotIndex?: number | null
   rootJobId?: string | null
   sourceJobId?: string
+  sourceUrl?: string | null
   rangeStartMs?: number
   rangeEndMs?: number
   outputUrl: string
@@ -884,6 +900,7 @@ function acceptGeneration(spec: {
     shotIndex: spec.shotIndex ?? null,
     rootJobId: spec.rootJobId ?? null,
     sourceJobId: spec.sourceJobId ?? null,
+    sourceUrl: spec.sourceUrl ?? null,
     rangeStartMs: spec.rangeStartMs ?? null,
     rangeEndMs: spec.rangeEndMs ?? null,
     status: 'submitted',

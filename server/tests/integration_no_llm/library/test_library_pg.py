@@ -19,7 +19,12 @@ from iclip.common.shot_prompt import ShotCut, ShotScript, format_shot_prompt
 from iclip.domains.conversations.infra_sql import SqlConversationRepository
 from iclip.domains.generation.infra_sql import SqlGenerationRepository
 from iclip.domains.generation.models import STATUS_COMPLETED, STATUS_FAILED
-from iclip.domains.generation.schemas import KIND_VIDEO, OPERATION_COMPOSE, OPERATION_GENERATE
+from iclip.domains.generation.schemas import (
+    KIND_VIDEO,
+    OPERATION_COMPOSE,
+    OPERATION_GENERATE,
+    OPERATION_UPLOAD,
+)
 from iclip.domains.library.models import Scope, VideoCursor
 from iclip.domains.library.reports_pg import PgLibraryReports
 from iclip.domains.library.schemas import ShotGroupOut
@@ -680,3 +685,34 @@ async def test_a_dangling_conversation_id_counts_as_no_conversation(
     assert row is not None
     assert (row.video.id, row.video.conversation_id, row.video.title) == (stray, None, None)
     assert (await ids(reports, Scope()))[0] == stray
+
+
+async def test_a_video_upload_is_not_a_card_or_a_version(
+    engine: AsyncEngine, reports: PgLibraryReports, seed: Seed
+) -> None:
+    """上传的视频不是通过本系统生成的：不挂对话也不自成一张卡，不进任何卡的版本。"""
+
+    before = await ids(reports, Scope())
+    before_c1 = shape(await reports.groups_of(seed.c1))
+    upload = uuid.uuid4()
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO iclip.generation_jobs (id, owner_user_id, kind, operation, provider,"
+                " status, output_url, created_at, updated_at, finished_at)"
+                " VALUES (:id, :owner, :kind, :operation, 'upload', :status, :url, :at, :at, :at)"
+            ),
+            {
+                "id": upload,
+                "owner": seed.nina,
+                "kind": KIND_VIDEO,
+                "operation": OPERATION_UPLOAD,
+                "status": STATUS_COMPLETED,
+                "url": url("uploaded"),
+                "at": at(300),
+            },
+        )
+
+    assert await ids(reports, Scope()) == before
+    assert await reports.card_of(upload) is None
+    assert shape(await reports.groups_of(seed.c1)) == before_c1

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import Any
 
 from iclip.domains.agents.transcript_api import LiveConnections
@@ -21,7 +21,8 @@ from iclip.domains.generation.repository import GenerationRepository
 class AnnouncingGenerationRepository:
     """包在 ``GenerationRepository`` 外面：每次业务状态跳转写成功，就向属主广播一帧。
 
-    受理落 ``pending`` 也算一跳，agent 发起的出图才会在页面上冒出来。``record_progress`` 只更新
+    受理落 ``pending`` 也算一跳，agent 发起的出图才会在页面上冒出来；创建即完成的切图与上传落库
+    也算一跳，重复确认的上传没插进去就不发。``record_progress`` 只更新
     provider 原始状态、不改业务状态，不发帧，否则每次轮询上游都会喊一声——本地加工的阶段词也走
     它，所以最多晚一轮轮询才被看到；``record_reference_cut`` 只改编辑段的区间，同样不发帧；
     ``mark_failed`` 与 ``mark_completed`` 带状态守卫没命中时返回 None，也不发帧。"""
@@ -32,6 +33,29 @@ class AnnouncingGenerationRepository:
 
     async def create(self, job: GenerationJob) -> GenerationJob:
         return self._announce(await self._inner.create(job))
+
+    async def create_settled(self, jobs: Sequence[GenerationJob]) -> tuple[GenerationJob, ...]:
+        return tuple(self._announce(job) for job in await self._inner.create_settled(jobs))
+
+    async def find_image_by_output(
+        self,
+        output_url: str,
+        *,
+        owner: uuid.UUID | None,
+        conversation_id: uuid.UUID | None,
+        inherited: Inheritance = (),
+        operation: GenerationOperation | None = None,
+    ) -> GenerationJob | None:
+        return await self._inner.find_image_by_output(
+            output_url,
+            owner=owner,
+            conversation_id=conversation_id,
+            inherited=inherited,
+            operation=operation,
+        )
+
+    async def output_urls(self, ids: Collection[uuid.UUID]) -> Mapping[uuid.UUID, str]:
+        return await self._inner.output_urls(ids)
 
     async def get(
         self, job_id: uuid.UUID, *, owner: uuid.UUID | None, inherited: Inheritance = ()

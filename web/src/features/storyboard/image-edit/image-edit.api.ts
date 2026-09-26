@@ -12,7 +12,7 @@ import {
   zImageGenerationIn,
   zImageModelsOut,
 } from '@/shared/api/generated/zod.gen'
-import { frameEditMetadata, metadataFilterParam, storyboardMetadata } from '../generation-metadata'
+import { metadataFilterParam, storyboardMetadata } from '../generation-metadata'
 import {
   generationsRefetchInterval,
   storyboardQueryKeys,
@@ -38,13 +38,14 @@ export const imageEditQueryKey = (target: FrameEditTarget) =>
 /** 本对话最近的图片任务，给分镜页在帧上挂状态用。
  *
  * 键就是按格查询的前缀，一次失效两边一起重拉；倒序取 100 条够用，在跑的任务一定是最近的。
+ * 只取调模型的：切图记录不带坐标、不上角标，排除掉免得挤窗口。
  * 状态跳转帧到了由 useLiveGenerations 立刻失效；有任务在跑时仍每 5 秒轮询兜底。 */
 export const useFrameImageJobs = (conversationId: string) =>
   useQuery({
     queryKey: imageEditConversationKey(conversationId),
     queryFn: ({ signal }) =>
       apiFetch(
-        `/generations?conversationId=${conversationId}&kind=image&limit=100`,
+        `/generations?conversationId=${conversationId}&kind=image&operation=generate&limit=100`,
         zGenerationsPageOut,
         { signal, fallbackErrorMessage: '读取图片任务失败' },
       ),
@@ -102,12 +103,12 @@ export const seedImageEditJob = (
 
 /** 提交过的那一批图片，用来把历史记录装回编辑器。 */
 export const readSubmittedImages = (job: GenerationJob) => {
-  const urls = job.request['referenceImageUrls']
+  const urls = job.request?.['referenceImageUrls']
   return Array.isArray(urls) ? urls.filter((url) => typeof url === 'string') : []
 }
 
 export const readSubmittedPrompt = (job: GenerationJob) => {
-  const prompt = job.request['prompt']
+  const prompt = job.request?.['prompt']
   return typeof prompt === 'string' ? prompt : ''
 }
 
@@ -228,7 +229,7 @@ export const isChannel = (value: string): value is ImageChannel => CHANNELS.incl
 export async function submitImageEdit(
   target: FrameEditTarget,
   draft: FrameEditDraft,
-  /** 这次改的是哪张图；参考图列表里它可以被挪位置甚至移走，所以单独传。 */
+  /** 这次改的是哪张图，作为请求字段 `sourceUrl` 发给服务端；参考图列表里它可以被挪位置甚至移走，所以单独传。 */
   baseUrl: string,
   options: {
     model: string
@@ -240,7 +241,8 @@ export async function submitImageEdit(
   // 不带 userName：浏览器会话由服务端填登录用户名。
   const body = zImageGenerationIn.parse({
     conversationId: target.conversationId,
-    metadata: frameEditMetadata(target.shotIndex, target.frameNumber, baseUrl),
+    metadata: storyboardMetadata(target.shotIndex, target.frameNumber),
+    sourceUrl: baseUrl,
     ...options,
     prompt: compileEditPrompt(draft),
     referenceImageUrls: draft.references.map((reference) => reference.url),

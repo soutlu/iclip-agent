@@ -1,12 +1,12 @@
-"""直传签名与确认。两步都不落库：签名本地算，确认从桶里读。
+"""直传签名与确认。签名本地算；确认从桶里读，通过后记一条上传记录。
 
-审计不落表：上传者与 API key 签进 ``x-oss-meta-*`` 请求头，随对象存在桶里。"""
+上传者与 API key 照旧签进 ``x-oss-meta-*`` 请求头随对象存在桶里；记录的属主是确认时的主体。"""
 
 from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Final
+from typing import Final, Protocol
 
 from iclip.common.errors import Conflict, ValidationFailed
 from iclip.domains.identity.public import Principal
@@ -28,11 +28,21 @@ API_KEY_HEADER: Final = "x-oss-meta-api-key"
 """随对象存进桶的审计元数据：值是 UUID 文本，OSS 只收 ASCII。"""
 
 
-class UploadService:
-    """直传的两个用例：签许可、按桶确认。"""
+class RecordUpload(Protocol):
+    """把一次确认过的上传记成一条记录；行 id 就是 ``upload_id``，重复调用不重复落行、不改已有的。
+    实现由组合根接到生成域。"""
 
-    def __init__(self, objects: SignedUploadStore) -> None:
+    async def __call__(
+        self, principal: Principal, *, upload_id: uuid.UUID, kind: MediaKind, url: str
+    ) -> None: ...
+
+
+class UploadService:
+    """直传的两个用例：签许可、按桶确认并记录。"""
+
+    def __init__(self, objects: SignedUploadStore, *, record: RecordUpload) -> None:
         self._objects = objects
+        self._record = record
 
     def sign_upload(self, principal: Principal, body: UploadSignIn) -> UploadTicket:
         kind, ext, normalized = _accepted_type(body.content_type)
@@ -55,8 +65,11 @@ class UploadService:
             expires_at=datetime.now(UTC) + timedelta(seconds=SIGNED_PUT_EXPIRES_SECONDS),
         )
 
-    async def confirm(self, upload_id: uuid.UUID) -> ConfirmedUpload:
-        """按桶里的对象核对类型与大小，交回地址；每次都重新回答，可重复调。"""
+    async def confirm(self, principal: Principal, upload_id: uuid.UUID) -> ConfirmedUpload:
+        """按桶里的对象核对类型与大小，通过后以 ``principal`` 记一条上传，交回地址。
+
+        每次都重新按桶回答，可重复调；记录按 ``upload_id`` 幂等，第二次不改属主。核对不过
+        （``Conflict`` / ``ValidationFailed``）不记录。"""
 
         found = await self._objects.find_object(
             prefix=MEDIA_PATHS.upload_prefix(upload_id=upload_id)
@@ -70,10 +83,10 @@ class UploadService:
         if found.size_bytes > MAX_BYTES[kind]:
             limit_mb = MAX_BYTES[kind] // (1024 * 1024)
             raise ValidationFailed(f"超过 {limit_mb}MB 上限，这个文件不能用")
+        url = self._objects.public_url(found.object_key)
+        await self._record(principal, upload_id=upload_id, kind=kind, url=url)
         return ConfirmedUpload(
-            url=self._objects.public_url(found.object_key),
-            content_type=found.content_type,
-            size_bytes=found.size_bytes,
+            url=url, content_type=found.content_type, size_bytes=found.size_bytes
         )
 
 
@@ -101,4 +114,4 @@ def _check_dimensions(width: int, height: int) -> None:
         )
 
 
-__all__ = ["API_KEY_HEADER", "UPLOADER_HEADER", "UploadService"]
+__all__ = ["API_KEY_HEADER", "UPLOADER_HEADER", "RecordUpload", "UploadService"]

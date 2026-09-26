@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import get_args
 
@@ -43,6 +44,12 @@ class FakeGenerations:
     jobs: dict[uuid.UUID, tuple[ImageChannel, Outcome]] = field(
         default_factory=dict[uuid.UUID, tuple[ImageChannel, Outcome]]
     )
+    cuts: list[tuple[uuid.UUID, tuple[str, ...]]] = field(
+        default_factory=list[tuple[uuid.UUID, tuple[str, ...]]]
+    )
+    """记过的切图：(宫格任务号, 各格地址)。"""
+    cut_error: Exception | None = None
+    """设了就在记切图时抛它，模拟落库失败。"""
 
     async def submit(self, principal: Principal, request: ImageRequest) -> ImageJob:
         _ = principal
@@ -70,6 +77,14 @@ class FakeGenerations:
             error_code=outcome.error_code,
             error_message=outcome.error_message,
         )
+
+    async def record_cuts(
+        self, principal: Principal, grid_job_id: uuid.UUID, urls: Sequence[str]
+    ) -> None:
+        _ = principal
+        if self.cut_error is not None:
+            raise self.cut_error
+        self.cuts.append((grid_job_id, tuple(urls)))
 
     def channels(self) -> list[str]:
         return [request.channel for request in self.submitted]

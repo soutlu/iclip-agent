@@ -1955,7 +1955,9 @@
           "operation": {
             "enum": [
               "generate",
-              "compose"
+              "compose",
+              "cut",
+              "upload"
             ],
             "title": "Operation",
             "type": "string"
@@ -1994,9 +1996,16 @@
             "title": "Rangestartms"
           },
           "request": {
-            "additionalProperties": true,
-            "title": "Request",
-            "type": "object"
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request"
           },
           "rootJobId": {
             "anyOf": [
@@ -2032,6 +2041,17 @@
               }
             ],
             "title": "Sourcejobid"
+          },
+          "sourceUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourceurl"
           },
           "status": {
             "enum": [
@@ -2233,6 +2253,19 @@
             ],
             "title": "Resolution",
             "type": "string"
+          },
+          "sourceUrl": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourceurl"
           },
           "taskId": {
             "anyOf": [
@@ -5769,6 +5802,27 @@
         "title": "TurnUsage",
         "type": "object"
       },
+      "UploadConfirmIn": {
+        "additionalProperties": false,
+        "description": "确认上传时可选的请求体：替谁确认。",
+        "properties": {
+          "userName": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "title": "UploadConfirmIn",
+        "type": "object"
+      },
       "UploadConfirmedOut": {
         "additionalProperties": false,
         "description": "确认后交回的地址与桶里读到的事实；``url`` 从此就是这个文件的身份。",
@@ -5872,7 +5926,7 @@
       },
       "UploadTicketOut": {
         "additionalProperties": false,
-        "description": "一次直传的许可：先拿到名字，再去传。\n\n``uploadId`` 在字节落地之前就发下来，因为传这个副作用发生之前，双方必须先就「它\n叫什么」达成一致。它只用来确认这一次上传，不是任何东西的身份。",
+        "description": "一次直传的许可：先拿到名字，再去传。\n\n``uploadId`` 在字节落地之前就发下来，因为传这个副作用发生之前，双方必须先就「它\n叫什么」达成一致。确认时用它指这一次上传，确认后它就是那条上传记录的 id。",
         "properties": {
           "upload": {
             "$ref": "#/components/schemas/UploadInstruction"
@@ -10052,7 +10106,7 @@
     },
     "/generations": {
       "get": {
-        "description": "给了 ``conversationId`` / ``taskId`` / ``shotIndex`` / ``rootJobId`` / ``sourceJobId`` 就\n只列那段对话、那张需求单下、那个镜号、以那条为原作或直接来源的记录；``kind`` /\n``operation`` 按种类与操作筛。按对话列时含这段对话经分叉继承的记录（调用方读得到这段\n对话才算），其余可见性口径不变。\n\n``metadata`` 在查询串里是一段 JSON 对象，按包含匹配筛（分镜页拿它按镜头组与帧查图片）。",
+        "description": "给了 ``conversationId`` / ``taskId`` / ``shotIndex`` / ``rootJobId`` / ``sourceJobId`` 就\n只列那段对话、那张需求单下、那个镜号、以那条为原作或直接来源的记录；``kind`` /\n``operation`` 按种类与操作筛。按对话列时含这段对话经分叉继承的记录（调用方读得到这段\n对话才算），其余可见性口径不变。\n\n``metadata`` 在查询串里是一段 JSON 对象，按包含匹配筛（分镜页拿它按镜头组与帧查图片）。\n\n按属主列会看到上传记录，按对话列图片会看到切图记录；只要调模型的，按 ``operation=generate`` 筛。",
         "operationId": "list_generations_generations_get",
         "parameters": [
           {
@@ -10149,7 +10203,9 @@
                 {
                   "enum": [
                     "generate",
-                    "compose"
+                    "compose",
+                    "cut",
+                    "upload"
                   ],
                   "type": "string"
                 },
@@ -10273,7 +10329,7 @@
     },
     "/generations/image": {
       "post": {
-        "description": "提交一次图片生成。``userName`` 的规则与视频相同。",
+        "description": "提交一次图片生成。``userName`` 的规则与视频相同。\n\n帧图编辑带 ``sourceUrl``（底图地址）：先在本对话及它继承的图片里找，再找调用方可见的上传，\n找到记 ``sourceJobId``，找不到记外部地址；回来的 ``sourceUrl`` 都是这个地址。它不进\n``request``、不发上游。",
         "operationId": "submit_image_generations_image_post",
         "requestBody": {
           "content": {
@@ -10592,6 +10648,7 @@
     },
     "/generations/{job_id}": {
       "get": {
+        "description": "一条可见的生成记录。上传记录的 id 就是确认上传时的 ``uploadId``。",
         "operationId": "get_generation_generations__job_id__get",
         "parameters": [
           {
@@ -11584,7 +11641,7 @@
     },
     "/uploads/{upload_id}/confirm": {
       "post": {
-        "description": "按桶里的对象核对类型与大小，只交回地址。没有请求体，可重复调。",
+        "description": "按桶里的对象核对类型与大小，通过后记一条上传记录（id 就是 ``uploadId``），交回地址。\n\n请求体可选，只有 ``userName``：给了按替人办事换主体（浏览器只能写自己），不给就记在当前\n主体名下。可重复调：每次都按桶重新核对，返回同一条记录，第二次的 ``userName`` 不改属主。",
         "operationId": "confirm_upload_uploads__upload_id__confirm_post",
         "parameters": [
           {
@@ -11598,6 +11655,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/UploadConfirmIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {

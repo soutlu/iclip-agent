@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from iclip.domains.identity.public import ActAs
 from iclip.domains.uploads.api import create_uploads_router
-from iclip.domains.uploads.service import UploadService
+from iclip.domains.uploads.service import RecordUpload, UploadService
 from iclip.platform.object_store.store import SignedUploadStore
 
 
@@ -18,9 +19,13 @@ class UploadsModule:
     service: UploadService
 
 
-def build_uploads_module(objects: SignedUploadStore) -> UploadsModule:
-    service = UploadService(objects)
-    return UploadsModule(routers=(create_uploads_router(service),), service=service)
+def build_uploads_module(
+    objects: SignedUploadStore, *, act_as: ActAs, record: RecordUpload
+) -> UploadsModule:
+    """``record`` 把确认过的上传记成一条记录，由组合根接到生成域。"""
+
+    service = UploadService(objects, record=record)
+    return UploadsModule(routers=(create_uploads_router(service, act_as=act_as),), service=service)
 
 
 __all__ = ["UploadsModule", "build_uploads_module"]

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Query
 from pydantic import TypeAdapter, ValidationError
 
 from iclip.common.errors import ValidationFailed
+from iclip.domains.generation.models import GenerationJob
 from iclip.domains.generation.schemas import (
     GenerationEnvelope,
     GenerationKind,
@@ -44,6 +45,12 @@ from iclip.platform.paging import DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT
 
 def create_generations_router(service: GenerationService, *, act_as: ActAs) -> APIRouter:
     router = APIRouter(prefix="/generations")
+
+    async def envelope(job: GenerationJob) -> GenerationEnvelope:
+        addresses = await service.source_addresses([job])
+        return GenerationEnvelope(
+            generation=generation_out(job, source_address=addresses.get(job.id))
+        )
 
     @router.post("/video", response_model=VideoSubmitOut, status_code=202)
     async def submit_video(
@@ -81,7 +88,7 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
         job = await service.submit_video_edit(
             principal, body.model_copy(update={"user_name": user_name})
         )
-        return GenerationEnvelope(generation=generation_out(job))
+        return await envelope(job)
 
     @router.post("/video-composites", response_model=GenerationEnvelope, status_code=202)
     async def submit_video_composite(
@@ -98,21 +105,26 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
         job = await service.submit_video_compose(
             principal, body.model_copy(update={"user_name": user_name})
         )
-        return GenerationEnvelope(generation=generation_out(job))
+        return await envelope(job)
 
     @router.post("/image", response_model=GenerationEnvelope, status_code=202)
     async def submit_image(
         body: ImageGenerationIn,
         principal: Annotated[Principal, require_permission("generation:submit")],
     ) -> GenerationEnvelope:
-        """提交一次图片生成。``userName`` 的规则与视频相同。"""
+        """提交一次图片生成。``userName`` 的规则与视频相同。
+
+        帧图编辑带 ``sourceUrl``（底图地址）：先在本对话及它继承的图片里找，再找调用方可见的上传，
+        找到记 ``sourceJobId``，找不到记外部地址；回来的 ``sourceUrl`` 都是这个地址。它不进
+        ``request``、不发上游。
+        """
 
         user_name = resolve_user_name(principal, body.user_name)
         principal = await act_as(principal, user_name)
         job = await service.submit_image(
             principal, body.model_copy(update={"user_name": user_name})
         )
-        return GenerationEnvelope(generation=generation_out(job))
+        return await envelope(job)
 
     @router.get("", response_model=GenerationsPageOut)
     async def list_generations(
@@ -146,6 +158,8 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
         对话才算），其余可见性口径不变。
 
         ``metadata`` 在查询串里是一段 JSON 对象，按包含匹配筛（分镜页拿它按镜头组与帧查图片）。
+
+        按属主列会看到上传记录，按对话列图片会看到切图记录；只要调模型的，按 ``operation=generate`` 筛。
         """
 
         jobs = await service.list_recent(
@@ -161,7 +175,10 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
             source_job_id=source_job_id,
             before=before,
         )
-        return GenerationsPageOut(items=[generation_out(job) for job in jobs])
+        addresses = await service.source_addresses(jobs)
+        return GenerationsPageOut(
+            items=[generation_out(job, source_address=addresses.get(job.id)) for job in jobs]
+        )
 
     # 带固定路径段的都要声明在 /{job_id} 之前，否则被路径参数吞掉。
     @router.get("/video-models", response_model=VideoModelsOut)
@@ -211,8 +228,9 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
         job_id: uuid.UUID,
         principal: Annotated[Principal, require_permission("generation:read")],
     ) -> GenerationEnvelope:
-        job = await service.get(principal, job_id)
-        return GenerationEnvelope(generation=generation_out(job))
+        """一条可见的生成记录。上传记录的 id 就是确认上传时的 ``uploadId``。"""
+
+        return await envelope(await service.get(principal, job_id))
 
     return router
 

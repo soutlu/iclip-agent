@@ -89,7 +89,7 @@ const rangeOf = (segment: EditSegment): EditRange => ({
 })
 
 const promptOf = (job: GenerationJob): string | undefined => {
-  const prompt = job.request['prompt']
+  const prompt = job.request?.['prompt']
   return typeof prompt === 'string' ? prompt : undefined
 }
 

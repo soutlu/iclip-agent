@@ -26,7 +26,8 @@ const draft: FrameEditDraft = {
 }
 const job = (over: Partial<GenerationJob> = {}): GenerationJob =>
   makeGenerationJob({
-    metadata: { frame: 1, shot: 1, sourceUrl: BASE },
+    metadata: { frame: 1, shot: 1 },
+    sourceUrl: BASE,
     kind: 'image',
     status: 'pending',
     createdAt: '2026-09-07T12:00:00Z',
@@ -147,7 +148,8 @@ describe('图片编辑器', () => {
     await waitFor(() => expect(submissions).toHaveLength(2))
     expect(submissions[1]?.['model']).toBe('seedream_v5_pro')
     expect(submissions[1]?.['channel']).toBeUndefined()
-    expect(submissions[1]?.['metadata']).toMatchObject({ sourceUrl: BASE })
+    expect(submissions[1]?.['sourceUrl']).toBe(BASE)
+    expect(submissions[1]?.['metadata']).toEqual({ frame: 1, shot: 1 })
   })
 
   it('提交后新任务占一格并自动选中；草稿暂存与记录刷新都失败也不挡着看在途任务', async () => {
@@ -447,7 +449,7 @@ describe('图片编辑器', () => {
     expect(submissions[0]).toMatchObject({
       prompt,
       referenceImageUrls: references,
-      metadata: { sourceUrl: BASE },
+      sourceUrl: BASE,
     })
   })
 
