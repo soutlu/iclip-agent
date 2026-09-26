@@ -13,7 +13,9 @@ from iclip.domains.generation.schemas import (
     KIND_VIDEO,
     MAX_METADATA_CHARS,
     OPERATION_COMPOSE,
+    OPERATION_CUT,
     OPERATION_GENERATE,
+    OPERATION_UPLOAD,
     ComposeSegment,
     ImageGenerationIn,
     VideoComposeRequest,
@@ -225,6 +227,37 @@ def test_metadata_is_bounded_but_otherwise_opaque() -> None:
 def test_unknown_kind_is_rejected() -> None:
     with pytest.raises(ValidationFailed, match="未知的生成类型"):
         request_from_payload("audio", OPERATION_GENERATE, {"prompt": "x"})
+
+
+@pytest.mark.parametrize(
+    ("kind", "operation"),
+    [(KIND_IMAGE, OPERATION_CUT), (KIND_IMAGE, OPERATION_UPLOAD), (KIND_VIDEO, OPERATION_UPLOAD)],
+)
+def test_cuts_and_uploads_have_no_request(kind: str, operation: str) -> None:
+    """切图与上传创建即完成，没有发给执行方的输入：读回 None，存着一份请求就是持久化坏了。"""
+
+    assert request_to_payload(None) is None
+    assert request_from_payload(kind, operation, None) is None
+    with pytest.raises(ValidationFailed):
+        request_from_payload(kind, operation, {"prompt": "x"})
+
+
+def test_a_video_cut_is_not_a_record_we_know() -> None:
+    with pytest.raises(ValidationFailed, match="未知的生成类型"):
+        request_from_payload(KIND_VIDEO, OPERATION_CUT, None)
+
+
+@pytest.mark.parametrize(
+    ("kind", "operation"),
+    [
+        (KIND_VIDEO, OPERATION_GENERATE),
+        (KIND_IMAGE, OPERATION_GENERATE),
+        (KIND_VIDEO, OPERATION_COMPOSE),
+    ],
+)
+def test_records_that_call_an_executor_must_have_a_request(kind: str, operation: str) -> None:
+    with pytest.raises(ValidationFailed):
+        request_from_payload(kind, operation, None)
 
 
 # --- 结构化镜头组 shot ------------------------------------------------------------

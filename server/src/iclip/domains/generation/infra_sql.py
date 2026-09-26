@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import Any, Final
 
 from sqlalchemy import (
@@ -27,6 +27,7 @@ from sqlalchemy import (
     tuple_,
 )
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine.row import RowMapping
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -44,7 +45,7 @@ from iclip.domains.generation.models import (
     InFlightPhase,
     Inheritance,
 )
-from iclip.domains.generation.schemas import request_from_payload, request_to_payload
+from iclip.domains.generation.schemas import KIND_IMAGE, request_from_payload, request_to_payload
 from iclip.platform.db.ownership import owner_conditions
 
 DB_SCHEMA: Final = "iclip"
@@ -84,12 +85,16 @@ generation_jobs_table = Table(
         ForeignKey(f"{DB_SCHEMA}.generation_jobs.id", name="fk_generation_jobs_source_job"),
         nullable=True,
     ),
+    # 帧图编辑的外部底图地址：库里找不到底图那一行时记它，与 source_job_id 恰好一个。
+    Column("source_url", Text, nullable=True),
     Column("range_start_ms", Integer, nullable=True),
     Column("range_end_ms", Integer, nullable=True),
     Column("kind", Text, nullable=False),
     Column("operation", Text, nullable=False),
     Column("provider", Text, nullable=False),
-    Column("request", JSONB, nullable=False),
+    # 切图与上传没有请求。none_as_null：None 必须落成 SQL NULL，默认会落成 JSON null，
+    # 被 ck_generation_jobs_request 拒掉。
+    Column("request", JSONB(none_as_null=True), nullable=True),
     Column("status", Text, nullable=False),
     Column("provider_task_id", Text, nullable=True),
     Column("provider_status", Text, nullable=True),
@@ -125,26 +130,62 @@ generation_jobs_table = Table(
         "shot_index",
         postgresql_where=text("kind = 'video' AND shot_index IS NOT NULL"),
     ),
-    # 每种行的必填与留空由组合约束兜底，与迁移 0017 同名同式：出片与图片没有来源和区间，
-    # 编辑段必有来源、原作与区间，合成必有来源与原作、没有区间。
+    # 按地址找帧图编辑的底图：本对话与各祖先逐支、上传行（没有对话）都走它；与迁移 0020 同名同式。
+    Index(
+        "ix_generation_jobs_conversation_image_output",
+        "conversation_id",
+        "output_url",
+        postgresql_where=text("kind = 'image' AND output_url IS NOT NULL"),
+    ),
+    # 每种行的必填与留空由组合约束兜底，与迁移 0020 同名同式：出片与图片生成没有来源和区间，
+    # 编辑段必有来源、原作与区间，合成必有来源与原作、没有区间；帧图编辑两种来源至多一个，
+    # 切图必有库内来源，上传没有来源、不挂对话；切图与上传没有请求、创建即完成。
+    # 请求那条的 IS NOT NULL 不能省：jsonb_typeof(NULL) 让 CHECK 直接放行。
     CheckConstraint("kind IN ('video', 'image')", name="ck_generation_jobs_kind"),
-    CheckConstraint("operation IN ('generate', 'compose')", name="ck_generation_jobs_operation"),
     CheckConstraint(
-        "kind <> 'video'"
-        " OR (operation = 'generate' AND source_job_id IS NULL AND root_job_id IS NULL"
+        "operation IN ('generate', 'compose', 'cut', 'upload')",
+        name="ck_generation_jobs_operation",
+    ),
+    CheckConstraint(
+        "(operation IN ('cut', 'upload') AND request IS NULL)"
+        " OR (operation IN ('generate', 'compose') AND request IS NOT NULL"
+        " AND jsonb_typeof(request) = 'object')",
+        name="ck_generation_jobs_request",
+    ),
+    CheckConstraint(
+        "kind <> 'video' OR (source_url IS NULL AND ("
+        "(operation = 'generate' AND source_job_id IS NULL AND root_job_id IS NULL"
         " AND range_start_ms IS NULL AND range_end_ms IS NULL)"
         " OR (operation = 'generate' AND source_job_id IS NOT NULL AND root_job_id IS NOT NULL"
         " AND range_start_ms IS NOT NULL AND range_end_ms IS NOT NULL"
         " AND range_start_ms >= 0 AND range_end_ms > range_start_ms)"
         " OR (operation = 'compose' AND source_job_id IS NOT NULL AND root_job_id IS NOT NULL"
-        " AND range_start_ms IS NULL AND range_end_ms IS NULL)",
+        " AND range_start_ms IS NULL AND range_end_ms IS NULL)"
+        " OR operation = 'upload'))",
         name="ck_generation_jobs_video_shape",
     ),
     CheckConstraint(
-        "kind <> 'image'"
-        " OR (operation = 'generate' AND source_job_id IS NULL AND root_job_id IS NULL"
-        " AND range_start_ms IS NULL AND range_end_ms IS NULL)",
+        "kind <> 'image' OR (root_job_id IS NULL AND range_start_ms IS NULL"
+        " AND range_end_ms IS NULL AND ("
+        "(operation = 'generate' AND (source_job_id IS NULL OR source_url IS NULL))"
+        " OR operation IN ('cut', 'upload')))",
         name="ck_generation_jobs_image_shape",
+    ),
+    CheckConstraint(
+        "operation <> 'cut'"
+        " OR (kind = 'image' AND source_job_id IS NOT NULL AND source_url IS NULL)",
+        name="ck_generation_jobs_cut_shape",
+    ),
+    CheckConstraint(
+        "operation <> 'upload' OR (conversation_id IS NULL AND source_job_id IS NULL"
+        " AND source_url IS NULL AND root_job_id IS NULL"
+        " AND range_start_ms IS NULL AND range_end_ms IS NULL)",
+        name="ck_generation_jobs_upload_shape",
+    ),
+    CheckConstraint(
+        "operation NOT IN ('cut', 'upload')"
+        " OR (status = 'completed' AND output_url IS NOT NULL AND finished_at IS NOT NULL)",
+        name="ck_generation_jobs_settled",
     ),
 )
 
@@ -173,6 +214,7 @@ class SqlGenerationRepository:
                             shot_index=job.shot_index,
                             root_job_id=job.root_job_id,
                             source_job_id=job.source_job_id,
+                            source_url=job.source_url,
                             range_start_ms=job.range_start_ms,
                             range_end_ms=job.range_end_ms,
                             kind=job.kind,
@@ -200,6 +242,59 @@ class SqlGenerationRepository:
                 .one()
             )
         return _job_from_row(row)
+
+    async def create_settled(self, jobs: Sequence[GenerationJob]) -> tuple[GenerationJob, ...]:
+        if not jobs:
+            return ()
+        stmt = (
+            pg_insert(generation_jobs_table)
+            .values([_settled_values(job) for job in jobs])
+            .on_conflict_do_nothing(index_elements=[_JOBS.id])
+            .returning(generation_jobs_table)
+        )
+        async with self._engine.begin() as conn:
+            rows = (await conn.execute(stmt)).mappings().all()
+        order = {job.id: position for position, job in enumerate(jobs)}
+        return tuple(sorted((_job_from_row(row) for row in rows), key=lambda job: order[job.id]))
+
+    async def find_image_by_output(
+        self,
+        output_url: str,
+        *,
+        owner: uuid.UUID | None,
+        conversation_id: uuid.UUID | None,
+        inherited: Inheritance = (),
+        operation: GenerationOperation | None = None,
+    ) -> GenerationJob | None:
+        own = owner_conditions(_JOBS.owner_user_id, owner)
+        # 不用 IS NOT DISTINCT FROM：它走不了（对话，产物地址）那条索引。
+        own.append(
+            _JOBS.conversation_id.is_(None)
+            if conversation_id is None
+            else _JOBS.conversation_id == conversation_id
+        )
+        stmt = select(generation_jobs_table).where(
+            _JOBS.kind == KIND_IMAGE,
+            _JOBS.status == STATUS_COMPLETED,
+            _JOBS.output_url == output_url,
+            _visible(own, inherited),
+        )
+        if operation is not None:
+            stmt = stmt.where(_JOBS.operation == operation)
+        stmt = stmt.order_by(_JOBS.created_at, _JOBS.id).limit(1)
+        async with self._engine.connect() as conn:
+            row = (await conn.execute(stmt)).mappings().one_or_none()
+        return None if row is None else _job_from_row(row)
+
+    async def output_urls(self, ids: Collection[uuid.UUID]) -> Mapping[uuid.UUID, str]:
+        if not ids:
+            return {}
+        stmt = select(_JOBS.id, _JOBS.output_url).where(
+            _JOBS.id.in_(list(ids)), _JOBS.output_url.is_not(None)
+        )
+        async with self._engine.connect() as conn:
+            rows = (await conn.execute(stmt)).all()
+        return {job_id: url for job_id, url in rows}
 
     async def get(
         self, job_id: uuid.UUID, *, owner: uuid.UUID | None, inherited: Inheritance = ()
@@ -457,6 +552,42 @@ def _inherited(inherited: Inheritance) -> ColumnElement[bool]:
     )
 
 
+def _settled_values(job: GenerationJob) -> dict[str, Any]:
+    """一条创建即完成的行：产物地址照给，建立与完成都是数据库时钟的同一刻，没有提交与上游状态。"""
+
+    return {
+        "id": job.id,
+        "owner_user_id": job.owner_user_id,
+        "api_key_id": job.api_key_id,
+        "conversation_id": job.conversation_id,
+        "metadata": job.metadata,
+        "task_id": job.task_id,
+        "shot_index": job.shot_index,
+        "root_job_id": job.root_job_id,
+        "source_job_id": job.source_job_id,
+        "source_url": job.source_url,
+        "range_start_ms": job.range_start_ms,
+        "range_end_ms": job.range_end_ms,
+        "kind": job.kind,
+        "operation": job.operation,
+        "provider": job.provider,
+        "request": request_to_payload(job.request),
+        "status": job.status,
+        "provider_task_id": None,
+        "provider_status": None,
+        "provider_snapshot": None,
+        "output_url": job.output_url,
+        "watermark_output_url": None,
+        "duration_ms": None,
+        "error_code": None,
+        "error_message": None,
+        "created_at": func.now(),
+        "updated_at": func.now(),
+        "submitted_at": None,
+        "finished_at": func.now(),
+    }
+
+
 def _job_from_row(row: RowMapping) -> GenerationJob:
     kind: GenerationKind = row["kind"]
     operation: GenerationOperation = row["operation"]
@@ -471,6 +602,7 @@ def _job_from_row(row: RowMapping) -> GenerationJob:
         shot_index=row["shot_index"],
         root_job_id=row["root_job_id"],
         source_job_id=row["source_job_id"],
+        source_url=row["source_url"],
         range_start_ms=row["range_start_ms"],
         range_end_ms=row["range_end_ms"],
         kind=kind,

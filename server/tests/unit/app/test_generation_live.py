@@ -13,8 +13,10 @@ from tests.helpers.generation import (
     InMemoryGenerationRepository,
     image_request,
     make_composite,
+    make_cut,
     make_edit,
     make_job,
+    make_upload,
 )
 
 Announced = tuple[
@@ -137,4 +139,22 @@ async def test_a_job_without_a_conversation_still_announces_to_its_owner() -> No
 
     assert live.announced == [
         (job.owner_user_id, None, job.id, "video", "generate", "pending", None, None)
+    ]
+
+
+async def test_settled_rows_are_announced_once_when_they_land() -> None:
+    """切图与上传落库即完成，落下的那一刻算一跳；重复确认的上传没插进去就不再发。"""
+
+    live = _RecordingConnections()
+    repo = AnnouncingGenerationRepository(InMemoryGenerationRepository(), live)
+    grid = make_job(image_request(), conversation_id=uuid.uuid4())
+    cell = make_cut(grid)
+    upload = make_upload(owner_user_id=grid.owner_user_id)
+
+    await repo.create_settled([cell, upload])
+    await repo.create_settled([upload])
+
+    assert [(one[1], one[2], one[4], one[5]) for one in live.announced] == [
+        (grid.conversation_id, cell.id, "cut", "completed"),
+        (None, upload.id, "upload", "completed"),
     ]

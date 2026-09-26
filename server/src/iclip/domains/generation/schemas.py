@@ -3,7 +3,7 @@
 落库的请求有三种形状：视频（出片与编辑段）照抄上游异步接口（snake_case），图片与合成是本系统
 自己的（camelCase）。持久化存的就是请求自己的字段名，读取时按 (kind, operation) 经
 request_from_payload 重新校验，非法数据直接报错。编辑段与合成的受理输入另有自己的类型，受理时
-换成落库的那一种。"""
+换成落库的那一种。切图与上传没有请求。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import json
 import uuid
 from collections.abc import Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, Literal, get_args
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, Literal, get_args, overload
 
 from pydantic import (
     AfterValidator,
@@ -57,6 +57,10 @@ OPERATION_GENERATE: Final = "generate"
 """调模型：出片、编辑段、图片生成都是它。"""
 OPERATION_COMPOSE: Final = "compose"
 """本地拼接：合成出一条新的成片，不经外部服务。"""
+OPERATION_CUT: Final = "cut"
+"""本地切图：从一张宫格上切出来的一格，来源是那张宫格。创建即完成，没有请求。"""
+OPERATION_UPLOAD: Final = "upload"
+"""用户上传：确认过的一次直传，没有来源、不挂对话。创建即完成，没有请求。"""
 
 ClipStage = Literal["fetching", "processing", "uploading"]
 """本地加工（合成、编辑段提交上游前的切片）在途时跑到哪一步，加工时上报，落在 provider_status 上。
@@ -91,12 +95,15 @@ MAX_METADATA_CHARS: Final = 2000
 MAX_URL_CHARS: Final = 2000
 """服务端要拿去下载的单个地址的长度上限。"""
 
-ORIGIN_FIELDS: Final = frozenset({"conversation_id", "task_id", "metadata", "shot_index"})
+ORIGIN_FIELDS: Final = frozenset(
+    {"conversation_id", "task_id", "metadata", "shot_index", "source_url"}
+)
 """归属字段：落表上自己的列，不进 ``request`` JSON。
 
 它们不是发给 provider 的参数，而是「这一行属于谁、为谁出的」：对话与需求单按索引查；视频的
 镜头组编号落 ``shot_index`` 列；``metadata`` 是调用方自己的键，服务端不读不写、原样存、按包含
-匹配筛。来源、原作与区间也落列，但不是请求字段：受理时由服务端按基底定。"""
+匹配筛。帧图编辑的 ``source_url``（底图地址）是请求字段，受理时解析成来源；其余来源、原作与
+区间也落列，但不是请求字段，由服务端按基底定。"""
 
 NOT_FORWARDED_FIELDS: Final = ORIGIN_FIELDS | frozenset({"shot"})
 """发给上游时去掉的字段：归属字段是我们自己的；``shot`` 已经拼成 ``prompt``，上游只认正文。
@@ -317,8 +324,18 @@ class ImageGenerationIn(CamelModel):
     conversation_id: uuid.UUID | None = None
     task_id: uuid.UUID | None = None
     metadata: Metadata | None = None
+    source_url: Annotated[str, Field(min_length=1, max_length=MAX_URL_CHARS)] | None = None
+    """帧图编辑的底图地址：这次改的是哪张图。受理时按地址找库里的记录，找到记来源、找不到记外部
+    地址；不进 ``request``、不发上游（底图要不要给模型看，由 ``referenceImageUrls`` 决定）。"""
 
     _check_urls = field_validator("reference_image_urls")(_http_only)
+
+    @field_validator("source_url")
+    @classmethod
+    def _source_is_http(cls, url: str | None) -> str | None:
+        if url is not None and not is_http_url(url):
+            raise ValueError("必须是 http:// 或 https:// 地址")
+        return url
 
 
 class VideoEditIn(SnakeModel):
@@ -410,19 +427,42 @@ _ADAPTERS: Final[Mapping[tuple[str, str], TypeAdapter[Any]]] = {
 }
 """编辑段落库的仍是 ``VideoGenerationIn``：它与出片的区别在来源列上，不在请求形状上。"""
 
+_WITHOUT_REQUEST: Final = frozenset(
+    {(KIND_IMAGE, OPERATION_CUT), (KIND_IMAGE, OPERATION_UPLOAD), (KIND_VIDEO, OPERATION_UPLOAD)}
+)
+"""创建即完成、没有请求的那几种行：切图只有图片，上传图片与视频都有。"""
 
-def request_to_payload(request: GenerationRequest) -> dict[str, Any]:
-    """序列化成持久化 JSON：字段名照请求自己的（视频 snake_case、图片 camelCase），归属字段单独存列。"""
 
+@overload
+def request_to_payload(request: GenerationRequest) -> dict[str, Any]: ...
+@overload
+def request_to_payload(request: None) -> None: ...
+def request_to_payload(request: GenerationRequest | None) -> dict[str, Any] | None:
+    """序列化成持久化 JSON：字段名照请求自己的（视频 snake_case、图片 camelCase），归属字段单独存列。
+
+    切图与上传没有请求，原样是 ``None``。"""
+
+    if request is None:
+        return None
     return request.model_dump(by_alias=True, exclude=set(ORIGIN_FIELDS))
 
 
-def request_from_payload(kind: str, operation: str, payload: dict[str, Any]) -> GenerationRequest:
-    """按独立存列的 kind 与 operation 选择适配器并校验持久化请求，非法数据直接报错。"""
+def request_from_payload(
+    kind: str, operation: str, payload: dict[str, Any] | None
+) -> GenerationRequest | None:
+    """按独立存列的 kind 与 operation 选择适配器并校验持久化请求，非法数据直接报错。
 
+    切图与上传必须没有请求，读回 ``None``；其余几种必须有。"""
+
+    if (kind, operation) in _WITHOUT_REQUEST:
+        if payload is not None:
+            raise ValidationFailed(f"{kind} / {operation} 不该带请求")
+        return None
     adapter = _ADAPTERS.get((kind, operation))
     if adapter is None:
         raise ValidationFailed(f"未知的生成类型: {kind} / {operation}")
+    if payload is None:
+        raise ValidationFailed(f"{kind} / {operation} 的生成请求缺失")
     try:
         return adapter.validate_python(payload)
     except ValueError as exc:
@@ -441,7 +481,8 @@ class GenerationOut(CamelModel):
     kind: GenerationKind
     operation: GenerationOperation
     status: GenerationStatus
-    request: dict[str, Any]
+    request: dict[str, Any] | None
+    """发给执行方的输入，整份存取；切图与上传没有，为空。"""
     metadata: dict[str, Any] | None
     task_id: uuid.UUID | None
     shot_index: int | None = None
@@ -449,7 +490,11 @@ class GenerationOut(CamelModel):
     root_job_id: uuid.UUID | None
     """原作：编辑段与合成指最初那条出片，出片与图片为空。按它筛（``rootJobId``）拿到整条编辑链。"""
     source_job_id: uuid.UUID | None = None
-    """直接来源：编辑段指它的基底成片，合成指它的编辑段，别的为空。"""
+    """直接来源：编辑段指它的基底成片，合成指它的编辑段，帧图编辑指底图那一条，切图指它的宫格；
+    别的为空。"""
+    source_url: str | None = None
+    """来源的地址：``sourceJobId`` 非空时是那条记录的 ``outputUrl``；为空时只有帧图编辑可能有，是
+    库里找不到的外部底图地址；都没有就是空。它是投影，不是列的镜像，来源那条读不读得到都照给。"""
     range_start_ms: int | None = None
     range_end_ms: int | None = None
     """编辑段在基底上改的那一段，毫秒；参考片段切好之后是实际切点。只有编辑段有。"""
@@ -467,7 +512,9 @@ class GenerationOut(CamelModel):
     """到终态的时刻（数据库时钟）；同一镜头组的成片按它排版本。"""
 
 
-def generation_out(job: GenerationJob) -> GenerationOut:
+def generation_out(job: GenerationJob, *, source_address: str | None) -> GenerationOut:
+    """``source_address`` 是这一条来源的地址，由服务按来源批量查好给进来（见 ``GenerationOut.source_url``）。"""
+
     return GenerationOut(
         id=job.id,
         kind=job.kind,
@@ -479,6 +526,7 @@ def generation_out(job: GenerationJob) -> GenerationOut:
         shot_index=job.shot_index,
         root_job_id=job.root_job_id,
         source_job_id=job.source_job_id,
+        source_url=source_address,
         range_start_ms=job.range_start_ms,
         range_end_ms=job.range_end_ms,
         output_url=job.output_url,
@@ -611,7 +659,9 @@ __all__ = [
     "MAX_USER_NAME_CHARS",
     "NOT_FORWARDED_FIELDS",
     "OPERATION_COMPOSE",
+    "OPERATION_CUT",
     "OPERATION_GENERATE",
+    "OPERATION_UPLOAD",
     "ORIGIN_FIELDS",
     "STATUS_COMPLETED",
     "STATUS_FAILED",

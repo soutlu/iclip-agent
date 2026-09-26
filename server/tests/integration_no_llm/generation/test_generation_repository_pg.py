@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -23,9 +24,11 @@ from iclip.domains.generation.models import (
     STATUS_SUBMITTED,
     STATUS_SUBMITTING,
     GenerationJob,
+    GenerationOperation,
 )
 from iclip.domains.generation.schemas import GenerationRequest
 from tests.helpers.fork_lineage import (
+    complete,
     finished,
     make_user,
     open_conversation,
@@ -36,8 +39,10 @@ from tests.helpers.generation import (
     edit_request,
     image_request,
     make_composite,
+    make_cut,
     make_edit,
     make_job,
+    make_upload,
     video_request,
 )
 from tests.helpers.pg import reset_database
@@ -513,7 +518,7 @@ _SHAPES = {
     "合成没有来源": ("video", "compose", None, "take", None),
     "图片带原作": ("image", "generate", None, "take", None),
     "kind 是 clip": ("clip", "compose", "edit", "take", None),
-    "operation 是 cut": ("image", "cut", None, None, None),
+    "operation 不认识": ("image", "crop", None, None, None),
 }
 """(kind, operation, 来源, 原作, 区间)；来源与原作写的是种子里哪一条。"""
 
@@ -553,6 +558,233 @@ async def test_combined_constraints_refuse_rows_of_no_known_shape(
                     "end": None if span is None else span[1],
                 },
             )
+
+
+_BASE_URL = "https://example.test/base.png"
+
+_IMAGE_ROW: dict[str, Any] = {
+    "kind": "image",
+    "operation": "generate",
+    "request": '{"prompt": "p"}',
+    "status": "pending",
+    "conversation": False,
+    "source": False,
+    "source_url": None,
+    "root": False,
+    "output_url": None,
+    "finished": False,
+}
+"""一条合法的图片生成；各用例在它上面改几列，``conversation`` / ``source`` / ``root`` 为真就填上。"""
+
+_SETTLED: dict[str, Any] = {
+    "request": None,
+    "status": "completed",
+    "output_url": "https://example.test/settled.png",
+    "finished": True,
+}
+"""创建即完成的行：没有请求，已完成，有产物地址与完成时刻。"""
+
+_REFUSED_SHAPES: dict[str, dict[str, Any]] = {
+    "切图没有来源": {"operation": "cut", **_SETTLED},
+    "切图带外部地址": {"operation": "cut", "source": True, "source_url": _BASE_URL, **_SETTLED},
+    "视频切图": {"kind": "video", "operation": "cut", "source": True, **_SETTLED},
+    "上传带来源": {"operation": "upload", "source": True, **_SETTLED},
+    "上传挂对话": {"operation": "upload", "conversation": True, **_SETTLED},
+    "上传带请求": {"operation": "upload", **_SETTLED, "request": '{"prompt": "p"}'},
+    "上传的请求是 JSON null": {"operation": "upload", **_SETTLED, "request": "null"},
+    "出图没有请求": {"request": None},
+    "出图的请求是 JSON null": {"request": "null"},
+    "帧图编辑两种来源都填": {"source": True, "source_url": _BASE_URL},
+    "视频带外部地址": {"kind": "video", "source_url": _BASE_URL},
+    "切图还没完成": {"operation": "cut", "source": True, "request": None},
+    "上传没有产物地址": {"operation": "upload", **_SETTLED, "output_url": None},
+    "上传没有完成时刻": {"operation": "upload", **_SETTLED, "finished": False},
+    "图片合成": {
+        "operation": "compose",
+        "source": True,
+        "root": True,
+        "request": '{"segments": []}',
+    },
+}
+
+_ACCEPTED_SHAPES: dict[str, dict[str, Any]] = {
+    "帧图编辑记库内底图": {"source": True},
+    "帧图编辑记外部底图": {"source_url": _BASE_URL},
+    "切图": {"operation": "cut", "source": True, "conversation": True, **_SETTLED},
+    "图片上传": {"operation": "upload", **_SETTLED},
+    "视频上传": {"kind": "video", "operation": "upload", **_SETTLED},
+}
+
+
+async def _insert_shaped(engine: AsyncEngine, shape: Mapping[str, Any]) -> None:
+    """绕过受理层直接写一行；来源与原作指一张现成的图。"""
+
+    repo = SqlGenerationRepository(engine)
+    owner = await make_user(engine)
+    grid = await repo.create(make_job(image_request(), owner_user_id=owner))
+    row = {**_IMAGE_ROW, **shape}
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind, "
+                "operation, provider, request, status, source_job_id, source_url, root_job_id, "
+                "output_url, created_at, updated_at, finished_at) VALUES (:id, :owner, "
+                ":conversation, :kind, :operation, 'test', CAST(:request AS jsonb), :status, "
+                ":source, :source_url, :root, :output_url, now(), now(), :finished_at)"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "owner": owner,
+                "conversation": uuid.uuid4() if row["conversation"] else None,
+                "kind": row["kind"],
+                "operation": row["operation"],
+                "request": row["request"],
+                "status": row["status"],
+                "source": grid.id if row["source"] else None,
+                "source_url": row["source_url"],
+                "root": grid.id if row["root"] else None,
+                "output_url": row["output_url"],
+                "finished_at": datetime.now(UTC) if row["finished"] else None,
+            },
+        )
+
+
+@pytest.mark.parametrize("shape", list(_REFUSED_SHAPES))
+async def test_sources_and_settled_rows_of_no_known_shape_are_refused(
+    engine: AsyncEngine, shape: str
+) -> None:
+    """帧图编辑、切图、上传的必填与留空也由库兜底；请求为 JSON null 与 SQL NULL 一样挡得住。"""
+
+    with pytest.raises(IntegrityError):
+        await _insert_shaped(engine, _REFUSED_SHAPES[shape])
+
+
+@pytest.mark.parametrize("shape", list(_ACCEPTED_SHAPES))
+async def test_sources_and_settled_rows_of_a_known_shape_are_accepted(
+    engine: AsyncEngine, shape: str
+) -> None:
+    await _insert_shaped(engine, _ACCEPTED_SHAPES[shape])
+
+
+async def test_settled_rows_land_once_on_the_database_clock_without_a_request(
+    engine: AsyncEngine,
+) -> None:
+    """创建即完成的几行一次落：与输入同序，建立与完成是数据库时钟的同一刻，请求是 SQL NULL。
+    同 id 再落一次跳过、不覆盖，返回值里没有它。"""
+
+    repo = SqlGenerationRepository(engine)
+    owner = await make_user(engine)
+    stale = datetime.now(UTC) - timedelta(days=365)
+    grid = await finished(repo, owner, uuid.uuid4(), "grid", image_request())
+    upload = make_upload(owner_user_id=owner, created_at=stale, finished_at=stale)
+    cells = [make_cut(grid), make_cut(grid)]
+
+    landed = await repo.create_settled([upload, *cells])
+    again = await repo.create_settled(
+        [replace(upload, output_url="https://example.test/replaced.png")]
+    )
+
+    assert [job.id for job in landed] == [upload.id, *(cell.id for cell in cells)]
+    assert again == ()
+    stored = await repo.get(upload.id, owner=None)
+    assert (stored.operation, stored.request, stored.output_url) == (
+        "upload",
+        None,
+        upload.output_url,
+    )
+    assert stored.created_at == stored.finished_at
+    assert stored.created_at > stale + timedelta(days=1), "应用传进来的时刻被数据库改写了"
+    async with engine.connect() as conn:
+        nulls = (
+            await conn.execute(
+                text(
+                    "SELECT bool_and(request IS NULL) FROM iclip.generation_jobs "
+                    "WHERE operation IN ('cut', 'upload')"
+                )
+            )
+        ).scalar_one()
+    assert nulls is True, "没有请求落的是 SQL NULL，不是 JSON null"
+
+
+async def test_an_image_is_found_by_its_address_within_the_conversation_and_what_it_inherits(
+    engine: AsyncEngine,
+) -> None:
+    """按产物地址找图片：本对话按属主收敛的、经继承读得到的；没有对话就只找没有对话的；给了操作
+    只找那一种；未完成的、视频、别的对话、边界之后的都找不到；对上多条取最早建立的。"""
+
+    repo = SqlGenerationRepository(engine)
+    conversations = SqlConversationRepository(engine)
+    author, forker, stranger = [await make_user(engine) for _ in range(3)]
+    source = await open_conversation(conversations, author)
+    early = await finished(repo, author, source.id, "early", image_request())
+    copy = await open_conversation(conversations, forker, forked_from=source.id)
+    late = await finished(repo, author, source.id, "late", image_request())
+    own = await finished(repo, forker, copy.id, "own", image_request())
+    twin = await finished(repo, forker, copy.id, "twin", image_request())
+    elsewhere = await finished(repo, forker, uuid.uuid4(), "elsewhere", image_request())
+    take = await finished(repo, forker, copy.id, "take")
+    loose = await complete(
+        repo,
+        await repo.create(make_job(image_request(), owner_user_id=forker)),
+        "https://example.test/loose.png",
+    )
+    (upload,) = await repo.create_settled(
+        [make_upload(owner_user_id=forker, output_url="https://example.test/upload.png")]
+    )
+    broken = await repo.create(
+        make_job(image_request(), owner_user_id=forker, conversation_id=copy.id)
+    )
+    await repo.mark_failed(broken.id, error_code="UPSTREAM_FAILED", error_message="上游拒了")
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE iclip.generation_jobs SET output_url = :url WHERE id = :id"),
+            {"url": "https://example.test/broken.png", "id": broken.id},
+        )
+        await conn.execute(
+            text("UPDATE iclip.generation_jobs SET output_url = :url WHERE id = :id"),
+            {"url": own.output_url, "id": twin.id},
+        )
+    inheritance = await conversations.ancestry(copy.id)
+
+    async def find(
+        job_url: str | None,
+        *,
+        owner: uuid.UUID | None = forker,
+        conversation_id: uuid.UUID | None = copy.id,
+        operation: GenerationOperation | None = None,
+    ) -> uuid.UUID | None:
+        assert job_url is not None
+        found = await repo.find_image_by_output(
+            job_url,
+            owner=owner,
+            conversation_id=conversation_id,
+            inherited=inheritance if conversation_id == copy.id else (),
+            operation=operation,
+        )
+        return None if found is None else found.id
+
+    assert await find(own.output_url) == own.id, "同一地址两条，取最早建立的"
+    assert await find(early.output_url) == early.id, "边界之内继承来的"
+    assert await find(late.output_url) is None, "分叉之后才完成的不继承"
+    assert await find(elsewhere.output_url) is None
+    assert await find(take.output_url) is None, "视频不是图片"
+    assert await find("https://example.test/broken.png") is None, "没完成的不算"
+    assert await find(own.output_url, owner=stranger) is None, "别人的按属主筛掉"
+    assert await find(own.output_url, owner=None) == own.id, "不限属主就读得到"
+    assert await find(loose.output_url) is None, "没有对话的行不在这段对话里"
+    assert await find(loose.output_url, conversation_id=None) == loose.id
+    assert await find(upload.output_url, conversation_id=None, operation="upload") == upload.id
+    assert await find(loose.output_url, conversation_id=None, operation="upload") is None
+
+
+async def test_output_urls_answer_only_for_rows_that_have_one(engine: AsyncEngine) -> None:
+    repo = SqlGenerationRepository(engine)
+    owner = await make_user(engine)
+    done = await finished(repo, owner, uuid.uuid4(), "done", image_request())
+    pending = await insert_job(repo, owner, image_request())
+
+    assert await repo.output_urls([]) == {}
+    assert await repo.output_urls([done.id, pending.id, uuid.uuid4()]) == {done.id: done.output_url}
 
 
 async def test_a_reference_cut_records_the_actual_range_only_while_submitting(

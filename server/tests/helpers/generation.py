@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -37,7 +37,10 @@ from iclip.domains.generation.provider import (
 )
 from iclip.domains.generation.queue import GenerationQueue, GenerationQueueSettings, ProviderLane
 from iclip.domains.generation.schemas import (
+    KIND_IMAGE,
     KIND_VIDEO,
+    OPERATION_CUT,
+    OPERATION_UPLOAD,
     GenerationRequest,
     ImageGenerationIn,
     VideoComposeRequest,
@@ -122,6 +125,8 @@ def image_request(**overrides: Any) -> ImageGenerationIn:
 def make_job(
     request: GenerationRequest | None = None,
     *,
+    kind: GenerationKind | None = None,
+    operation: GenerationOperation | None = None,
     status: GenerationStatus = STATUS_PENDING,
     provider: str | None = None,
     provider_task_id: str | None = None,
@@ -136,6 +141,7 @@ def make_job(
     shot_index: int | None = None,
     root_job_id: uuid.UUID | None = None,
     source_job_id: uuid.UUID | None = None,
+    source_url: str | None = None,
     range_start_ms: int | None = None,
     range_end_ms: int | None = None,
     output_url: str | None = None,
@@ -144,9 +150,24 @@ def make_job(
     error_code: str | None = None,
     error_message: str | None = None,
 ) -> GenerationJob:
+    """kind 与 operation 随请求定，默认是一条出片；只有没有请求的行（切图、上传）才显式给这两个。"""
+
     now = datetime.now(UTC)
-    payload = request or video_request()
-    operation: GenerationOperation = payload.operation
+    payload: GenerationRequest | None
+    if kind is None and operation is None:
+        payload = request or video_request()
+        row_kind, row_operation = payload.kind, payload.operation
+    elif request is None and kind is not None and operation is not None:
+        payload, row_kind, row_operation = None, kind, operation
+    else:
+        raise AssertionError("kind 与 operation 只给没有请求的行，且要一起给")
+    default_provider = (
+        row_operation
+        if payload is None
+        else FAKE_VIDEO_PROVIDER
+        if row_kind == KIND_VIDEO
+        else FAKE_IMAGE_PROVIDER
+    )
     return GenerationJob(
         id=uuid.uuid4(),
         owner_user_id=owner_user_id or uuid.uuid4(),
@@ -157,12 +178,12 @@ def make_job(
         shot_index=shot_index,
         root_job_id=root_job_id,
         source_job_id=source_job_id,
+        source_url=source_url,
         range_start_ms=range_start_ms,
         range_end_ms=range_end_ms,
-        kind=payload.kind,
-        operation=operation,
-        provider=provider
-        or (FAKE_VIDEO_PROVIDER if payload.kind == KIND_VIDEO else FAKE_IMAGE_PROVIDER),
+        kind=row_kind,
+        operation=row_operation,
+        provider=provider or default_provider,
         request=payload,
         status=status,
         provider_task_id=provider_task_id,
@@ -178,6 +199,13 @@ def make_job(
         submitted_at=submitted_at,
         finished_at=finished_at,
     )
+
+
+def stored_request(job: GenerationJob) -> GenerationRequest:
+    """调模型或本地拼接的记录落库的请求；切图与上传没有请求，拿它们来取是用例写错了。"""
+
+    assert job.request is not None, f"{job.kind} / {job.operation} 没有请求"
+    return job.request
 
 
 def make_edit(base: GenerationJob, **fields: Any) -> GenerationJob:
@@ -204,6 +232,28 @@ def make_composite(edit: GenerationJob, **fields: Any) -> GenerationJob:
     )
 
 
+def make_upload(*, kind: GenerationKind = KIND_IMAGE, **fields: Any) -> GenerationJob:
+    """一条上传：创建即完成，没有请求与来源，不挂对话。"""
+
+    fields.setdefault("status", STATUS_COMPLETED)
+    fields.setdefault("finished_at", datetime.now(UTC))
+    fields.setdefault("output_url", f"https://cdn.test/iclip/agent/uploads/{uuid.uuid4()}.png")
+    return make_job(kind=kind, operation=OPERATION_UPLOAD, **fields)
+
+
+def make_cut(grid: GenerationJob, **fields: Any) -> GenerationJob:
+    """从宫格 ``grid`` 切出来的一格：来源是宫格，对话与属主随它，创建即完成。"""
+
+    fields.setdefault("status", STATUS_COMPLETED)
+    fields.setdefault("finished_at", datetime.now(UTC))
+    fields.setdefault(
+        "output_url", f"https://cdn.test/shot-frames/{grid.id}/out/{uuid.uuid4()}.jpg"
+    )
+    fields.setdefault("conversation_id", grid.conversation_id)
+    fields.setdefault("owner_user_id", grid.owner_user_id)
+    return make_job(kind=KIND_IMAGE, operation=OPERATION_CUT, source_job_id=grid.id, **fields)
+
+
 class InMemoryGenerationRepository:
     """GenerationRepository 内存替身，仅处理状态跳转与列表筛选；排期由队列负责。"""
 
@@ -213,6 +263,53 @@ class InMemoryGenerationRepository:
     async def create(self, job: GenerationJob) -> GenerationJob:
         self.jobs[job.id] = job
         return job
+
+    async def create_settled(self, jobs: Sequence[GenerationJob]) -> tuple[GenerationJob, ...]:
+        from dataclasses import replace
+
+        now = datetime.now(UTC)
+        created: list[GenerationJob] = []
+        for job in jobs:
+            if job.id in self.jobs:
+                continue
+            stored = replace(job, created_at=now, updated_at=now, finished_at=now)
+            self.jobs[job.id] = stored
+            created.append(stored)
+        return tuple(created)
+
+    async def find_image_by_output(
+        self,
+        output_url: str,
+        *,
+        owner: uuid.UUID | None,
+        conversation_id: uuid.UUID | None,
+        inherited: Inheritance = (),
+        operation: GenerationOperation | None = None,
+    ) -> GenerationJob | None:
+        found = [
+            job
+            for job in self.jobs.values()
+            if job.kind == KIND_IMAGE
+            and job.status == STATUS_COMPLETED
+            and job.output_url == output_url
+            and (operation is None or job.operation == operation)
+            and (
+                (
+                    (owner is None or job.owner_user_id == owner)
+                    and job.conversation_id == conversation_id
+                )
+                or inherited_through(job, inherited)
+            )
+        ]
+        return min(found, key=lambda job: (job.created_at, job.id), default=None)
+
+    async def output_urls(self, ids: Collection[uuid.UUID]) -> Mapping[uuid.UUID, str]:
+        urls: dict[uuid.UUID, str] = {}
+        for job_id in ids:
+            job = self.jobs.get(job_id)
+            if job is not None and job.output_url is not None:
+                urls[job_id] = job.output_url
+        return urls
 
     async def get(
         self, job_id: uuid.UUID, *, owner: uuid.UUID | None, inherited: Inheritance = ()
@@ -559,7 +656,10 @@ __all__ = [
     "edit_request",
     "image_request",
     "make_composite",
+    "make_cut",
     "make_edit",
     "make_job",
+    "make_upload",
+    "stored_request",
     "video_request",
 ]

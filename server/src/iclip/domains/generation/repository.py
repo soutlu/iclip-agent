@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import Any, Protocol
 
 from iclip.domains.generation.models import (
@@ -22,6 +22,30 @@ class GenerationRepository(Protocol):
 
     async def create(self, job: GenerationJob) -> GenerationJob:
         """插入一行新 job。"""
+        ...
+
+    async def create_settled(self, jobs: Sequence[GenerationJob]) -> tuple[GenerationJob, ...]:
+        """一个事务里插入几行创建即完成的记录（切图、上传），产物地址照 job 写，建立与完成时刻都取
+        数据库时钟。同 id 已存在就跳过、不覆盖，返回值里没有它；返回真正插进去的，与输入同序。"""
+        ...
+
+    async def find_image_by_output(
+        self,
+        output_url: str,
+        *,
+        owner: uuid.UUID | None,
+        conversation_id: uuid.UUID | None,
+        inherited: Inheritance = (),
+        operation: GenerationOperation | None = None,
+    ) -> GenerationJob | None:
+        """产物地址就是 ``output_url`` 的一张已完成的图片；给了 ``operation`` 就只找那一种。
+
+        范围与按对话列记录相同：按属主收敛、在 ``conversation_id`` 那段对话里的（为空就是没有对话的），
+        并上经 ``inherited`` 继承来的。对上多条取最早建立的那条；一条都没有给 ``None``。"""
+        ...
+
+    async def output_urls(self, ids: Collection[uuid.UUID]) -> Mapping[uuid.UUID, str]:
+        """这几条记录的产物地址，没有产物的不在结果里。不按属主过滤：只给已经可见的行找来源地址。"""
         ...
 
     async def get(

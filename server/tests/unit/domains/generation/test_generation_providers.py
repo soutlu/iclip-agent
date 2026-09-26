@@ -34,6 +34,7 @@ from tests.helpers.generation import (
     image_request,
     make_edit,
     make_job,
+    stored_request,
     video_request,
     video_shot,
 )
@@ -220,7 +221,9 @@ async def test_an_edit_sends_the_prepared_reference_clip_to_upstream() -> None:
     (body,) = sent
     assert body["reference_video_urls"] == [CLIP_URL]
     assert (body["seconds"], body["prompt"]) == (-1, "一只猫跳上窗台")
-    assert edit.request.model_dump()["reference_video_urls"] == [], "片段地址不回写落库的请求"
+    assert stored_request(edit).model_dump()["reference_video_urls"] == [], (
+        "片段地址不回写落库的请求"
+    )
 
 
 async def test_a_failed_preparation_never_reaches_upstream() -> None:

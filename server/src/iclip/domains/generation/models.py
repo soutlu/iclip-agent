@@ -40,9 +40,10 @@ class GenerationJob:
     """发起生成时使用的 API key，供审计使用。"""
     kind: GenerationKind
     operation: GenerationOperation
-    """怎么执行：调模型或本地拼接。与 kind、有没有来源一起决定这一行是哪种记录。"""
+    """怎么执行：调模型、本地拼接、本地切图或用户上传。与 kind、有没有来源一起决定这一行是哪种记录。"""
     provider: str
-    request: GenerationRequest
+    request: GenerationRequest | None
+    """发给执行方的输入；切图与上传没有，为空。"""
     status: GenerationStatus
     provider_task_id: str | None
     provider_status: str | None
@@ -69,7 +70,10 @@ class GenerationJob:
 
     原作用于血缘与没有镜号时的分组（ADR-0002）。在分叉副本里剪继承来的出片，原作照样指源对话里那条。"""
     source_job_id: uuid.UUID | None = None
-    """直接来源：编辑段指它的基底成片，合成指它的编辑段；出片与图片为空。可以指继承来的记录。"""
+    """直接来源：编辑段指它的基底成片，合成指它的编辑段，帧图编辑指底图那一条，切图指它的宫格；
+    出片、图片生成与上传为空。可以指继承来的记录。"""
+    source_url: str | None = None
+    """帧图编辑的外部底图地址，与 ``source_job_id`` 恰好一个；其余行为空。"""
     range_start_ms: int | None = None
     range_end_ms: int | None = None
     """编辑段在基底上改的那一段，毫秒；只有编辑段有。受理时是请求的区间，切出参考片段后改记实际切点。"""
