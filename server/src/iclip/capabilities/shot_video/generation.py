@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Final, NoReturn
@@ -131,7 +132,7 @@ class FrameGenerator:
         if not grid_url:
             job_failure(job, message=failure_message, reason="生成记录未携带结果 URL")
         try:
-            cells = await self._slice_grid(grid_url, aspect=aspect)
+            cells = await self._slice_grid(grid_url, aspect=aspect, job_id=job.job_id)
         except (MediaError, GridError, AspectError) as exc:
             job_failure(job, message=failure_message, reason=str(exc))
         if len(cells) != GRID_CELLS:
@@ -184,14 +185,24 @@ class FrameGenerator:
             urls.append(result)
         return urls
 
-    async def _slice_grid(self, grid_url: str, *, aspect: str | None) -> list[bytes]:
-        """检测网格并裁剪，指定 aspect 时居中收缩；检测不到分隔带的轴由 grid 按等分退回。"""
+    async def _slice_grid(
+        self, grid_url: str, *, aspect: str | None, job_id: uuid.UUID
+    ) -> list[bytes]:
+        """检测网格并裁剪，指定 aspect 时居中收缩；检测不到分隔带的轴由 grid 按等分退回，并记告警。"""
 
         async with fetched(
             self._client, grid_url, max_bytes=MAX_IMAGE_BYTES, suffix=".img"
         ) as source:
             gray, full_width = await decode_gray(source)
             layout = grid_cell_boxes(gray, rows=GRID_ROWS, cols=GRID_COLS)
+            if not layout.detected:
+                _logger.warning(
+                    "网格分隔带检测不全，按等分裁切",
+                    job_id=str(job_id),
+                    cells=len(layout.boxes),
+                    detected_x=layout.detected_x,
+                    detected_y=layout.detected_y,
+                )
             boxes = [
                 scale_box(box, from_width=gray.width, to_width=full_width) for box in layout.boxes
             ]

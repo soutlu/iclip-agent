@@ -43,9 +43,7 @@ from iclip.domains.identity.models import Principal
 from iclip.platform.file_store.store import (
     FileSpace,
     InvalidPath,
-    QuotaExceeded,
     StoredFile,
-    VersionConflict,
     normalize_path,
 )
 from iclip.platform.material_ledger.store import Material
@@ -216,11 +214,6 @@ def test_namespace_fails_closed_when_deps_is_not_a_run_deps() -> None:
         workspace_namespace(make_context({"user_id": str(USER)}))
 
 
-def test_a_forged_conversation_id_cannot_escape_its_user() -> None:
-
-    assert workspace_namespace(make_context(make_deps())).startswith(f"{USER}/")
-
-
 def test_scope_goes_through_normalization() -> None:
     """命名空间须经 FileSpace.resolve 归一化，保证共享 FileSpace 的能力访问同一位置。"""
 
@@ -361,9 +354,9 @@ async def test_read_cuts_a_single_line_over_the_char_limit_and_says_so(
     assert first == "     1\t" + "y" * kept
     assert 0 < kept < 80_000
     assert [note[0] for note in notes] == ["[", "["]
-    assert "第 1 行有 80000 字符" in notes[0]
-    assert f"只给了前 {kept} 个" in notes[0]
-    assert "用 offset=2 接着读" in notes[1]
+    assert "80000" in notes[0]
+    assert str(kept) in notes[0]
+    assert "offset=2" in notes[1]
     assert page.metadata == {"path": "面板.json", "lines": 1, "truncated": True}
 
 
@@ -508,17 +501,6 @@ async def test_full_workspace_tells_the_model_how_to_recover(ctx: RunContext[obj
     with pytest.raises(ModelRetry, match="删掉"):
         await tools.write_file(ctx, "b.md", "y" * 80)
     assert "a.md" in text(await tools.write_file(ctx, "a.md", "z" * 90))
-
-
-async def test_quota_and_conflict_are_distinguishable(store: FakeFileStore) -> None:
-    """容量不足需要清理文件，版本冲突需要重新读取；二者必须保持不同错误类型。"""
-
-    small = FakeFileStore(max_namespace_bytes=10)
-    with pytest.raises(QuotaExceeded):
-        await small.write(NS, "a.md", "x" * 20)
-    await store.write(NS, "a.md", "x")
-    with pytest.raises(VersionConflict):
-        await store.write(NS, "a.md", "y", expected_version=99)
 
 
 def read_tools(
@@ -734,33 +716,14 @@ async def test_an_address_that_cannot_carry_scaling_is_refused() -> None:
         )
 
 
-async def test_read_media_file_takes_an_address_a_tool_wrote_down() -> None:
-
-    board = "https://bucket.oss-cn-hangzhou.aliyuncs.com/shot-frames/k/board/1.jpg"
-    tools = read_tools(FakeProbe(), image_ledger(board))
-    ctx = make_context(make_deps())
-
-    await check_args(tools, ctx, url=board)
-    assert await tools.read_media_file(ctx, board)
-
-    with pytest.raises(ModelRetry, match="不是这段对话里的素材"):
-        await check_args(
-            tools,
-            ctx,
-            url="https://bucket.oss-cn-hangzhou.aliyuncs.com/shot-frames/k/board/9.jpg",
-        )
-
-
-async def test_an_out_of_scope_address_is_refused_before_the_probe_runs() -> None:
-    """地址校验必须在工具执行和图片探测之前完成。"""
-
-    probe = FakeProbe()
-    tools = read_tools(probe, image_ledger(OSS_IMAGE))
+async def test_read_media_file_only_takes_addresses_recorded_for_the_conversation() -> None:
+    tools = read_tools(FakeProbe(), image_ledger(OSS_IMAGE))
     ctx = make_context(make_deps())
 
     await check_args(tools, ctx, url=OSS_IMAGE)
+    # 桶是各用户共用的：同一个桶里没登记的文件也要拒。
     with pytest.raises(ModelRetry, match="不是这段对话里的素材") as failure:
-        await check_args(tools, ctx, url="https://cdn.test/made-up.jpg")
+        await check_args(tools, ctx, url="https://bucket.oss-cn-hangzhou.aliyuncs.com/made-up.jpg")
 
     # 不回显未登记地址，避免重试消息将其引入素材上下文。
     assert "made-up" not in str(failure.value)

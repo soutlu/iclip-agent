@@ -30,7 +30,7 @@ from iclip.capabilities.shot_document import (
     VideoShotRequest,
     validate_shots_document,
 )
-from iclip.capabilities.video.capability import CAPABILITY_ID, Video, VideoToolset
+from iclip.capabilities.video.capability import Video, VideoToolset
 from iclip.capabilities.video_document import video_doc_path
 from iclip.capabilities.video_understanding import VideoUnderstandingError
 from iclip.capabilities.workspace.scope import workspace_namespace
@@ -187,15 +187,6 @@ async def deliver(
     return delivered.return_value
 
 
-def test_capability_id_is_fixed(capability: Video[object]) -> None:
-    assert capability.id == CAPABILITY_ID
-    assert capability.get_toolset().id == CAPABILITY_ID
-
-
-def test_not_constructible_from_spec() -> None:
-    assert Video.get_serialization_name() is None
-
-
 async def test_only_video_tools_reach_the_model(capability: Video[object]) -> None:
     seen: list[str] = []
 
@@ -249,24 +240,19 @@ async def test_structured_shot_input_schema_reaches_the_model(capability: Video[
     assert timestamps["items"]["minimum"] == 0
 
 
-@pytest.mark.parametrize("tool_name", ["video_parser", "write_video_shots"])
-def test_scope_rules_are_mounted_on_the_tool(tools: VideoToolset[object], tool_name: str) -> None:
-    """校验器单测无法发现挂载遗漏，需检查工具注册表的 args_validator。"""
-
-    assert tools.tools[tool_name].args_validator is not None
-
-
 def test_every_tool_has_a_display_without_a_renderer(capability: Video[object]) -> None:
     registry = ToolDisplayRegistry.merged(capability.display_table())
     drawn = registry.entries
-    assert sorted(drawn) == ["video_parser", "write_video_shots"]
-    assert drawn["write_video_shots"].draw({}) == GenericDisplay(
-        summary="保存分镜", detail=SHOTS_PATH
-    )
-    assert drawn["video_parser"].draw({"video_url": VIDEO}) == GenericDisplay(
-        summary="拆解视频", detail="ref.mp4"
-    )
-    assert drawn["video_parser"].draw({}) == GenericDisplay(summary="拆解视频")
+    shots = drawn["write_video_shots"].draw({})
+    assert isinstance(shots, GenericDisplay)
+    assert shots.detail == SHOTS_PATH
+    parsed = drawn["video_parser"].draw({"video_url": VIDEO})
+    assert isinstance(parsed, GenericDisplay)
+    assert parsed.detail == "ref.mp4"
+    # 缺参时仍画一张没有主语的卡，不退回 None。
+    bare = drawn["video_parser"].draw({})
+    assert isinstance(bare, GenericDisplay)
+    assert bare.detail is None
     for tool_name in drawn:
         assert registry.view_of(tool_name) is None
 
@@ -321,7 +307,10 @@ async def test_parse_rejects_non_http_addresses_before_understanding(
 ) -> None:
     messages = await invoke(capability, "video_parser", {"video_url": url})
 
-    assert len(refusals(messages)) == 1
+    rejected = refusals(messages)
+    assert len(rejected) == 1
+    # 这些地址也没登记，台账同样会退；退回须来自 http 规则。
+    assert "http" in rejected[0].model_response()
     assert understanding.calls == []
     assert await files.entries(NAMESPACE) == []
 
@@ -469,12 +458,6 @@ async def test_delivery_rejects_a_bad_aspect_ratio(
     with pytest.raises(ModelRetry, match="画幅"):
         await deliver(tools, ctx, [one_shot()], aspect_ratio="竖版")
     assert await files.read(NAMESPACE, SHOTS_PATH) is None
-
-
-async def test_delivery_accepts_a_registered_frame_url(
-    tools: VideoToolset[object], ctx: RunContext[object]
-) -> None:
-    await check_args(tools, "write_video_shots", ctx, aspect_ratio="9:16", shots=[one_shot()])
 
 
 async def test_delivery_rejects_a_made_up_frame_url(

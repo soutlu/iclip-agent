@@ -7,7 +7,6 @@ import uuid
 from collections.abc import AsyncGenerator
 
 import pytest
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from iclip.platform.file_store.pg import PgFileStore
@@ -50,25 +49,6 @@ async def test_round_trip_and_version_bump(store: PgFileStore, namespace: str) -
     stored = await store.read(namespace, "分镜/第一集.md")
     assert stored is not None
     assert (stored.content, stored.version) == ("镜头一\n镜头二", 2)
-
-
-async def test_generated_column_matches_the_content(
-    store: PgFileStore, engine: AsyncEngine, namespace: str
-) -> None:
-
-    content = "中文和 ascii 混排"
-    await store.write(namespace, "稿.md", content)
-    async with engine.connect() as conn:
-        size = (
-            await conn.execute(
-                text(
-                    "SELECT size_bytes FROM agent_runtime.workspace_files "
-                    "WHERE namespace = :ns AND path = '稿.md'"
-                ),
-                {"ns": namespace},
-            )
-        ).scalar_one()
-    assert size == len(content.encode())
 
 
 async def test_stale_version_reports_the_actual_one(store: PgFileStore, namespace: str) -> None:

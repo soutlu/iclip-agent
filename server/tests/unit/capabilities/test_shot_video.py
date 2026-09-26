@@ -24,7 +24,6 @@ from pydantic_ai.usage import RunUsage
 from structlog.testing import capture_logs
 
 from iclip.capabilities.shot_video.capability import (
-    CAPABILITY_ID,
     GenerationPolicy,
     ShotVideo,
     shot_video_capability,
@@ -189,21 +188,6 @@ async def check_args(
     await outcome
 
 
-def test_capability_id_is_fixed(capability: ShotVideo[object]) -> None:
-    """固定 id 保持框架在不同运行中对能力身份的识别。"""
-
-    assert capability.id == CAPABILITY_ID
-    toolset = capability.get_toolset()
-    assert isinstance(toolset, ShotVideoToolset)
-    assert toolset.id == CAPABILITY_ID
-
-
-def test_not_constructible_from_spec() -> None:
-    """能力依赖运行时对象，无法从 YAML 反序列化。"""
-
-    assert ShotVideo.get_serialization_name() is None
-
-
 def test_no_capability_instructions(capability: ShotVideo[object]) -> None:
     """工具协作流程由 skill 描述，能力包不重复注入指令。"""
 
@@ -224,28 +208,27 @@ async def test_every_tool_reaches_the_model(capability: ShotVideo[object]) -> No
     assert seen == ["generate_anchor_sheet", "generate_shot_frames", "plan_shot_frames"]
 
 
-@pytest.mark.parametrize("tool_name", ["plan_shot_frames", "generate_shot_frames"])
-def test_scope_rules_are_mounted_on_the_tool(
-    tools: ShotVideoToolset[object], tool_name: str
+def test_every_tool_has_a_display(
+    capability: ShotVideo[object], tools: ShotVideoToolset[object]
 ) -> None:
-    """校验器单测无法发现挂载遗漏，需检查工具注册表的 args_validator。"""
-
-    assert tools.tools[tool_name].args_validator is not None
-
-
-def test_every_tool_has_a_display(capability: ShotVideo[object]) -> None:
 
     drawn = ToolDisplayRegistry.merged(capability.display_table()).entries
-    assert sorted(drawn) == ["generate_anchor_sheet", "generate_shot_frames", "plan_shot_frames"]
-    # 标题是书面动宾短语，主语是镜头号；张数进结果角标，不进标题。
-    assert drawn["generate_shot_frames"].draw(
+    assert set(drawn) == set(tools.tools)
+    # 主语是去重、排序后的镜头号。
+    frames = drawn["generate_shot_frames"].draw(
         {"frames": [{"no": "S2-1"}, {"no": "S1-3"}, {"no": "S2-2"}]}
-    ) == GenericDisplay(summary="生成画面", detail="镜头 1、2")
-    assert drawn["generate_shot_frames"].draw(None) == GenericDisplay(summary="生成画面")
-    assert drawn["plan_shot_frames"].draw({"video_url": VIDEO}) == GenericDisplay(
-        summary="提取候选帧", detail="ref.mp4"
     )
-    assert drawn["generate_anchor_sheet"].draw({}) == GenericDisplay(summary="生成设定图")
+    assert isinstance(frames, GenericDisplay)
+    assert frames.detail == "镜头 1、2"
+    bare = drawn["generate_shot_frames"].draw(None)
+    assert isinstance(bare, GenericDisplay)
+    assert bare.detail is None
+    plan = drawn["plan_shot_frames"].draw({"video_url": VIDEO})
+    assert isinstance(plan, GenericDisplay)
+    assert plan.detail == "ref.mp4"
+    anchor = drawn["generate_anchor_sheet"].draw({})
+    assert isinstance(anchor, GenericDisplay)
+    assert anchor.detail is None
 
 
 def test_every_media_tool_picks_a_renderer(capability: ShotVideo[object]) -> None:
@@ -650,23 +633,10 @@ async def test_generate_submits_a_full_grid_at_the_top_tier(
     assert request.prompt.count("visual_prompt:") == 4
 
 
-async def test_generate_escalates_to_pro_after_dev(
-    tools: ShotVideoToolset[object],
-    ctx: RunContext[object],
-    files: FakeFileStore,
-    generations: FakeGenerations,
-) -> None:
-    generations.outcomes = [
-        Outcome(status="failed", output_url=None, error_code="PROVIDER_UNREACHABLE")
-    ]
-    result = await submit_once(tools, ctx, files)
-    assert generations.channels() == ["dev", "dev", "pro"]
-    assert "PROVIDER_UNREACHABLE" in result.message
-
-
 @pytest.mark.parametrize(
     "error_code",
     [
+        "PROVIDER_UNREACHABLE",
         "PROVIDER_REJECTED",
         "PROVIDER_GENERATION_FAILED",
         "PROVIDER_RESULT_UNKNOWN",

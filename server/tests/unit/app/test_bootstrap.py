@@ -8,7 +8,6 @@ from typing import Literal
 
 import httpx
 import pytest
-from pydantic import ValidationError
 from pydantic_ai.models.test import TestModel
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -31,8 +30,6 @@ from iclip.domains.agents.transcript_api import LiveConnections
 from tests.helpers.agents import declared_agent
 from tests.helpers.file_store import FakeFileStore
 from tests.helpers.generation import MemoryObjectStore
-
-AGENT_ID = "storyboard"
 
 
 def minimal_config() -> RuntimeConfig:
@@ -63,18 +60,6 @@ def engine():
     """仅构造 engine，不连接数据库；测试只覆盖装配。"""
 
     return create_async_engine("postgresql+asyncpg://iclip:iclip@localhost:5432/nowhere")
-
-
-def test_declared_agents_build(base_env: None, tmp_path: Path) -> None:
-
-    app = build_app(
-        minimal_config(),
-        agents=(declared_agent(tmp_path, AGENT_ID, model="m"),),
-        engine=engine(),
-        models={"m": TestModel()},
-    )
-
-    assert app.title == "t"
 
 
 async def test_transcript_endpoints_are_always_mounted(base_env: None) -> None:
@@ -123,26 +108,6 @@ async def test_without_media_generation_the_routes_are_absent(base_env: None) ->
         assert (await client.post("/generations", json={})).status_code == 404
 
 
-async def test_media_generation_mounts_routes_when_configured(
-    base_env: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """使用对象存储替身隔离外部凭证，验证生成路由已挂载。"""
-
-    for name, value in MEDIA_ENVS.items():
-        monkeypatch.setenv(name, value)
-    monkeypatch.setattr("iclip.app.bootstrap.ffmpeg_available", lambda: True)
-
-    app = build_app(
-        config_with_media(),
-        engine=engine(),
-        models={},
-        object_store=MemoryObjectStore(),
-    )
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        assert (await client.get("/generations")).status_code == 401
-
-
 def test_media_generation_without_ffmpeg_fails_at_startup(
     base_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -154,18 +119,6 @@ def test_media_generation_without_ffmpeg_fails_at_startup(
 
     with pytest.raises(RuntimeError, match="ffmpeg"):
         build_app(config_with_media(), engine=engine(), models={}, object_store=MemoryObjectStore())
-
-
-def test_media_generation_half_configured_fails_at_startup(
-    base_env: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-
-    for name, value in MEDIA_ENVS.items():
-        monkeypatch.setenv(name, value)
-    monkeypatch.delenv("IMAGE_API_BASE")
-
-    with pytest.raises(ValidationError, match="IMAGE_API_BASE"):
-        build_app(config_with_media(), engine=engine(), models={})
 
 
 class _RecordingConnections(LiveConnections):

@@ -294,8 +294,8 @@ def build_app(
 ) -> FastAPI:
     """装配 FastAPI 应用与资源生命周期，支持注入基础设施替身。
 
-    ``reload_source`` 重读配置与 agent 声明；``watch_paths`` 下的文件一变就用它热换 agent 层，
-    SIGHUP 也触发同一次重载。两者都不给就不能热重载。
+    ``reload_source`` 重读配置与 agent 声明，不给就沿用传入的 ``config`` 与 ``agents``；
+    ``watch_paths`` 下的文件一变就用它热换 agent 层，SIGHUP 也触发同一次重载。
     """
 
     settings = resolve_settings(config)
@@ -482,7 +482,7 @@ def build_app(
     agent_layer = CurrentAgentLayer(
         build_agent_layer(settings, agents, layer_deps, models=models),
         deps=layer_deps,
-        source=reload_source,
+        source=reload_source if reload_source is not None else (lambda: (config, agents)),
     )
 
     # 显示、续跑与分叉共用历史投影。

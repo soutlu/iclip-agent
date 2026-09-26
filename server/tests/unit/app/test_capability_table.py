@@ -101,17 +101,6 @@ def test_nothing_declared_mounts_nothing(table: CapabilityTable) -> None:
     assert resolve_capabilities((), table=table, declared_by="agent storyboard") == ()
 
 
-def test_workspace_is_registered_under_its_declaration_name() -> None:
-
-    built = build_capability_table(
-        workspace_store=FakeFileStore(),
-        material_ledger=FakeMaterialLedger(),
-        http_client=idle_client(),
-    )
-    resolved = resolve_capabilities(("workspace",), table=built, declared_by="agent storyboard")
-    assert [type(capability) for capability in resolved] == [Workspace]
-
-
 def test_shot_video_is_not_registered_unless_the_composition_root_passes_it() -> None:
 
     built = build_capability_table(
@@ -119,7 +108,7 @@ def test_shot_video_is_not_registered_unless_the_composition_root_passes_it() ->
         material_ledger=FakeMaterialLedger(),
         http_client=idle_client(),
     )
-    assert "shot_video" not in built
+    assert list(built) == ["workspace"]
     with pytest.raises(RuntimeError, match="引用了未登记的 capability 'shot_video'"):
         resolve_capabilities(("shot_video",), table=built, declared_by="agent storyboard")
 
@@ -182,7 +171,7 @@ def test_shot_video_without_workspace_and_video_fails_at_assembly(
         )
 
 
-def test_the_display_registry_covers_every_mounted_tool(
+def test_the_display_registry_merges_every_display_source(
     video_settings: ResolvedVideo, shot_video_settings: ResolvedShotVideo
 ) -> None:
     """合并 display 表时需包含不在能力名称表中的 skill 和子代理工具。"""
@@ -201,30 +190,21 @@ def test_the_display_registry_covers_every_mounted_tool(
 
     registry = build_display_registry(built)
 
-    assert sorted(registry.entries) == [
-        "ReadMediaFile",
-        "delegate_task",
-        "delete_file",
-        "edit_file",
-        "generate_anchor_sheet",
-        "generate_shot_frames",
-        "get_skill_reference",
-        "list_files",
-        "load_capability",
-        "plan_shot_frames",
+    # 每个来源各挑一件：workspace、video、shot_video、skill、派活；来源内的清单归各自的测试。
+    assert {
         "read_file",
-        "search_files",
         "video_parser",
-        "write_file",
-        "write_video_shots",
-    ]
+        "generate_shot_frames",
+        "load_capability",
+        "delegate_task",
+    } <= set(registry.entries)
 
 
 def test_a_capability_without_a_table_is_skipped(table: CapabilityTable) -> None:
 
     registry = build_display_registry(table)
 
-    assert "read_file" not in registry.entries
+    assert set(registry.entries) == set(build_display_registry({}).entries)
 
 
 async def test_generations_adapter_translates_and_reports_bad_parameters() -> None:

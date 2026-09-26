@@ -1,6 +1,6 @@
 """模型媒体引用与消息还原协议。
 
-媒体 tag 保存原始 URL 和文件名；图片另附像素，其余类型由工具读取内容。
+媒体 tag 保存原始 URL；图片另附像素，其余类型由工具读取内容。
 tag 包含还原所需信息，无需查询存储；消息转换见 transcript.prompt_media。
 """
 
@@ -28,6 +28,7 @@ IMAGE_CONTEXT_MAX_EDGE: Final = 1024
 
 # 属性值经 _escape_attr 转义后不含引号与尖括号；地址不含空白。
 _URL_ATTR = r'[^"<>\s]+'
+# 可选的 name 属性只出现在早期落库的快照里，解析时照常接受。
 _OPEN = rf'<(image|video|audio|file) url="({_URL_ATTR})"(?: name="([^"<>]*)")?>'
 _TAG_RE: Final = re.compile(rf"{_OPEN}</\1>")
 """视频、音频与文件使用的空标签。"""
@@ -50,13 +51,12 @@ def _unescape_attr(value: str) -> str:
     )
 
 
-def media_tag_open(kind: MediaKind, url: str, *, name: str | None = None) -> str:
+def media_tag_open(kind: MediaKind, url: str) -> str:
     """生成媒体开标签；拒绝含空白的 URL，确保可按协议还原。"""
 
     if not is_http_url(url):
         raise ValueError(f"媒体 tag 的地址只接受不含空白的 HTTP/HTTPS URL: {url!r}")
-    name_attr = f' name="{_escape_attr(name)}"' if name else ""
-    return f'<{kind} url="{_escape_attr(url)}"{name_attr}>'
+    return f'<{kind} url="{_escape_attr(url)}">'
 
 
 def media_kind_label(kind: MediaKind) -> str:
@@ -71,10 +71,10 @@ def media_tag_close(kind: MediaKind) -> str:
     return f"</{kind}>"
 
 
-def media_tag(kind: MediaKind, url: str, *, name: str | None = None) -> str:
+def media_tag(kind: MediaKind, url: str) -> str:
     """生成无像素内容的完整媒体标签。"""
 
-    return media_tag_open(kind, url, name=name) + media_tag_close(kind)
+    return media_tag_open(kind, url) + media_tag_close(kind)
 
 
 @dataclass(frozen=True, slots=True)
