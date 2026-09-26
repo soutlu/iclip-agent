@@ -8,7 +8,6 @@ import uuid
 import httpx
 import pytest
 
-from iclip.domains.generation.clip import FfmpegClipProvider
 from iclip.domains.generation.image_upstream import (
     GatewayImageModel,
     GatewayImageProvider,
@@ -17,6 +16,7 @@ from iclip.domains.generation.image_upstream import (
 )
 from iclip.domains.generation.models import GenerationJob
 from iclip.domains.generation.nano_banana import NANO_BANANA_PRO
+from iclip.domains.generation.processing import FfmpegComposeProvider
 from iclip.domains.generation.provider import GenerationProvider, ProviderError
 from iclip.domains.generation.schemas import ClipStage
 from iclip.domains.generation.seedream import SEEDREAM_V5_PRO
@@ -663,7 +663,7 @@ async def _report_stage(_job_id: uuid.UUID, _stage: ClipStage) -> bool:
             make_job(compose_request()),
         ),
         (
-            FfmpegClipProvider(object_store=MemoryObjectStore(), report_stage=_report_stage),
+            FfmpegComposeProvider(object_store=MemoryObjectStore(), report_stage=_report_stage),
             make_job(video_request()),
         ),
     ],

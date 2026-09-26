@@ -1,8 +1,4 @@
-"""本地视频加工：合成成片，以及编辑段交上游前切参考片段。产物存进本系统的桶。
-
-不经任何外部服务，一次调用出结果，没有轮询阶段，也不涉及计费——失败重发就是了。两者取素材的
-方式不同：参考片段交给 ffmpeg 按需远程读一段、不重编码；合成要把几段拼起来，先下到本地、一律
-重编码对齐到原片。存放前缀也不同：参考片段是中间素材，桶上按前缀过期；成片长期保留。"""
+"""本地加工：编辑段交上游前切参考片段，以及合成时把各段拼接成片。"""
 
 from __future__ import annotations
 
@@ -53,14 +49,14 @@ PROVIDER_NAME: Final = "ffmpeg"
 _EXT: Final = "mp4"
 _CONTENT_TYPE: Final = "video/mp4"
 
-ReportClipStage = Callable[[uuid.UUID, ClipStage], Awaitable[bool]]
+ReportStage = Callable[[uuid.UUID, ClipStage], Awaitable[bool]]
 """上报一次阶段。返回 False 表示这条任务已经不在提交中，调用方不必再报。"""
 
 _Report = Callable[[ClipStage], Awaitable[None]]
 """只服务一次加工的上报器，由 ``_stage_reporter`` 造。"""
 
 
-def _stage_reporter(report_stage: ReportClipStage, job_id: uuid.UUID) -> _Report:
+def _stage_reporter(report_stage: ReportStage, job_id: uuid.UUID) -> _Report:
     """造一个只服务这一次加工的上报器。
 
     合成器与切片器的实例被多个任务共享，所以「还在途」这个标记留在闭包里。上报被拒之后就
@@ -112,7 +108,7 @@ class ReferenceCut:
 class ReferenceCutter:
     """编辑段交上游前，从基底上切出给模型看的参考片段。"""
 
-    def __init__(self, *, object_store: PublicObjectStore, report_stage: ReportClipStage) -> None:
+    def __init__(self, *, object_store: PublicObjectStore, report_stage: ReportStage) -> None:
         """``report_stage`` 由装配注入，切片器自己不碰数据库。
 
         基底由 ffmpeg 自己发 http 请求按需读，httpx 替身拦不到它——测试得起一个真服务。"""
@@ -164,14 +160,14 @@ class ReferenceCutter:
         return ReferenceCut(url=url, start_ms=max(0, end_ms - clip_ms), end_ms=end_ms)
 
 
-class FfmpegClipProvider:
+class FfmpegComposeProvider:
     """按 ``VideoComposeRequest`` 合成成片。同步出结果，``submit`` 直接带回 output_url。"""
 
     def __init__(
         self,
         *,
         object_store: PublicObjectStore,
-        report_stage: ReportClipStage,
+        report_stage: ReportStage,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         """``transport`` 给下载素材用，测试替身从这里进；``report_stage`` 由装配注入，provider
@@ -300,8 +296,8 @@ async def _target_profile(cuts: Sequence[MediaCut]) -> VideoProfile:
 
 __all__ = [
     "PROVIDER_NAME",
-    "FfmpegClipProvider",
+    "FfmpegComposeProvider",
     "ReferenceCut",
     "ReferenceCutter",
-    "ReportClipStage",
+    "ReportStage",
 ]

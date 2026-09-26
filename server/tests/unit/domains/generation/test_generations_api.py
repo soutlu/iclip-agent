@@ -129,7 +129,7 @@ def build_test_app(
         repo,
         queue,
         video_provider_name="video_api",
-        clip_provider_name="ffmpeg",
+        compose_provider_name="ffmpeg",
         video_default_model="moyu-seedance-2-5",
         video_allowed_models=VIDEO_MODELS,
         image_models=image_models if image_models is not None else IMAGE_MODELS,

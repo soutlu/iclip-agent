@@ -12,7 +12,6 @@ import httpx
 import procrastinate
 
 from iclip.domains.generation.api import create_generations_router
-from iclip.domains.generation.clip import FfmpegClipProvider, ReferenceCutter, ReportClipStage
 from iclip.domains.generation.image_upstream import (
     GatewayImageModel,
     GatewayImageProvider,
@@ -20,6 +19,11 @@ from iclip.domains.generation.image_upstream import (
 )
 from iclip.domains.generation.models import STATUS_SUBMITTING, GenerationJob
 from iclip.domains.generation.nano_banana import NANO_BANANA_PRO
+from iclip.domains.generation.processing import (
+    FfmpegComposeProvider,
+    ReferenceCutter,
+    ReportStage,
+)
 from iclip.domains.generation.provider import GenerationProvider, ImageModelSpec, ProviderError
 from iclip.domains.generation.queue import (
     GenerationQueue,
@@ -103,7 +107,7 @@ def build_generation_module(
     video_provider = HttpVideoProvider(
         video, prepare_reference=_reference_preparer(repo, cutter), transport=video_transport
     )
-    clip_provider = FfmpegClipProvider(object_store=object_store, report_stage=report_stage)
+    compose_provider = FfmpegComposeProvider(object_store=object_store, report_stage=report_stage)
     image_providers = [
         _image_provider(model, env=image_env, object_store=object_store, transport=image_transport)
         for model in image_models
@@ -114,7 +118,7 @@ def build_generation_module(
             # 编辑段切参考片段不重编码、只花 IO，与出片共用视频这条 lane。
             ProviderLane(video_provider, settings.video_submit_concurrency),
             # 合成要整条重编码，是 CPU 活，和只等网络的提交分开排，免得它把别人的槽位占满。
-            ProviderLane(clip_provider, settings.clip_concurrency),
+            ProviderLane(compose_provider, settings.compose_concurrency),
             *(
                 ProviderLane(provider, model.concurrency)
                 for provider, model in zip(image_providers, image_models, strict=True)
@@ -127,7 +131,7 @@ def build_generation_module(
         repo,
         queue,
         video_provider_name=video_provider.name,
-        clip_provider_name=clip_provider.name,
+        compose_provider_name=compose_provider.name,
         video_default_model=video_default_model,
         video_allowed_models=video_allowed_models,
         image_models={name: IMAGE_MODEL_SPECS[name] for name in declared},
@@ -154,7 +158,7 @@ IMAGE_MODEL_SPECS: Final[Mapping[str, ImageModelSpec]] = {
 """各家图片模型的能力声明。"""
 
 
-def _clip_stage_reporter(repo: GenerationRepository) -> ReportClipStage:
+def _clip_stage_reporter(repo: GenerationRepository) -> ReportStage:
     """把 provider 报的阶段落到 provider_status 上，provider 自己不碰数据库。
 
     只在提交中更新，返回这条是不是还在提交中。"""
