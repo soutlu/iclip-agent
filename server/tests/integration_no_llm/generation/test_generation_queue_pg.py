@@ -266,5 +266,3 @@ async def test_a_hard_killed_worker_is_found_by_heartbeat(
         )
     assert await queue.heal_stalled() == 1
     assert await _submit_task_statuses(engine) == ["todo"], "捡回去重排，等着守卫来收尾"
-
-    assert await _submit_task_statuses(engine) == ["todo"], "捡回去重排，等着守卫来收尾"

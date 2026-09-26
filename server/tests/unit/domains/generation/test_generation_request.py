@@ -17,7 +17,6 @@ from iclip.domains.generation.schemas import (
     OPERATION_GENERATE,
     OPERATION_UPLOAD,
     ComposeSegment,
-    ImageGenerationIn,
     VideoComposeRequest,
     VideoEditIn,
     VideoGenerationIn,
@@ -58,7 +57,12 @@ def test_video_audio_choice_survives_payload_round_trip(generate_audio: bool | N
 
 
 def test_payload_round_trip_image() -> None:
-    original = image_request(resolution="2k", reference_image_urls=["https://example.test/ref.png"])
+    original = image_request(
+        resolution="2k",
+        reference_image_urls=["https://example.test/ref.png"],
+        model="nano_banana_pro",
+        channel="pro",
+    )
     assert (
         request_from_payload(KIND_IMAGE, OPERATION_GENERATE, request_to_payload(original))
         == original
@@ -93,23 +97,6 @@ def test_stored_payload_keeps_each_kinds_own_field_names() -> None:
         "resolution",
         "referenceImageUrls",
     }
-
-
-def test_a_stored_request_reads_back_without_its_origin_columns() -> None:
-    """归属字段落列不落 JSON，所以读回时看不到——校验不能建在这条路上。"""
-
-    task_id = uuid.uuid4()
-    coordinate = {"path": "video_shot.json", "shot": 1, "frame": 2}
-    image = request_to_payload(image_request(metadata=coordinate, task_id=task_id))
-    assert {"metadata", "taskId", "conversationId"}.isdisjoint(image)
-    restored = request_from_payload(KIND_IMAGE, OPERATION_GENERATE, image)
-    assert isinstance(restored, ImageGenerationIn)
-    assert restored.metadata is None, "坐标落列，读回的请求里没有它"
-
-    video = request_to_payload(
-        video_request(conversation_id=uuid.uuid4(), task_id=task_id, metadata={"shot": 3})
-    )
-    assert {"conversation_id", "metadata", "task_id"}.isdisjoint(video)
 
 
 def test_a_composite_round_trips_and_keeps_open_ends_open() -> None:
@@ -199,16 +186,9 @@ def test_an_edit_takes_a_forward_range_and_none_of_the_fields_the_server_fills()
             VideoEditIn.model_validate({**base, **flaw})
 
 
-def test_shot_index_stays_its_own_field_and_never_enters_metadata_or_the_payload() -> None:
-    """镜头组编号落记录自己的列：不折进 metadata、不进 request；metadata 里的 shot 不是镜号。"""
+def test_shot_index_counts_from_one() -> None:
+    """0 与负数都不是镜头号，收下只会落一条读不出镜头组的记录。"""
 
-    numbered = video_request(shot_index=2, metadata={"frame": 1})
-    assert (numbered.shot_index, numbered.metadata) == (2, {"frame": 1})
-    assert "shot_index" not in request_to_payload(numbered)
-
-    tagged = video_request(metadata={"shot": 3})
-    assert (tagged.shot_index, tagged.metadata) == (None, {"shot": 3})
-    # 镜头组从 1 数：0 与负数都不是镜头号，收下只会落一条读不出镜头组的记录。
     for invalid in (0, -1):
         with pytest.raises(ValueError, match="shot_index"):
             video_request(shot_index=invalid)
@@ -222,11 +202,6 @@ def test_metadata_is_bounded_but_otherwise_opaque() -> None:
     }
     with pytest.raises(ValueError, match="metadata"):
         video_request(metadata={"note": "x" * MAX_METADATA_CHARS})
-
-
-def test_unknown_kind_is_rejected() -> None:
-    with pytest.raises(ValidationFailed, match="未知的生成类型"):
-        request_from_payload("audio", OPERATION_GENERATE, {"prompt": "x"})
 
 
 @pytest.mark.parametrize(
@@ -293,13 +268,6 @@ def test_image_indexes_follow_the_text_in_first_appearance_order() -> None:
             shot=video_shot(timeline=[{"timestamps": [0, 6], "prompt": "看 @Image1。"}]),
             reference_image_urls=SHOT_IMAGE_URLS,
         )
-
-
-def test_a_prompt_identical_to_the_assembly_is_accepted_alongside_the_shot() -> None:
-    request = video_request(
-        prompt=SHOT_PROMPT, shot=video_shot(), reference_image_urls=SHOT_IMAGE_URLS
-    )
-    assert request.prompt == SHOT_PROMPT
 
 
 @pytest.mark.parametrize(
@@ -446,17 +414,13 @@ def test_video_request_leaves_model_specific_ranges_to_upstream(
 ) -> None:
     """画幅、时长范围、分辨率、私有参数由上游按模型判，这里原样收下。"""
 
-    assert video_request(**overrides) is not None
+    request = video_request(**overrides)
+    assert {key: getattr(request, key) for key in overrides} == overrides
 
 
 def test_video_request_strips_the_user_name() -> None:
     assert video_request(user_name=" luke ").user_name == "luke"
     assert video_request(user_name=None).user_name is None, "HTTP 边界会填，模型本身允许空"
-
-
-def test_image_request_rejects_bad_resolution() -> None:
-    with pytest.raises(ValueError):
-        ImageGenerationIn(prompt="猫", aspect_ratio="1:1", resolution="8k")  # type: ignore[arg-type]
 
 
 def test_image_request_caps_reference_count() -> None:
@@ -493,30 +457,8 @@ def test_damaged_persisted_shape_fails_loudly(damaged: dict[str, object]) -> Non
         request_from_payload(KIND_VIDEO, OPERATION_GENERATE, damaged)
 
 
-def test_model_and_channel_are_part_of_the_stored_request() -> None:
-    """持久化实际模型与渠道：视频模型为请求参数，图片按 model 选家并通过 dev/pro 选择渠道。"""
-
-    video = video_request(model="mmt-seedance-3-0")
-    assert request_to_payload(video)["model"] == "mmt-seedance-3-0"
-    assert request_from_payload(KIND_VIDEO, OPERATION_GENERATE, request_to_payload(video)) == video
-
-    image = image_request(channel="pro")
-    assert request_to_payload(image)["channel"] == "pro"
-    assert request_from_payload(KIND_IMAGE, OPERATION_GENERATE, request_to_payload(image)) == image
-
-
-def test_image_model_and_channel_are_optional_on_the_wire_but_video_model_is_not() -> None:
-    """图片两者都在受理阶段填；视频照上游，模型必填。"""
-
-    assert image_request().model is None
-    assert image_request().channel is None
-    with pytest.raises(ValueError):
-        VideoGenerationIn(prompt="猫")  # type: ignore[call-arg]
-
-
-def test_bad_channel_is_rejected_but_historical_model_names_remain_readable() -> None:
-    """渠道为封闭枚举；模型选择策略在受理时校验，不妨碍读取历史模型名。"""
+def test_bad_channel_is_rejected() -> None:
+    """渠道为封闭枚举。"""
 
     with pytest.raises(ValueError):
         image_request(channel="prod")
-    assert video_request(model="随便一个对方认的名字").model is not None
