@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from iclip.platform.transcript.granularity import (
     TranscriptGrade,
     filter_ops_for_grade,
@@ -70,6 +68,8 @@ def test_turn_keeps_the_turn_and_the_approval_card() -> None:
 
 
 def test_block_adds_steps_and_frames_but_not_deltas() -> None:
+    """按 offset 追加的操作只属于 delta；其余粒度保留的操作可重复应用，重连补发安全。"""
+
     assert _kinds("block") == [
         "turn.upsert",
         "step.upsert",
@@ -81,16 +81,6 @@ def test_block_adds_steps_and_frames_but_not_deltas() -> None:
 def test_delta_is_the_identity() -> None:
 
     assert filter_ops_for_grade("delta", BATCH) == BATCH
-
-
-@pytest.mark.parametrize("grade", ["off", "turn", "block"])
-def test_only_delta_carries_appends(grade: TranscriptGrade) -> None:
-    """仅 delta 包含按 offset 追加的操作；其他粒度保留的操作可重复应用。
-
-    筛空批次后客户端水位不变，重连补发必须仍然安全。
-    """
-
-    assert "append" not in _kinds(grade)
 
 
 def test_no_grade_means_off_not_everything() -> None:

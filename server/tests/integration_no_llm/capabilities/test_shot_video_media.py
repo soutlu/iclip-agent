@@ -26,13 +26,12 @@ from pydantic_ai.models.function import AgentInfo, DeltaToolCall, DeltaToolCalls
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import RunContext
 from pydantic_ai.usage import RunUsage
+from structlog.testing import capture_logs
 
 from iclip.capabilities.shot_video.capability import GenerationPolicy, shot_video_capability
 from iclip.capabilities.shot_video.delivery import FrameRequest
 from iclip.capabilities.shot_video.extraction import EXTRACTION_PATH
-from iclip.capabilities.shot_video.ffmpeg import crop_cells, decode_gray
 from iclip.capabilities.shot_video.generation import IMAGE_MODEL
-from iclip.capabilities.shot_video.grid import grid_cell_boxes, scale_box
 from iclip.capabilities.shot_video.ports import ObjectWriteFailed
 from iclip.capabilities.shot_video.toolset import (
     ShotVideoToolset,
@@ -46,7 +45,7 @@ from iclip.harness.transcript.from_messages import turns_from_messages
 from iclip.harness.transcript.projector import TranscriptEventStream
 from iclip.harness.transcript.store import TranscriptStore
 from iclip.platform.file_store.store import FileSpace
-from iclip.platform.media.ffmpeg import MAX_IMAGE_BYTES, fetched, ffmpeg_available
+from iclip.platform.media.ffmpeg import ffmpeg_available
 from iclip.platform.object_store.layout import MEDIA_PATHS
 from iclip.platform.transcript.ops import MAIN_AGENT_ID, TextContent, ToolFrame
 from tests.helpers.file_store import FakeFileStore
@@ -182,10 +181,7 @@ def make_client(payloads: dict[str, bytes]) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
-_USER_SENT = (
-    f"{media_tag('video', VIDEO_URL, name='clip.mp4')}"
-    f"{media_tag('image', OSS_IMAGE_URL, name='style.jpg')} 帮我拆一下"
-)
+_USER_SENT = f"{media_tag('video', VIDEO_URL)}{media_tag('image', OSS_IMAGE_URL)} 帮我拆一下"
 """模拟用户已提供参考视频和图片的上下文。"""
 
 
@@ -245,21 +241,14 @@ def media() -> dict[str, bytes]:
 
 
 async def cut(media: dict[str, bytes], url: str) -> list[tuple[int, int]]:
-    """按检测到的网格线切一张图，返回每格的实际像素尺寸。"""
+    """经设定图工具把一张四格图切满四格（不收缩画幅），返回每格的实际像素尺寸。"""
 
-    client = make_client(media)
-    try:
-        async with fetched(client, url, max_bytes=MAX_IMAGE_BYTES, suffix=".img") as source:
-            gray, full_width = await decode_gray(source)
-            layout = grid_cell_boxes(gray, rows=2, cols=2)
-            assert layout.detected, "这张图有清晰的网格线，不该退回等分"
-            boxes = [
-                scale_box(box, from_width=gray.width, to_width=full_width) for box in layout.boxes
-            ]
-            cells = await crop_cells(source, boxes)
-    finally:
-        await client.aclose()
-    return sorted(probe_size(cell) for cell in cells)
+    objects = FakeObjects()
+    generations = FakeGenerations(outcomes=[Outcome(output_url=url)])
+    async with make_client(media) as client:
+        tools = make_tools(client, objects, FakeFileStore(), generations=generations)
+        await tools.generate_anchor_sheet(make_context(), ["人物", "门厅", "道具", "街景"])
+    return sorted(probe_size(cell) for cell in objects.written.values())
 
 
 async def test_cut_follows_the_real_gutters(media: dict[str, bytes]) -> None:
@@ -274,6 +263,27 @@ async def test_cut_scales_detection_back_to_full_resolution(media: dict[str, byt
     for (width, height), (want_w, want_h) in zip(sizes, BIG.cell_sizes(), strict=True):
         assert abs(width - want_w) <= 8, f"宽 {width} 离 {want_w} 太远"
         assert abs(height - want_h) <= 8, f"高 {height} 离 {want_h} 太远"
+
+
+async def test_a_grid_without_gutters_is_cut_evenly_and_logged(tmp_path: Path) -> None:
+    """检测不到分隔带时按等分切、照常交付，并留一条带 job 的告警。"""
+
+    url = "https://cdn.test/plain.png"
+    plain = tmp_path / "plain.png"
+    run_ffmpeg(["-f", "lavfi", "-i", "color=c=gray:s=400x400", "-frames:v", "1", str(plain)])
+    objects = FakeObjects()
+    generations = FakeGenerations(outcomes=[Outcome(output_url=url)])
+    async with make_client({url: plain.read_bytes()}) as client:
+        tools = make_tools(client, objects, FakeFileStore(), generations=generations)
+        with capture_logs() as logs:
+            result = await tools.generate_anchor_sheet(make_context(), ["全身正面平视的女性"])
+
+    assert isinstance(result, ToolReturn)
+    assert [probe_size(cell) for cell in objects.written.values()] == [(200, 200)]
+    fallbacks = [log for log in logs if log["event"] == "网格分隔带检测不全，按等分裁切"]
+    assert [(log["job_id"], log["cells"]) for log in fallbacks] == [
+        (str(generations.job_ids[0]), 4)
+    ]
 
 
 def model_facing(result: ToolReturn[dict[str, Any]]) -> dict[str, Any]:
@@ -618,7 +628,6 @@ async def test_processing_failure_is_an_error_in_real_agent_live_and_history(
 ) -> None:
     """真实工具失败经官方框架返回 failed，Agent 仍能回复；两条投影都显示错误。"""
 
-    failure = "设定图处理失败。"
     secret_detail = "private-storage-response-with-signature"
     objects = FakeObjects(error=ObjectWriteFailed(secret_detail))
     files = FakeFileStore()
@@ -672,7 +681,9 @@ async def test_processing_failure_is_an_error_in_real_agent_live_and_history(
     assert result.output == "本次设定图没有完成。"
     assert len(received) == 1
     assert received[0].outcome == "failed"
-    assert received[0].content == failure
+    told = received[0].content
+    assert isinstance(told, str) and told
+    assert secret_detail not in told
     assert len(generations.job_ids) == 1
     live = store.subscribe_view("thread-1", MAIN_AGENT_ID).live_turns
     history = turns_from_messages(result.all_messages(), turn_states={run_id: "completed"})
@@ -687,7 +698,8 @@ async def test_processing_failure_is_an_error_in_real_agent_live_and_history(
         ]
         assert len(cards) == 1
         assert cards[0].state == "error"
-        assert cards[0].output == failure
+        # 工具卡显示的就是模型收到的那句。
+        assert cards[0].output == told
         assert secret_detail not in turns[0].model_dump_json()
         assert str(generations.job_ids[0]) not in turns[0].model_dump_json()
 

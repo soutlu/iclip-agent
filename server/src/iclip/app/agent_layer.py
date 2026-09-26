@@ -253,7 +253,7 @@ class CurrentAgentLayer:
     被换下的模型客户端不主动关闭：在途运行可能还在用，交给垃圾回收。
     """
 
-    def __init__(self, layer: AgentLayer, *, deps: LayerDeps, source: ReloadSource | None) -> None:
+    def __init__(self, layer: AgentLayer, *, deps: LayerDeps, source: ReloadSource) -> None:
         self._layer = layer
         self._deps = deps
         self._source = source
@@ -272,9 +272,6 @@ class CurrentAgentLayer:
         非热区段有改动时拒绝替换并标记 ``needs_restart``。
         """
 
-        if self._source is None:
-            self._fail("没有配置来源，不能热重载")
-            return
         try:
             config, agents = self._source()
             settings = resolve_settings(config)

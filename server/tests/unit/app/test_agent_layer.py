@@ -210,21 +210,6 @@ def test_reload_refuses_changes_outside_the_hot_sections(base_env: None, tmp_pat
     assert layer.error is not None and "security" in layer.error
 
 
-def test_reload_without_a_source_is_reported(base_env: None, tmp_path: Path) -> None:
-    initial = config({"m": model()})
-    app = build_app(
-        initial,
-        agents=(declared_agent(tmp_path, "storyboard", model="m"),),
-        engine=create_async_engine("postgresql+asyncpg://iclip:iclip@localhost:5432/nowhere"),
-    )
-    layer: CurrentAgentLayer = app.state.agent_layer
-
-    layer.reload()
-
-    assert layer.generation == 1
-    assert layer.error is not None
-
-
 async def test_healthz_reports_reload_state(base_env: None, tmp_path: Path) -> None:
     layer, source, client = build(tmp_path)
     async with client:

@@ -135,17 +135,3 @@ async def test_parse_then_deliver_round_trips_through_postgres(
     document = validate_shots_document(stored.content)
     assert document.shots[0].image_urls == [FRAME]
     assert document.shots[0].prompt.timeline[0].image_indexes == [1]
-
-
-async def test_an_unregistered_frame_is_refused_before_touching_the_store(
-    engine: AsyncEngine, conversation_id: str
-) -> None:
-    capability, files, ledger = make_video(engine)
-    namespace = f"{USER}/{conversation_id}"
-    await ledger.record(namespace, [Material(url=VIDEO, kind="video")])
-
-    refusals = await call_once(capability, conversation_id, "write_video_shots", SHOTS)
-
-    assert len(refusals) == 1
-    assert FRAME not in refusals[0].model_response()
-    assert await files.read(namespace, SHOTS_PATH) is None

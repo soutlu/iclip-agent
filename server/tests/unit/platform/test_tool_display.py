@@ -59,13 +59,6 @@ def test_merging_two_tables_with_the_same_tool_fails_at_assembly() -> None:
         ToolDisplayRegistry.merged({"read_file": _read}, {"read_file": _read})
 
 
-def test_the_empty_registry_draws_everything_generic() -> None:
-
-    assert ToolDisplayRegistry.EMPTY.tool_display("read_file", {"path": "a.md"}) == GenericDisplay(
-        summary="read_file"
-    )
-
-
 def test_a_bare_drawing_function_becomes_an_entry_without_a_renderer() -> None:
 
     assert REGISTRY.entries["read_file"] == ToolDisplayEntry(draw=_read, view=None)

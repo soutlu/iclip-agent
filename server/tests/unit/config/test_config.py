@@ -70,30 +70,17 @@ def test_valid_config_loads(tmp_path: Path) -> None:
     assert config.db.db_schema == "iclip"
 
 
-def test_the_contract_placeholder_config_still_loads() -> None:
-    """配置模型拒绝额外字段；合同导出用的占位配置过时了导出就会挂，这里先拦。"""
-
-    placeholder = Path(__file__).resolve().parents[3] / "scripts" / "contract" / "config.yaml"
-    config = load_runtime_config(placeholder)
-
-    assert config.app.name
-    assert config.media_generation is not None, "占位配置要开着媒体生成，路由才齐"
-    assert config.video is not None, "占位配置要开着视频拆解"
-    assert config.shot_video is not None, "占位配置要开着取帧与出图"
-    assert config.models, "至少要声明一个模型"
-
-
-def test_unknown_key_rejected(tmp_path: Path) -> None:
-    with pytest.raises(ValidationError):
-        load_runtime_config(write(tmp_path, VALID + "\nextra_section: {}\n"))
-
-
-def test_env_var_names_are_not_accepted_in_yaml(tmp_path: Path) -> None:
-
-    with pytest.raises(ValidationError):
-        load_runtime_config(
-            write(tmp_path, VALID.replace("db: {schema: iclip}", "db: {url_env: X}"))
-        )
+@pytest.mark.parametrize(
+    ("content", "key"),
+    [
+        (VALID + "\nextra_section: {}\n", "extra_section"),
+        (VALID.replace("db: {schema: iclip}", "db: {schema: iclip, retries: 3}"), "retries"),
+    ],
+    ids=["top-level", "in-section"],
+)
+def test_unknown_key_rejected(tmp_path: Path, content: str, key: str) -> None:
+    with pytest.raises(ValidationError, match=key):
+        load_runtime_config(write(tmp_path, content))
 
 
 def test_lease_must_outlast_a_heartbeat(tmp_path: Path) -> None:

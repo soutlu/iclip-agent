@@ -104,9 +104,11 @@ def test_one_axis_detected_is_not_detected() -> None:
 def test_gutter_outside_search_band_is_ignored() -> None:
     """离等分线太远的白带不是网格线（可能是画面本身的白色区域）。"""
 
-    image = make_image(100, 100, white_cols={*range(10, 14)})
+    # 切出的两段都不短于最短区间，只有搜索带能拒掉它。
+    image = make_image(100, 100, white_cols={*range(28, 32)})
     layout = grid_cell_boxes(image, rows=1, cols=2)
     assert not layout.detected_x
+    assert layout.boxes == ((0, 0, 50, 100), (50, 0, 50, 100))
 
 
 def test_black_gutter_counts_too() -> None:
