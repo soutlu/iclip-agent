@@ -17,7 +17,7 @@
   - 明文仅在成功创建的响应中返回一次；权限语义见 [CONTEXT.md](../docs/CONTEXT.md)。
 - **两种凭证同时出现**：请求带 `Authorization: Bearer` 时只按 Bearer 认证，不看会话 Cookie；Bearer 无效即按未登录处理，不回落到 Cookie。WebSocket 握手同一规则。
 - **端点权限**：每个 HTTP 操作的凭证与权限看 `openapi.json` 里该操作的 `security`。安全方案只有 `SessionCookie`（Cookie `iclip_session`）与 `BearerToken`（HTTP Bearer）；`security` 列出的各项之间是「或」，方案下的 scopes 就是所需权限名，列出多个须同时具备；两个方案都是空数组表示登录即可；没有 `security` 的操作公开；`POST /auth/logout` 只列 `SessionCookie`，只能凭会话登出。权限词汇是合同里的 `Permission` 组件，授予权限的请求字段按它校验，响应里的权限集是字符串数组、不随词表收紧；角色语义见 [CONTEXT.md「角色」](../docs/CONTEXT.md#术语)。条件性权限（如 §7 的 `?scope=all`）、行级归属、WebSocket（§5）与替人办事不在 `security` 里，以本文各节为准。
-- **替人办事**：持 `users:act_as` 的 API key 在 `POST /conversations`（`userName`）、`POST /tasks`（`userName`）、`POST /conversations/{id}/prompts`（`user_name`）与 `POST /generations/*`（`user_name` / `userName`）的请求体里指名，那次请求的属主、创建者、认领人就是那个人，语义见 [CONTEXT.md「API Key」](../docs/CONTEXT.md#术语)。浏览器会话在这些字段里只能写自己的用户名，写别人是 `422`。
+- **替人办事**：持 `users:act_as` 的 API key 在 `POST /conversations`（`userName`）、`POST /tasks`（`userName`）、`POST /conversations/{id}/prompts`（`user_name`）、`POST /generations/*`（`user_name` / `userName`）与 `POST /uploads/{uploadId}/confirm`（`userName`，可选，见 §10）的请求体里指名，那次请求的属主、创建者、认领人就是那个人，语义见 [CONTEXT.md「API Key」](../docs/CONTEXT.md#术语)。浏览器会话在这些字段里只能写自己的用户名，写别人是 `422`。
 
 ## 3. 数据载荷与格式 (Payload Formatting)
 
@@ -142,7 +142,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 |---|---|---|
 | `session.meta.updated` | `{session_id, title}` | 标题变了（自动起名或用户改名） |
 | `event.session.work_changed` | `session_id` 在信封上，payload `{busy, pending_interaction, last_turn_reason}` | 对话运行活动发生变化 |
-| `event.generation.changed` | `session_id` 在信封上（任务没有来源对话时省略），payload `{id, kind, operation, status, shot_index, metadata}`；`shot_index` 是视频的镜头组编号（同 `GenerationOut.shotIndex`），`metadata` 是调用方自带的标签原样带出，两者为空时省略 | 生成任务的业务状态每跳一格：`pending` / `submitting` / `submitted` / `completed` / `failed` |
+| `event.generation.changed` | `session_id` 在信封上（任务没有来源对话时省略），payload `{id, kind, operation, status, shot_index, metadata}`；`shot_index` 是视频的镜头组编号（同 `GenerationOut.shotIndex`），`metadata` 是调用方自带的标签原样带出，两者为空时省略 | 生成任务的业务状态每跳一格：`pending` / `submitting` / `submitted` / `completed` / `failed`；切图与上传落库即完成，只发一帧 `completed`，上传不挂对话，帧上没有 `session_id` |
 
 - **发给属主和治理者**，不是见者有份：连接归谁由它握手时的主体定；持 `users:manage` 的连接收全平台的帧。权限按握手时快照，吊销后要重连才生效。
 - `event.session.work_changed` 的 `last_turn_reason` 只在 `busy: false` 的那几帧上有：帧一律
@@ -313,18 +313,20 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ## 10. 上传 (Uploads)
 
-上传分两步：`POST /uploads/sign` 领一个 `uploadId` 和一条限时直传地址，浏览器直接把字节 PUT 到对象存储，再 `POST /uploads/{uploadId}/confirm` 确认，拿回 `{ url, contentType, sizeBytes }`。服务端不登记上传，语义见 [CONTEXT.md「上传」](../docs/CONTEXT.md#术语)。
+上传分两步：`POST /uploads/sign` 领一个 `uploadId` 和一条限时直传地址，浏览器直接把字节 PUT 到对象存储，再 `POST /uploads/{uploadId}/confirm` 确认，拿回 `{ url, contentType, sizeBytes }`。确认通过后服务端落一条上传记录，语义见 [CONTEXT.md「上传」](../docs/CONTEXT.md#术语)。
 
 - **`upload.headers` 必须原样带上。** `Content-Type` 与审计用的 `x-oss-meta-*`（上传者、API key）都签进了签名里，少一个、改一个去 PUT 都会被对象存储拒掉（`403`）。
 - **`expiresAt` 之前必须发起上传**。过期后重新调用 `sign`，会拿到新的 `uploadId`。
-- 类型、大小和图片尺寸边界以 [上传规则](../server/src/iclip/domains/uploads/models.py) 为准。直传图片在 `sign` 时校验客户端声明的宽高；`confirm` 按桶中对象校验类型和大小，不合格返回 `422`，字节仍留在桶里。
-- 桶内没有对应对象时 `confirm` 返回 `409`；签名成功本身不代表上传完成。
-- **`confirm` 可以重复调**：每次都按桶里的对象重新回答，结果一样。
+- 类型、大小和图片尺寸边界以 [上传规则](../server/src/iclip/domains/uploads/models.py) 为准。直传图片在 `sign` 时校验客户端声明的宽高；`confirm` 按桶中对象校验类型和大小，不合格返回 `422`，字节仍留在桶里，不落记录。
+- 桶内没有对应对象时 `confirm` 返回 `409`，不落记录；签名成功本身不代表上传完成。
+- **上传记录**：`kind` 按桶里的类型定（`image` / `video`），`operation` 是 `upload`，状态 `completed`，`outputUrl` 就是交回的 `url`；不挂对话，没有请求（`request` 为 `null`）与来源。记录 id 就是 `uploadId`，开了媒体生成时 `GET /generations/{uploadId}` 读得到（§11）；没开时那组接口不挂，记录照落。
+- **替谁确认**：请求体可选，只有 `userName`。给了按替人办事换主体（§2），浏览器只能写自己的用户名；不给就记在当前主体名下，钥匙调用方不带也不报错，这一点与生成接口不同。
+- **`confirm` 可以重复调**：每次都按桶里的对象重新核对，交回同一份结果、对应同一条记录；第二次的 `userName` 不改属主。
 - 上传不会登记对话素材；把地址作为附件提交后，agent 才能按对话素材规则引用（§6）。
 
 ## 11. 媒体生成 (Generations)
 
-四条提交地址：`POST /generations/video`（出片）、`POST /generations/image`（图片）、`POST /generations/video-edits`（编辑段）与 `POST /generations/video-composites`（合成，本地拼接，不经外部服务）。受理即 `202`，此时还没开始干活；上游的拒绝与加工失败会变成记录里的 `failed`，由调用方查状态看到。一行是哪种记录由 `kind`（`video` / `image`）、`operation`（`generate` 调模型、`compose` 本地拼接）与有没有来源 `sourceJobId` 决定（[ADR-0001](../docs/adr/0001-video-domain-model.md)）：出片是没有来源的 video / generate，编辑段是有来源的 video / generate，合成是 video / compose，图片是 image / generate。
+四条提交地址：`POST /generations/video`（出片）、`POST /generations/image`（图片）、`POST /generations/video-edits`（编辑段）与 `POST /generations/video-composites`（合成，本地拼接，不经外部服务）。受理即 `202`，此时还没开始干活；上游的拒绝与加工失败会变成记录里的 `failed`，由调用方查状态看到。一行是哪种记录由 `kind`（`video` / `image`）、`operation`（`generate` 调模型、`compose` 本地拼接、`cut` 本地切图、`upload` 用户上传）与有没有来源决定（[ADR-0001](../docs/adr/0001-video-domain-model.md)）：出片是没有来源的 video / generate，编辑段是有来源的 video / generate，合成是 video / compose；图片生成是没有底图的 image / generate，帧图编辑是带底图的 image / generate（见下文「参考帧图片编辑」），切图是 image / cut，上传是 image 或 video / upload（§10）。切图与上传创建即完成、没有请求（`request` 为 `null`），不经这几条提交地址：切图是 agent 出宫格时每格各落一条，上传是确认时落的。
 
 业务状态每跳一格，属主连着的每条 WebSocket 都收到一帧 `event.generation.changed`（见 §5 全局帧）；帧易失且不带结果，`GET /generations` 与任务查询接口仍是事实源，浏览器在有运行中任务时保留轮询兜底。
 
@@ -343,7 +345,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - `model` 必填，只接受运行配置 `config.yaml` 中 `media_generation.video.allowed_models` 声明的模型；其余字段原样转发，画幅、时长范围、分辨率、素材规格由上游按模型判，本系统不复制那套规则。不在允许范围内的模型返回 `422`，不创建任务、不入队。
 - `GET /generations/video-models` 给出默认模型与允许表，只有模型 id。哪个模型能做视频编辑、编辑时要给上游加什么（正文前缀或 `provider_options`）、哪些画幅某个模型不收，都由调用方按模型名自己认；服务端不替任何模型拼任何东西，也不声明画幅。
 - 上游会丢弃的 `session_id` 与废弃别名 `image_urls` 在这里是未知字段，返回 `422`。
-- `GET /generations/video/{task_id}` 照上游任务查询的形状：`task_id`、`type: "video"`、`status`、`result`、`error`、`created_at`。`status` 用上游的词：`queued`（已受理未提交）、`running`（提交中或等结果）、`succeeded`（带 `result.output_url` 与 `result.watermark_output_url`）、`failed`（带 `error.code` 与 `error.message`）。可见性与 `GET /generations/{id}` 相同，只答出片与编辑段；拿图片或合成的 id 来查是 `404`（合成不经上游、没有水印版，套不进这个形状）。本系统去上游查状态时带的 `user_name` 查询参数（上游缺它报 400）由服务端从记录里取，调用方不用带。
+- `GET /generations/video/{task_id}` 照上游任务查询的形状：`task_id`、`type: "video"`、`status`、`result`、`error`、`created_at`。`status` 用上游的词：`queued`（已受理未提交）、`running`（提交中或等结果）、`succeeded`（带 `result.output_url` 与 `result.watermark_output_url`）、`failed`（带 `error.code` 与 `error.message`）。可见性与 `GET /generations/{id}` 相同，只答出片与编辑段；拿图片、合成或视频上传的 id 来查是 `404`（合成不经上游、没有水印版，套不进这个形状）。本系统去上游查状态时带的 `user_name` 查询参数（上游缺它报 400）由服务端从记录里取，调用方不用带。
 
 ### 视频编辑：编辑段与合成
 
@@ -355,7 +357,8 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ### 来源与原作
 
-- 每条生成记录带来源 `sourceJobId` 与原作 `rootJobId`，术语见 [CONTEXT.md「生成任务」](../docs/CONTEXT.md#术语)。编辑段的来源是它的基底成片，合成的来源是它的编辑段；两者的原作都是最初那条出片（基底是出片就是它自己，是合成就随那次合成的原作），不管基于哪一版，链因此只有一层。编辑段另带区间 `rangeStartMs` / `rangeEndMs`。出片与图片这几项都为空。它们都由服务端按来源定，调用方不直接给。
+- 每条生成记录带来源 `sourceJobId` 与原作 `rootJobId`，术语见 [CONTEXT.md「生成任务」](../docs/CONTEXT.md#术语)。编辑段的来源是它的基底成片，合成的来源是它的编辑段；两者的原作都是最初那条出片（基底是出片就是它自己，是合成就随那次合成的原作），不管基于哪一版，链因此只有一层。编辑段另带区间 `rangeStartMs` / `rangeEndMs`。帧图编辑的来源是底图那一条，切图的来源是它的宫格；图片没有原作与区间。出片、图片生成与上传这几项都为空。它们都由服务端定，调用方不直接给（帧图编辑只给底图地址）。
+- **`sourceUrl` 是来源的地址**：`sourceJobId` 非空时是那条记录的 `outputUrl`，来源那条调用方单条读不读得到都照给；为空时只有帧图编辑可能有，是库里找不到的外部底图地址；都没有为 `null`。它是投影，不是表上那一列的镜像：底图在库里时，表上只记来源 id。
 - 受理时核对来源：必须是调用方可见的、这段对话自己的或它继承的记录（继承的只在调用方读得到这段对话时才算，§6）；不存在、不可见、别的对话、继承边界之外，都是同一句 `422`。可见、在范围内但不合格的另给一句 `422`：编辑段的基底必须是一条已完成的成片（出片或合成），合成的来源必须是一条已完成的编辑段。都不创建任务、不入队。
 - 编辑段与合成不计审计口径（§12）。`GET /generations?rootJobId=` 一次列出一条出片的整条编辑链，`?sourceJobId=` 列出直接基于某一行的记录；同时给 `conversationId` 时范围同那段对话的列表，分叉副本里连同继承的一起（§6）。
 
@@ -375,8 +378,9 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 ### 参考帧图片编辑
 
 - 图片请求的 `prompt` 由调用方编译成最终文本，服务端原样存进请求快照，不解析也不改写。前端把引用写成 `@图片N` / `@标注N`，编号即图片在本次 `referenceImageUrls` 里的位置。
-- `metadata` 是调用方自己的标签：JSON 对象，四种提交都收，服务端原样存、原样回读（`GenerationOut.metadata`）、不读也不解释其中任何键，序列化后不超过 2000 字符，超了 `422`。它不进 `request`，也不发上游。这个形状归前端定义（`web/src/features/storyboard/generation-metadata.ts`）：分镜页给图片写 `{shot, frame}` 用来找格子，视频的镜号只在 `shot_index`。
-- `GET /generations` 的类型（`kind`）、操作（`operation`）、对话、需求单、镜号（`shotIndex`）、原作（`rootJobId`）、来源（`sourceJobId`）与 `metadata` 筛选在分页截断前执行，归属范围不因筛选扩大，唯一的例外是按对话列分叉副本时连同它继承的记录（§6）。`metadata` 在查询串里是一段 JSON 对象（如 `metadata={"frame":2}`），按 JSONB 包含匹配；不是 JSON 对象返回 `422`。使用上一页最后一项的 `id` 作为 `before` 继续读取；按创建时间与 ID 倒序，空列表表示读完。每条记录带 `operation`、`shotIndex`、`taskId`、`watermarkOutputUrl`（图片与合成恒为 `null`）与 `finishedAt`（到终态的时刻，数据库时钟，没到终态为 `null`；同一镜头组的成片按它排版本，见 [CONTEXT.md「镜头组」](../docs/CONTEXT.md#术语)）。
+- 帧图编辑在请求里带 `sourceUrl`：这次改的是哪张图。只收具有主机名的 HTTP(S) 地址，至多 2000 字，不合规 `422`。服务端先在这段对话自己的与它继承的已完成图片里按产物地址找（继承的只在调用方读得到这段对话时才算，§6），再在调用方可见的上传里找；找到记 `sourceJobId`，找不到记外部地址，不报错。给了就一定落一个来源，回来的 `sourceUrl` 就是给的那个地址。它不进 `request`、不发上游：底图要不要给模型看，由 `referenceImageUrls` 决定。
+- `metadata` 是调用方自己的标签：JSON 对象，四种提交都收，服务端原样存、原样回读（`GenerationOut.metadata`）、不读也不解释其中任何键，序列化后不超过 2000 字符，超了 `422`。它不进 `request`，也不发上游。这个形状归前端定义（`web/src/features/storyboard/generation-metadata.ts`）：分镜页给图片写 `{shot, frame}` 用来找格子，视频的镜号只在 `shot_index`；写进 `metadata` 的 `sourceUrl` 也不是底图。
+- `GET /generations` 的类型（`kind`）、操作（`operation`）、对话、需求单、镜号（`shotIndex`）、原作（`rootJobId`）、来源（`sourceJobId`）与 `metadata` 筛选在分页截断前执行，归属范围不因筛选扩大，唯一的例外是按对话列分叉副本时连同它继承的记录（§6）。按属主列（不带 `conversationId`）会看到上传记录，按对话列图片会看到切图记录；只要调模型的，按 `operation=generate` 筛。`metadata` 在查询串里是一段 JSON 对象（如 `metadata={"frame":2}`），按 JSONB 包含匹配；不是 JSON 对象返回 `422`。使用上一页最后一项的 `id` 作为 `before` 继续读取；按创建时间与 ID 倒序，空列表表示读完。每条记录带 `operation`、`shotIndex`、`taskId`、`watermarkOutputUrl`（图片与合成恒为 `null`）与 `finishedAt`（到终态的时刻，数据库时钟，没到终态为 `null`；同一镜头组的成片按它排版本，见 [CONTEXT.md「镜头组」](../docs/CONTEXT.md#术语)）。
 - 生成完成只产生候选图片。应用到参考帧须由用户确认，再经现有工作区文件版本校验保存；既有视频任务和视频结果不随候选生成或采用而改写。
 
 ## 12. 审计报表 (Audit)

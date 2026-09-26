@@ -54,11 +54,11 @@ lifespan 启动运行驱动与已启用的生成队列；关停时先停止后�
 
 ## 3. 身份与模块协作
 
-HTTP 与 WebSocket 由 `PrincipalMiddleware` 统一解析身份。中间件只解析，端点级权限在路由上以 `Security` 声明并随合同导出，行级归属与条件性判断在业务用例执行；WebSocket 入口另行校验 Origin，订阅时校验对话可见性。钥匙替人办事不在中间件里：建对话、建需求单、发消息、提交生成四个写入口拿到请求体后各调一次 [identity/acting.py](../server/src/iclip/domains/identity/acting.py) 的 `ActAs`，持 `users:act_as` 的 key 带 `user_name` 时就在这一步把主体换成那个人，下游照常只消费主体。帧的投递范围见 [conventions §5](../contract/conventions.md#5-agent-对话-transcript)。SSO callback 完成验证、账号关联与本地 cookie 签发；配置 PMS 时同步用户资料，失败即终止登录。后续普通请求不再调用 SSO/PMS。
+HTTP 与 WebSocket 由 `PrincipalMiddleware` 统一解析身份。中间件只解析，端点级权限在路由上以 `Security` 声明并随合同导出，行级归属与条件性判断在业务用例执行；WebSocket 入口另行校验 Origin，订阅时校验对话可见性。钥匙替人办事不在中间件里：建对话、建需求单、发消息、提交生成、确认上传五个写入口拿到请求体后各调一次 [identity/acting.py](../server/src/iclip/domains/identity/acting.py) 的 `ActAs`，持 `users:act_as` 的 key 带 `user_name` 时就在这一步把主体换成那个人，下游照常只消费主体。帧的投递范围见 [conventions §5](../contract/conventions.md#5-agent-对话-transcript)。SSO callback 完成验证、账号关联与本地 cookie 签发；配置 PMS 时同步用户资料，失败即终止登录。后续普通请求不再调用 SSO/PMS。
 
 运行通过 `AgentRunDeps` 向工具传递可信主体与对话 ID，业务含义和权限约束见 [CONTEXT.md](CONTEXT.md)。harness 只传递 deps，不解包业务字段；工具所需服务由组合根闭包注入，不放进 deps。客户端 state 不作为运行身份或服务来源。
 
-跨模块协作在组合根适配。例如：合集元信息接入对话侧栏，工作区文件和素材台账接入对话的派生数据端口，生成任务仓库包一层状态广播把每次状态跳转发成 WebSocket 全局帧。需求单直接持有调用方确认的创作输入，创建时不依赖产品目录装配。模块只使用自身声明的协议，不自行创建其他模块的客户端或仓库。
+跨模块协作在组合根适配。例如：合集元信息接入对话侧栏，工作区文件和素材台账接入对话的派生数据端口，生成任务仓库包一层状态广播把每次状态跳转发成 WebSocket 全局帧；上传确认经 uploads 声明的端口，由组合根接到生成域落一条上传记录，这一步只要生成仓储，媒体生成没开也照落。需求单直接持有调用方确认的创作输入，创建时不依赖产品目录装配。模块只使用自身声明的协议，不自行创建其他模块的客户端或仓库。
 
 ## 4. 持久化与迁移
 
@@ -87,7 +87,7 @@ Agent 运行由 [ConversationRunner](../server/src/iclip/harness/transcript/runn
 - prompt 先进入 Postgres 队列；数据库约束保证同一对话的运行互斥，租约、心跳与清扫处理认领和中断恢复。
 - StepPersistence 保存消息历史与可续跑快照；恢复读取持久记录。停止运行使用框架取消入口，等待终态落库。
 - 审批结束当前 run，决定持久化后以新 run 续跑，仍属于同一轮；审批工具只挂顶层 Agent。
-- 生成任务另由 procrastinate 的提交、轮询队列驱动，业务状态写回生成任务表。视频的提交与任务查询对外是上游异步接口的镜像，请求原样转发、结果地址直接存。合成（video / compose）是同一套队列里的一家本地 provider，用 ffmpeg 在服务端拼接；编辑段走视频 provider，提交上游前在服务端按区间切参考片段，这一步由 [module.py](../server/src/iclip/domains/generation/module.py) 装配注入，视频适配器不依赖本地加工。
+- 生成任务另由 procrastinate 的提交、轮询队列驱动，业务状态写回生成任务表；切图与上传创建即完成，直接落库，不进队列。视频的提交与任务查询对外是上游异步接口的镜像，请求原样转发、结果地址直接存。合成（video / compose）是同一套队列里的一家本地 provider，用 ffmpeg 在服务端拼接；编辑段走视频 provider，提交上游前在服务端按区间切参考片段，这一步由 [module.py](../server/src/iclip/domains/generation/module.py) 装配注入，视频适配器不依赖本地加工。
 
 transcript 是运行记录的投影。历史由 `from_messages` 从持久消息生成，实时由 `projector` 从引擎事件生成；两条路径必须得到相同的编号和结构，共用工具 display 注册表。上下文压缩在完整历史中插入 `CompactionPart`，发送模型时从最后一条边界计算窗口，不删除原始消息。
 
