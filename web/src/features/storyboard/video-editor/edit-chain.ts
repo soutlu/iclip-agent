@@ -61,7 +61,7 @@ export type PendingEdit = {
   /** 这次编辑的编辑段。 */
   video: GenerationJob
   /** 它最新的那次合成；还没合成过就没有。 */
-  master: GenerationJob | undefined
+  composite: GenerationJob | undefined
   /** 基底切开、夹进编辑结果；结果还没回来时没有。 */
   preview: PlaySegment[] | undefined
 }
@@ -115,12 +115,12 @@ const latestComposites = (jobs: readonly GenerationJob[]): ReadonlyMap<string, C
 
 const stageOf = (
   segment: GenerationJob,
-  master: GenerationJob | undefined,
+  composite: GenerationJob | undefined,
 ): { stage: EditStage; error: string | undefined } => {
-  if (master !== undefined) {
-    if (isRunningStatus(master.status)) return { stage: 'composing', error: undefined }
-    if (master.status !== 'completed')
-      return { stage: 'failed', error: master.errorMessage ?? '合成失败' }
+  if (composite !== undefined) {
+    if (isRunningStatus(composite.status)) return { stage: 'composing', error: undefined }
+    if (composite.status !== 'completed')
+      return { stage: 'failed', error: composite.errorMessage ?? '合成失败' }
   }
   if (segment.status === 'completed' && segment.outputUrl !== null)
     return { stage: 'ready', error: undefined }
@@ -167,22 +167,22 @@ export const projectEditChain = (
   ]
   const composed = segments
     .flatMap((segment) => {
-      const master = composites.get(segment.id)
-      return master?.status === 'completed' && master.outputUrl !== null
-        ? [{ segment, master, mediaUrl: master.outputUrl }]
+      const composite = composites.get(segment.id)
+      return composite?.status === 'completed' && composite.outputUrl !== null
+        ? [{ segment, composite, mediaUrl: composite.outputUrl }]
         : []
     })
-    .sort((left, right) => byFinish(left.master, right.master))
+    .sort((left, right) => byFinish(left.composite, right.composite))
   // 基底先于基于它的合成完成，按完成时刻走一遍，找基底时它已经在列表里了。
-  for (const { segment, master, mediaUrl } of composed) {
+  for (const { segment, composite, mediaUrl } of composed) {
     const base = versions.find((version) => version.jobId === segment.sourceJobId)
     if (base === undefined) continue
     versions.push({
       key: segment.id,
-      jobId: master.id,
+      jobId: composite.id,
       label: `V${versions.length + 1}`,
       mediaUrl,
-      createdAt: master.createdAt,
+      createdAt: composite.createdAt,
       edit: { ...rangeOf(segment), baseKey: base.key },
     })
   }
@@ -192,9 +192,9 @@ export const projectEditChain = (
     if (composed.some((item) => item.segment === segment)) continue
     const base = versions.find((version) => version.jobId === segment.sourceJobId)
     if (base === undefined) continue
-    const master = composites.get(segment.id)
+    const composite = composites.get(segment.id)
     const range = rangeOf(segment)
-    const { stage, error } = stageOf(segment, master)
+    const { stage, error } = stageOf(segment, composite)
     pending.push({
       key: segment.id,
       label: '',
@@ -204,7 +204,7 @@ export const projectEditChain = (
       prompt: promptOf(segment),
       error,
       video: segment,
-      master,
+      composite,
       preview:
         segment.outputUrl === null ||
         (stage !== 'ready' && stage !== 'composing' && stage !== 'failed')

@@ -1,4 +1,4 @@
-/** 详情右栏的两页：脚本（全局设定、逐镜正文、参考图、同一次创作的其他镜）与参数（出片请求的参数和来源）。 */
+/** 详情右栏的两页：脚本（全局设定、逐镜正文、参考图、同一次创作的其他镜头组）与参数（出片请求的参数和来源）。 */
 
 import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
@@ -6,12 +6,13 @@ import { formatDateTime } from '@/shared/lib/date-time'
 import { imageThumbnailUrl, videoSnapshotUrl } from '@/shared/lib/media-url'
 import { cn } from '@/shared/lib/utils'
 import type { LightboxMedia } from '@/shared/ui/media-lightbox'
-import type { LibraryTake, LibraryVideo } from '../library.api'
+import type { LibraryShotGroup, LibraryTake, LibraryVideo } from '../library.api'
 import {
   aspectOf,
   cutIndexAt,
   durationSecondsOf,
   formatSecond,
+  groupLabelOf,
   promptSegmentsOf,
   type LibraryVersion,
 } from '../library-media'
@@ -54,9 +55,10 @@ type LibraryScriptPanelProps = {
   currentTime: number
   onSeek: (seconds: number) => void
   onPreviewImage: (media: LightboxMedia) => void
-  /** 同一段对话的其他镜；详情还没读回来是 undefined。 */
-  siblings: readonly LibraryVideo[] | undefined
-  onOpenSibling: (id: string) => void
+  /** 这张卡的其他镜头组；详情还没读回来是 undefined。 */
+  groups: readonly LibraryShotGroup[] | undefined
+  /** 在这张卡里切到那一组，不换卡。 */
+  onOpenGroup: (group: LibraryShotGroup) => void
 }
 
 export function LibraryScriptPanel({
@@ -64,8 +66,8 @@ export function LibraryScriptPanel({
   currentTime,
   onSeek,
   onPreviewImage,
-  siblings,
-  onOpenSibling,
+  groups,
+  onOpenGroup,
 }: LibraryScriptPanelProps) {
   const { script } = take
   const active = script === null ? -1 : cutIndexAt(script, currentTime)
@@ -168,12 +170,13 @@ export function LibraryScriptPanel({
         </>
       )}
 
-      {siblings === undefined || siblings.length === 0 ? null : (
+      {groups === undefined || groups.length === 0 ? null : (
         <>
-          <SectionHeading note={`${siblings.length} 条`} title="同一次创作的其他镜头组" />
+          <SectionHeading note={`${groups.length} 条`} title="同一次创作的其他镜头组" />
           <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2.5">
-            {siblings.map((sibling) => (
-              <SiblingCard key={sibling.id} onOpen={onOpenSibling} video={sibling} />
+            {groups.map((group) => (
+              // 无镜号的组可以有好几个，组名不唯一；组的首版只在这一组里。
+              <GroupCard group={group} key={group.versions[0]?.jobId} onOpen={onOpenGroup} />
             ))}
           </div>
         </>
@@ -182,14 +185,23 @@ export function LibraryScriptPanel({
   )
 }
 
-function SiblingCard({ video, onOpen }: { video: LibraryVideo; onOpen: (id: string) => void }) {
-  const { w, h } = aspectOf(video.take.aspectRatio)
-  const poster = videoSnapshotUrl(video.face.outputUrl, 240)
-  const seconds = durationSecondsOf(video)
+/** 一个镜头组的入口：封面与参数取这一组最新的一版。 */
+function GroupCard({
+  group,
+  onOpen,
+}: {
+  group: LibraryShotGroup
+  onOpen: (group: LibraryShotGroup) => void
+}) {
+  const latest = group.versions.at(-1)
+  if (latest === undefined) return null
+  const { w, h } = aspectOf(latest.take.aspectRatio)
+  const poster = videoSnapshotUrl(latest.outputUrl, 240)
+  const seconds = durationSecondsOf(latest.durationMs, latest.take)
   return (
     <button
       className="cursor-pointer rounded-sm text-left ui-focus"
-      onClick={() => onOpen(video.id)}
+      onClick={() => onOpen(group)}
       type="button"
     >
       <span
@@ -201,10 +213,10 @@ function SiblingCard({ video, onOpen }: { video: LibraryVideo; onOpen: (id: stri
         )}
       </span>
       <span className="mt-1.5 block text-caption font-medium text-on-surface">
-        {video.shotIndex === null ? '接口提交' : `镜头组 ${video.shotIndex}`}
+        {groupLabelOf(group)}
       </span>
       <span className="block truncate text-caption text-on-surface-faint">
-        {[seconds === null ? null : `${formatSecond(seconds)} 秒`, video.take.model]
+        {[seconds === null ? null : `${formatSecond(seconds)} 秒`, latest.take.model]
           .filter(Boolean)
           .join(' · ')}
       </span>
@@ -222,7 +234,7 @@ type LibraryParamsPanelProps = {
 /** 请求里没有的参数整行不显示，不编默认值。 */
 export function LibraryParamsPanel({ video, version, showVersion }: LibraryParamsPanelProps) {
   const { take } = version
-  const seconds = version.durationMs === null ? durationSecondsOf(video) : version.durationMs / 1000
+  const seconds = durationSecondsOf(version.durationMs, take)
   const rows: [string, ReactNode][] = []
   if (take.model !== null) rows.push(['模型', take.model])
   if (take.aspectRatio !== null) rows.push(['画幅', take.aspectRatio])
@@ -232,11 +244,12 @@ export function LibraryParamsPanel({ video, version, showVersion }: LibraryParam
   if (showVersion)
     rows.push([
       '版本',
-      version.kind === 'master' ? `${version.label}（编辑后合成）` : version.label,
+      version.kind === 'composite' ? `${version.label}（编辑后合成）` : version.label,
     ])
-  if (take.userName !== null) rows.push(['作者', take.userName])
-  rows.push(['生成时间', formatDateTime(version.createdAt)])
-  if (video.conversationId !== null) {
+  if (version.userName !== null) rows.push(['作者', version.userName])
+  rows.push(['生成时间', formatDateTime(version.finishedAt)])
+  // 对话 id 人人都拿得到，打不打得开看 canOpenConversation。
+  if (video.canOpenConversation && video.conversationId !== null) {
     rows.push([
       '来源对话',
       <Link

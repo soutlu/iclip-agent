@@ -179,7 +179,7 @@ describe('projectEditChain', () => {
       failed,
       edited,
     ])
-    expect(running.pending.map((edit) => [edit.key, edit.stage, edit.master?.id])).toEqual([
+    expect(running.pending.map((edit) => [edit.key, edit.stage, edit.composite?.id])).toEqual([
       ['e5', 'composing', 'm5'],
     ])
 

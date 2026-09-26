@@ -39,7 +39,7 @@ const edit = (changes: Partial<PendingEdit>): PendingEdit => ({
   prompt: undefined,
   error: undefined,
   video: segment,
-  master: undefined,
+  composite: undefined,
   preview: undefined,
   ...changes,
 })
@@ -79,9 +79,9 @@ describe('EditorGenerationStatus', () => {
   it.each([
     { stage: 'cutting', job: 'video', clipStage: 'processing', text: '正在截取参考片段' },
     { stage: 'cutting', job: 'video', clipStage: 'uploading', text: '正在上传参考片段' },
-    { stage: 'composing', job: 'master', clipStage: 'fetching', text: '正在取素材' },
-    { stage: 'composing', job: 'master', clipStage: 'processing', text: '正在编码成片' },
-    { stage: 'composing', job: 'master', clipStage: 'uploading', text: '正在上传成片' },
+    { stage: 'composing', job: 'composite', clipStage: 'fetching', text: '正在取素材' },
+    { stage: 'composing', job: 'composite', clipStage: 'processing', text: '正在编码成片' },
+    { stage: 'composing', job: 'composite', clipStage: 'uploading', text: '正在上传成片' },
   ] as const)('$stage 显示后端报的加工阶段：$text', async ({ stage, job, clipStage, text }) => {
     const running: GenerationJob = { ...failedJob, status: 'submitting', clipStage }
     await renderWithProviders(<EditorGenerationStatus edit={edit({ stage, [job]: running })} />)
@@ -91,7 +91,7 @@ describe('EditorGenerationStatus', () => {
 
   it.each([
     { stage: 'cutting', job: 'video', text: '等待切片' },
-    { stage: 'composing', job: 'master', text: '等待合成' },
+    { stage: 'composing', job: 'composite', text: '等待合成' },
   ] as const)('$stage 还在本系统排队时说清是在等：$text', async ({ stage, job, text }) => {
     const queued: GenerationJob = { ...failedJob, status: 'pending' }
     await renderWithProviders(<EditorGenerationStatus edit={edit({ stage, [job]: queued })} />)
@@ -110,7 +110,7 @@ describe('EditorGenerationStatus', () => {
 
   it.each([
     { failedAt: 'video', failedStep: '视频生成，失败', completed: 1 },
-    { failedAt: 'master', failedStep: '结果预览，失败', completed: 2 },
+    { failedAt: 'composite', failedStep: '结果预览，失败', completed: 2 },
   ] as const)(
     '$failedAt 失败时保留错误并停止该阶段',
     async ({ failedAt, failedStep, completed }) => {

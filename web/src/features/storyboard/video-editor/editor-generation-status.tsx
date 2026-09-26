@@ -52,11 +52,11 @@ function describeProgress(edit: PendingEdit) {
     case 'composing':
       return {
         step: 2,
-        title: titleOf(edit.master, COMPOSING_TITLES) ?? '正在合成成片',
+        title: titleOf(edit.composite, COMPOSING_TITLES) ?? '正在合成成片',
       }
     case 'failed':
       // 编辑段切片失败与生成失败落在同一条记录上，记录分不出是哪一步，一律记在视频生成这一步。
-      return edit.master !== undefined && edit.master.status !== 'completed'
+      return edit.composite !== undefined && edit.composite.status !== 'completed'
         ? { step: 2, title: '成片合成失败' }
         : { step: 1, title: '视频生成失败' }
   }

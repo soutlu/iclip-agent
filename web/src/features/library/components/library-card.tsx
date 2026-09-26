@@ -71,9 +71,9 @@ export function LibraryCard({ video, width, onAuthor, onOpen }: LibraryCardProps
   const [posterLoaded, setPosterLoaded] = useState(false)
   // 窄列（手机两列）上角标放不下：结构角标只留镜数，模型标签不显示。
   const compact = width > 0 && width < 220
-  const seconds = durationSecondsOf(video)
+  const seconds = durationSecondsOf(face.durationMs, take)
   const title = cardTitleOf(video)
-  const author = take.userName
+  const author = video.userName
 
   return (
     <article aria-label={title} className="library-card group flex flex-col">
@@ -111,9 +111,12 @@ export function LibraryCard({ video, width, onAuthor, onOpen }: LibraryCardProps
         />
 
         <div className="pointer-events-none absolute top-2 left-2 flex gap-1.5">
-          {face.kind === 'master' ? <Tag variant="success">成片</Tag> : null}
-          {video.takeCount > 1 ? (
-            <span className="library-card-badge">{video.takeCount} 版</span>
+          {face.kind === 'composite' ? <Tag variant="success">合成</Tag> : null}
+          {video.groupCount > 1 ? (
+            <span className="library-card-badge">{video.groupCount} 组</span>
+          ) : null}
+          {video.versionCount > 1 ? (
+            <span className="library-card-badge">{video.versionCount} 版</span>
           ) : null}
         </div>
         <StoryboardBadge
@@ -159,7 +162,7 @@ export function LibraryCard({ video, width, onAuthor, onOpen }: LibraryCardProps
             </button>
           )}
           <span className="shrink-0 text-on-surface-faint">
-            {formatRelativeTime(face.createdAt)}
+            {formatRelativeTime(face.finishedAt)}
           </span>
         </div>
       </div>

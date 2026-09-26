@@ -17,9 +17,11 @@ export type LibraryVideo = LibraryVideosPage['items'][number]
 export type LibraryTake = LibraryVideo['take']
 export type LibraryScript = NonNullable<LibraryTake['script']>
 export type LibraryVideoDetail = z.output<typeof zLibraryVideoDetailOut>
+export type LibraryShotGroup = LibraryVideoDetail['groups'][number]
+export type LibraryVersionOut = LibraryShotGroup['versions'][number]
 export type Orientation = NonNullable<z.output<typeof zVideosLibraryVideosGetQuery>['orientation']>
 
-/** 列表的筛选：人（归属用户名）、时间范围、画幅朝向与关键词。 */
+/** 列表的筛选：人（卡的作者）、时间范围、画幅朝向与关键词。 */
 export interface LibraryScope extends DateRange {
   userName: string | null
   orientation: Orientation | null
@@ -83,7 +85,7 @@ export const useLibraryVideos = (scope: LibraryScope) =>
     queryKey: libraryQueryKeys.videos(scope),
   })
 
-/** 一条的详情：这一镜的全部版本与同一段对话的其他镜。按 id 单独取，分享来的链接未必在已读的列表里。 */
+/** 一张卡的详情：按镜头组列全部版本。按卡 id 单独取，分享来的链接未必在已读的列表里。 */
 export const useLibraryVideo = (id: string) =>
   useQuery({
     queryFn: ({ signal }) =>
@@ -94,7 +96,7 @@ export const useLibraryVideo = (id: string) =>
     queryKey: libraryQueryKeys.video(id),
   })
 
-/** 按人筛选的候选：名下有卡的人，候选 id 与显示名都是归属用户名。 */
+/** 按人筛选的候选：名下有卡的作者，候选 id 与显示名都是作者的用户名。 */
 export const useLibraryAuthorSource = (): PickerSource => {
   const query = useQuery({
     queryFn: ({ signal }) =>

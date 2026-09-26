@@ -21,11 +21,11 @@ type LibraryRouteProps = {
   scope: LibraryScope
   onScopeChange: (next: LibraryScope) => void
   myUserName: string | null
-  /** 打开着详情的那条出片。 */
+  /** 打开着详情的那张卡。 */
   videoId: string | null
   /** 打开、换一条或关掉（null）详情；`replace` 是在详情里翻条，不新增历史记录。 */
   onVideoChange: (id: string | null, replace: boolean) => void
-  /** 一条出片的分享地址。 */
+  /** 一张卡的分享地址。 */
   shareLinkOf: (id: string) => string
 }
 

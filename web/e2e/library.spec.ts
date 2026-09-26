@@ -7,8 +7,8 @@ test('从侧栏进资料库，按画幅与关键词筛，筛选留在地址里�
   await page.getByRole('button', { name: '资料库' }).click()
 
   const main = page.getByRole('main', { name: '资料库' })
-  await expect(main.getByRole('article', { name: '跑鞋手持展示 · 镜头组 1' })).toBeVisible()
-  await expect(main.getByText('共 7 条')).toBeVisible()
+  await expect(main.getByRole('article', { name: '跑鞋手持展示' })).toBeVisible()
+  await expect(main.getByText('共 6 条')).toBeVisible()
 
   await main.getByRole('radio', { name: '横版' }).click()
   await expect(main.getByText('找到 2 条')).toBeVisible()
@@ -24,9 +24,7 @@ test('从侧栏进资料库，按画幅与关键词筛，筛选留在地址里�
   await expect(page).toHaveURL('/tasks')
   await page.goBack()
   await expect(main.getByRole('textbox', { name: '搜索脚本' })).toHaveValue('滑板')
-  await expect(
-    main.getByRole('article', { name: '滑板女孩 · 厚底靴街拍 · 镜头组 1' }),
-  ).toBeVisible()
+  await expect(main.getByRole('article', { name: '滑板女孩 · 厚底靴街拍' })).toBeVisible()
 })
 
 test('点卡片看详情，详情在地址里；Esc 与浏览器返回都关掉它、留在列表', async ({ page }) => {
@@ -35,14 +33,14 @@ test('点卡片看详情，详情在地址里；Esc 与浏览器返回都关掉�
   await page.getByRole('button', { name: '资料库' }).click()
 
   const main = page.getByRole('main', { name: '资料库' })
-  const title = '滑板女孩 · 厚底靴街拍 · 镜头组 1'
+  const title = '滑板女孩 · 厚底靴街拍'
   const open = main.getByRole('button', { name: `查看详情：${title}` })
   const viewer = page.getByRole('dialog', { name: title })
 
   await open.click()
-  await expect(viewer.getByRole('group', { name: '这一镜的版本' }).getByRole('button')).toHaveCount(
-    6,
-  )
+  await expect(
+    viewer.getByRole('group', { name: '这个镜头组的版本' }).getByRole('button'),
+  ).toHaveCount(6)
   await expect(page).toHaveURL(/video=/)
   await page.keyboard.press('Escape')
   await expect(viewer).toBeHidden()
