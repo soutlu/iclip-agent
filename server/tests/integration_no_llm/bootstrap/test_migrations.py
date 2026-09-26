@@ -1074,6 +1074,9 @@ OWNER_FIX = "69f785644eb5"
 IMAGE_SOURCE = "fd0a5be42793"
 """0020：图片记来源，上传与切图各落一行的那一版。"""
 
+COLUMNS_RETIRED = "4acae9f7b988"
+"""0021：删掉 updated_at 与 provider_snapshot，表到 ADR-0001 §9 的 27 列的那一版。"""
+
 _INSERT_BEFORE_OPERATION = text(
     "INSERT INTO iclip.generation_jobs (id, owner_user_id, kind, provider, request, status, "
     "metadata, root_job_id, output_url, created_at, updated_at, finished_at) VALUES (:id, :owner, "
@@ -1391,7 +1394,8 @@ async def _insert_since_operation(
     span: tuple[int, int] | None = None,
     snapshot: Mapping[str, object] | None = None,
 ) -> None:
-    """按 0017 起的形状插一行已完成的记录：编辑段给来源、原作与区间，合成给来源与原作。"""
+    """按 0017–0020 的形状（还有 ``updated_at`` 与 ``provider_snapshot``）插一行已完成的记录：
+    编辑段给来源、原作与区间，合成给来源与原作。"""
 
     request: Mapping[str, object] = (
         {"segments": _OPEN_ENDED_SEGMENTS, "userName": "luke"}
@@ -1435,6 +1439,7 @@ async def test_operation_migration_refuses_to_downgrade_an_open_ended_composite(
     root, edit, composite = (uuid.uuid4() for _ in range(3))
     engine = create_async_engine(migrated_pg)
     try:
+        command.downgrade(cfg, IMAGE_SOURCE)
         async with engine.begin() as conn:
             await _insert_generation_owner(conn, owner)
             await _insert_since_operation(conn, root, owner)
@@ -2274,6 +2279,7 @@ async def test_image_source_downgrade_drops_settled_rows_and_writes_bases_back(
     owner, conversation = uuid.uuid4(), uuid.uuid4()
     engine = create_async_engine(migrated_pg)
     try:
+        command.downgrade(cfg, IMAGE_SOURCE)
         async with engine.begin() as conn:
             ids = await _seed_settled_rows(conn, owner, conversation)
         await engine.dispose()
@@ -2307,6 +2313,7 @@ async def test_image_source_downgrade_refuses_settled_rows_with_tracking_events(
     owner, conversation = uuid.uuid4(), uuid.uuid4()
     engine = create_async_engine(migrated_pg)
     try:
+        command.downgrade(cfg, IMAGE_SOURCE)
         async with engine.begin() as conn:
             ids = await _seed_settled_rows(conn, owner, conversation)
             await conn.execute(
@@ -2326,3 +2333,100 @@ async def test_image_source_downgrade_refuses_settled_rows_with_tracking_events(
     assert version == IMAGE_SOURCE
     assert set(kept) == set(ids.values())
     assert kept[ids["on_cell"]]["source_job_id"] == ids["cell_1"]
+
+
+_INSERT_BEFORE_RETIRE = text(
+    "INSERT INTO iclip.generation_jobs (id, owner_user_id, kind, operation, provider, request, "
+    "status, output_url, provider_snapshot, created_at, updated_at, submitted_at, finished_at) "
+    "VALUES (:id, :owner, 'video', 'generate', 'test', CAST(:request AS jsonb), :status, :url, "
+    "CAST(:snapshot AS jsonb), :created, :updated, :submitted, :finished)"
+)
+_RETIRED = {"updated_at", "provider_snapshot"}
+
+
+async def test_retire_migration_drops_the_two_columns_and_downgrade_restores_the_0020_shape(
+    migrated_pg: str,
+) -> None:
+    """0021：删掉 updated_at 与 provider_snapshot，其余 27 列逐行不变。降级把两列加回来：快照为空，
+    updated_at 取三个时刻里最晚的一个、恢复非空；再降过 0018，合成的时长照样由列写回快照。"""
+
+    cfg = _alembic(migrated_pg)
+    owner = uuid.uuid4()
+    queued, polled, done, edit, composite = (uuid.uuid4() for _ in range(5))
+    # (id, 状态, 快照, 建立, 刷新, 提交, 完成)，时刻按分钟；刷新都晚于同一行最晚的那个业务时刻。
+    takes: list[
+        tuple[uuid.UUID, str, Mapping[str, object] | None, int, int, int | None, int | None]
+    ] = [
+        (queued, "pending", None, 0, 1, None, None),
+        (polled, "submitted", None, 2, 5, 3, None),
+        (done, "completed", {"response": {"task_id": "t-1"}}, 6, 10, 7, 9),
+    ]
+    engine = create_async_engine(migrated_pg)
+    try:
+        command.downgrade(cfg, IMAGE_SOURCE)
+        async with engine.begin() as conn:
+            await _insert_generation_owner(conn, owner)
+            for job_id, status, snapshot, created, updated, submitted, finished in takes:
+                await conn.execute(
+                    _INSERT_BEFORE_RETIRE,
+                    {
+                        "id": job_id,
+                        "owner": owner,
+                        "request": json.dumps({"model": "m", "prompt": "p"}),
+                        "status": status,
+                        "url": None if finished is None else f"https://example.test/{job_id}.mp4",
+                        "snapshot": None if snapshot is None else json.dumps(snapshot),
+                        "created": _minute(created),
+                        "updated": _minute(updated),
+                        "submitted": None if submitted is None else _minute(submitted),
+                        "finished": None if finished is None else _minute(finished),
+                    },
+                )
+            await _insert_since_operation(
+                conn, edit, owner, source=done, root=done, span=(1000, 4000)
+            )
+            await _insert_since_operation(
+                conn, composite, owner, operation="compose", source=edit, root=done, snapshot={}
+            )
+            await conn.execute(
+                text("UPDATE iclip.generation_jobs SET duration_ms = 7040 WHERE id = :id"),
+                {"id": composite},
+            )
+        await engine.dispose()
+        before = await _generation_columns(migrated_pg)
+        kept = ", ".join(sorted(before - _RETIRED))
+        seeded = await _select_rows(migrated_pg, owner, kept)
+        command.upgrade(cfg, COLUMNS_RETIRED)
+        after = await _generation_columns(migrated_pg)
+        upgraded = await _select_rows(migrated_pg, owner, kept)
+        command.downgrade(cfg, IMAGE_SOURCE)
+        restored_columns = await _generation_columns(migrated_pg)
+        not_null = (await _generation_shape(migrated_pg))["not_null"]
+        restored = await _select_rows(
+            migrated_pg, owner, "provider_snapshot, updated_at, finished_at"
+        )
+        command.downgrade(cfg, OPERATION)
+        rolled_back = await _select_rows(migrated_pg, owner, "provider_snapshot")
+    finally:
+        await engine.dispose()
+        await _clear(migrated_pg)
+        command.upgrade(cfg, "head")
+
+    assert (before - after, after - before) == (_RETIRED, set())
+    assert len(after) == 27, "ADR-0001 §9 的终态"
+    assert upgraded == seeded, "其余 27 列逐行不变"
+
+    assert restored_columns == before, "降级回到 0020 的列"
+    assert "updated_at" in not_null
+    assert [row["provider_snapshot"] for row in restored.values()] == [None] * 5, "快照回不来"
+    assert {job_id: row["updated_at"] for job_id, row in restored.items()} == {
+        queued: _minute(0),
+        # 近似值：轮询刷新过的那一刻（第 5 分钟）没留下，只能取提交时刻。
+        polled: _minute(3),
+        done: _minute(9),
+        edit: restored[edit]["finished_at"],
+        composite: restored[composite]["finished_at"],
+    }
+    assert rolled_back[composite]["provider_snapshot"] == {"durationMs": 7040}, (
+        "时长还在列上，再降过 0018 时写回快照"
+    )
