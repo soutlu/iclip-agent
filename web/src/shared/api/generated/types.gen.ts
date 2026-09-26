@@ -1063,7 +1063,7 @@ export type GenerationOut = {
   /**
    * Operation
    */
-  operation: 'generate' | 'compose'
+  operation: 'generate' | 'compose' | 'cut' | 'upload'
   /**
    * Outputurl
    */
@@ -1081,7 +1081,7 @@ export type GenerationOut = {
    */
   request: {
     [key: string]: unknown
-  }
+  } | null
   /**
    * Rootjobid
    */
@@ -1094,6 +1094,10 @@ export type GenerationOut = {
    * Sourcejobid
    */
   sourceJobId?: string | null
+  /**
+   * Sourceurl
+   */
+  sourceUrl?: string | null
   /**
    * Status
    */
@@ -1181,6 +1185,10 @@ export type ImageGenerationIn = {
    * Resolution
    */
   resolution?: '1k' | '2k' | '4k'
+  /**
+   * Sourceurl
+   */
+  sourceUrl?: string | null
   /**
    * Taskid
    */
@@ -2948,6 +2956,18 @@ export type TurnUsage = {
 }
 
 /**
+ * UploadConfirmIn
+ *
+ * 确认上传时可选的请求体：替谁确认。
+ */
+export type UploadConfirmIn = {
+  /**
+   * Username
+   */
+  userName?: string | null
+}
+
+/**
  * UploadConfirmedOut
  *
  * 确认后交回的地址与桶里读到的事实；``url`` 从此就是这个文件的身份。
@@ -3022,7 +3042,7 @@ export type UploadSignIn = {
  * 一次直传的许可：先拿到名字，再去传。
  *
  * ``uploadId`` 在字节落地之前就发下来，因为传这个副作用发生之前，双方必须先就「它
- * 叫什么」达成一致。它只用来确认这一次上传，不是任何东西的身份。
+ * 叫什么」达成一致。确认时用它指这一次上传，确认后它就是那条上传记录的 id。
  */
 export type UploadTicketOut = {
   upload: UploadInstruction
@@ -5157,7 +5177,7 @@ export type ListGenerationsGenerationsGetData = {
     /**
      * Operation
      */
-    operation?: 'generate' | 'compose' | null
+    operation?: 'generate' | 'compose' | 'cut' | 'upload' | null
     /**
      * Rootjobid
      *
@@ -5881,7 +5901,10 @@ export type SignUploadUploadsSignPostResponse =
   SignUploadUploadsSignPostResponses[keyof SignUploadUploadsSignPostResponses]
 
 export type ConfirmUploadUploadsUploadIdConfirmPostData = {
-  body?: never
+  /**
+   * Body
+   */
+  body?: UploadConfirmIn | null
   path: {
     /**
      * Upload Id

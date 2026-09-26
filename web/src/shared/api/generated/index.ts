@@ -441,6 +441,7 @@ export type {
   TurnUpsertOp,
   TurnUsage,
   UploadConfirmedOut,
+  UploadConfirmIn,
   UploadInstruction,
   UploadSignIn,
   UploadTicketOut,

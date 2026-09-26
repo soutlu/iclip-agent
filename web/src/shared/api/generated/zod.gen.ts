@@ -494,14 +494,15 @@ export const zGenerationOut = z.object({
   id: z.uuid(),
   kind: z.enum(['video', 'image']),
   metadata: z.record(z.string(), z.unknown()).nullable(),
-  operation: z.enum(['generate', 'compose']),
+  operation: z.enum(['generate', 'compose', 'cut', 'upload']),
   outputUrl: z.string().nullable(),
   rangeEndMs: z.int().nullish(),
   rangeStartMs: z.int().nullish(),
-  request: z.record(z.string(), z.unknown()),
+  request: z.record(z.string(), z.unknown()).nullable(),
   rootJobId: z.uuid().nullable(),
   shotIndex: z.int().nullish(),
   sourceJobId: z.uuid().nullish(),
+  sourceUrl: z.string().nullish(),
   status: z.enum(['pending', 'submitting', 'submitted', 'completed', 'failed']),
   taskId: z.uuid().nullable(),
   watermarkOutputUrl: z.string().nullable(),
@@ -552,6 +553,7 @@ export const zImageGenerationIn = z.object({
   prompt: z.string().min(1).max(4000),
   referenceImageUrls: z.array(z.string()).max(10).optional().default([]),
   resolution: z.enum(['1k', '2k', '4k']).optional().default('1k'),
+  sourceUrl: z.string().min(1).max(2000).nullish(),
   taskId: z.uuid().nullish(),
   userName: z.string().min(1).max(200).nullish(),
 })
@@ -1151,6 +1153,15 @@ export const zTurnUsage = z.object({
 })
 
 /**
+ * UploadConfirmIn
+ *
+ * 确认上传时可选的请求体：替谁确认。
+ */
+export const zUploadConfirmIn = z.object({
+  userName: z.string().min(1).max(200).nullish(),
+})
+
+/**
  * UploadConfirmedOut
  *
  * 确认后交回的地址与桶里读到的事实；``url`` 从此就是这个文件的身份。
@@ -1193,7 +1204,7 @@ export const zUploadSignIn = z.object({
  * 一次直传的许可：先拿到名字，再去传。
  *
  * ``uploadId`` 在字节落地之前就发下来，因为传这个副作用发生之前，双方必须先就「它
- * 叫什么」达成一致。它只用来确认这一次上传，不是任何东西的身份。
+ * 叫什么」达成一致。确认时用它指这一次上传，确认后它就是那条上传记录的 id。
  */
 export const zUploadTicketOut = z.object({
   upload: zUploadInstruction,
@@ -2287,7 +2298,7 @@ export const zListGenerationsGenerationsGetQuery = z.object({
   taskId: z.uuid().nullish(),
   shotIndex: z.int().gte(1).nullish(),
   kind: z.enum(['video', 'image']).nullish(),
-  operation: z.enum(['generate', 'compose']).nullish(),
+  operation: z.enum(['generate', 'compose', 'cut', 'upload']).nullish(),
   rootJobId: z.uuid().nullish(),
   sourceJobId: z.uuid().nullish(),
   metadata: z.string().nullish(),
@@ -2487,6 +2498,11 @@ export const zSignUploadUploadsSignPostBody = zUploadSignIn
  * Successful Response
  */
 export const zSignUploadUploadsSignPostResponse = zUploadTicketOut
+
+/**
+ * Body
+ */
+export const zConfirmUploadUploadsUploadIdConfirmPostBody = zUploadConfirmIn.nullable()
 
 export const zConfirmUploadUploadsUploadIdConfirmPostPath = z.object({
   upload_id: z.uuid(),
