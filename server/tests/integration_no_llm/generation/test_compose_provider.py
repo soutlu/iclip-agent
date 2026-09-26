@@ -14,7 +14,7 @@ from typing import Any
 import httpx
 import pytest
 
-from iclip.domains.generation.clip import FfmpegClipProvider
+from iclip.domains.generation.processing import FfmpegComposeProvider
 from iclip.domains.generation.provider import ProviderError
 from iclip.domains.generation.schemas import ClipStage
 from iclip.platform.media.ffmpeg import ffmpeg_available, probe_video
@@ -81,7 +81,7 @@ async def _compose(
     """跑一次合成，返回落库的对象 key 与产物字节。"""
 
     store = MemoryObjectStore()
-    provider = FfmpegClipProvider(
+    provider = FfmpegComposeProvider(
         object_store=store, report_stage=(stages or _Stages()).report, transport=_client(sources)
     )
     submission = await provider.submit(
@@ -228,7 +228,7 @@ async def test_a_broken_stage_report_does_not_fail_the_job(sources: dict[str, by
 async def test_a_source_that_cannot_be_fetched_fails_without_retry() -> None:
     """先下到本地，取不到素材有自己的错误码。"""
 
-    provider = FfmpegClipProvider(
+    provider = FfmpegComposeProvider(
         object_store=MemoryObjectStore(), report_stage=_Stages().report, transport=_client({})
     )
     job = make_job(

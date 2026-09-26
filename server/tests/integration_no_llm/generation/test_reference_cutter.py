@@ -11,7 +11,7 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-from iclip.domains.generation.clip import ReferenceCut, ReferenceCutter
+from iclip.domains.generation.processing import ReferenceCut, ReferenceCutter
 from iclip.domains.generation.provider import ProviderError
 from iclip.domains.generation.schemas import ClipStage
 from iclip.platform.media.ffmpeg import ffmpeg_available

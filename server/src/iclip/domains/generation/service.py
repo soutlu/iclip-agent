@@ -69,7 +69,7 @@ class GenerationService:
         queue: GenerationQueue,
         *,
         video_provider_name: str,
-        clip_provider_name: str,
+        compose_provider_name: str,
         video_default_model: str,
         video_allowed_models: tuple[str, ...],
         image_models: Mapping[str, ImageModelSpec],
@@ -84,7 +84,7 @@ class GenerationService:
         self._repo = repo
         self._queue = queue
         self._video_provider_name = video_provider_name
-        self._clip_provider_name = clip_provider_name
+        self._compose_provider_name = compose_provider_name
         self._video_default_model = video_default_model
         self._video_allowed_models = video_allowed_models
         self._image_models = image_models
@@ -182,7 +182,7 @@ class GenerationService:
         return await self._accept(
             principal,
             VideoComposeRequest(segments=segments, user_name=request.user_name),
-            provider=self._clip_provider_name,
+            provider=self._compose_provider_name,
             conversation_id=request.conversation_id,
             task_id=request.task_id,
             metadata=request.metadata,
