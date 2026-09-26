@@ -725,12 +725,13 @@ async def test_attach_run_maps_every_run_to_its_prompt(engine: AsyncEngine) -> N
     }
     assert await queue.prompt_of_runs("c-yours") == {"r-other": "prm_yours"}
 
-    first = await queue.get_by_run("r-first")
-    second = await queue.get_by_run("r-second")
+    first = await queue.get_by_run("r-first", conversation_id="c-mine")
+    second = await queue.get_by_run("r-second", conversation_id="c-mine")
     assert first is not None
     assert second is not None
     assert (first.prompt_id, second.prompt_id) == ("prm_mine", "prm_mine")
     assert second.run_id == "r-second"
+    assert await queue.get_by_run("r-other", conversation_id="c-mine") is None
 
 
 async def test_attach_run_writes_nothing_when_the_lease_moved_on(engine: AsyncEngine) -> None:
@@ -755,7 +756,7 @@ async def test_attach_run_writes_nothing_when_the_lease_moved_on(engine: AsyncEn
     assert row is not None
     assert row.run_id is None
     assert await queue.prompt_of_runs("c-fenced") == {}
-    assert (await queue.get_by_run("r-stale")) is None
+    assert (await queue.get_by_run("r-stale", conversation_id="c-fenced")) is None
 
 
 @pytest.mark.parametrize("same_worker", [True, False], ids=["same-worker", "other-worker"])

@@ -234,6 +234,9 @@ async def test_regenerate_without_prompt_row_is_not_found(app: FastAPI, pg_url: 
         page = (await client.get(f"/conversations/{conversation_id}/transcript")).json()
 
     assert missing.status_code == 404
+    assert missing.json()["detail"] != "分叉带过来的历史不能重新生成或编辑，只能接着往下聊。", (
+        "不是分叉来的轮，不能说成分叉"
+    )
     assert [turn["content"] for turn in page["items"]] == [[{"type": "text", "text": "问"}]]
 
 
