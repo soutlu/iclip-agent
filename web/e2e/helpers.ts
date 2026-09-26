@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 
-import type { Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
 import { login } from './login'
 
 /** 登录后从侧栏进一段演示对话，返回右侧面板；紧凑屏的面板默认收着，mobile 时先打开。 */
@@ -10,6 +10,23 @@ export const openConversation = async (page: Page, title: string, { mobile = fal
   await page.getByRole('link', { name: title, exact: true }).click()
   if (mobile) await page.getByRole('button', { name: '打开右侧面板' }).click()
   return page.getByRole('complementary', { name: '右侧面板' })
+}
+
+/** 把当前界面按浅色、深色各截一张验收图，存为 `${pathPrefix}-light.png` 与 `${pathPrefix}-dark.png`，截完切回浅色。 */
+export const screenshotBothThemes = async (page: Page, pathPrefix: string) => {
+  const apply = async (colorScheme: 'light' | 'dark') => {
+    await page.emulateMedia({ colorScheme })
+    // .dark 类由 matchMedia 的 change 监听异步切换，等它落定再截。
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.classList.contains('dark')))
+      .toBe(colorScheme === 'dark')
+  }
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await apply(colorScheme)
+    // 冻结动画，切主题引起的颜色过渡不会拍在中途。
+    await page.screenshot({ animations: 'disabled', path: `${pathPrefix}-${colorScheme}.png` })
+  }
+  await apply('light')
 }
 
 /**

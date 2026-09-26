@@ -2,7 +2,7 @@
 
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
-import { canvasPng, openConversation } from './helpers'
+import { canvasPng, openConversation, screenshotBothThemes } from './helpers'
 
 /** mock 出片用的测试卡源文件；下载回来的字节要和它一致。 */
 const SAMPLE_VIDEO = new URL('../src/testing/fixtures/sample-video.webm', import.meta.url)
@@ -86,30 +86,24 @@ test('短桌面中首帧卡片在原位展开，预览与底部导航均完整�
 })
 
 for (const width of [1335, 390]) {
-  for (const colorScheme of ['light', 'dark'] as const) {
-    test(`视频记录空态 ${width}px ${colorScheme}：说明和返回分镜入口完整可见`, async ({ page }) => {
-      await page.setViewportSize({ width, height: 880 })
-      await page.emulateMedia({ colorScheme })
-      const panel = await openConversation(page, '夜景延时素材生成', { mobile: width === 390 })
-      await panel.getByRole('button', { name: '生成记录', exact: true }).click()
-      const records = panel.getByRole('complementary', { name: '生成记录' })
-      await expect(records.getByRole('heading', { name: '暂无视频记录' })).toBeVisible()
-      await expect(records).toBeInViewport({ ratio: 1 })
-      const back = records.getByRole('button', { name: '返回分镜' })
-      await expect(back).toBeInViewport({ ratio: 1 })
-      await page.screenshot({
-        animations: 'disabled',
-        path: `../.artifacts/design-qa/video-records-design/empty-${width}-${colorScheme}.png`,
-      })
+  test(`视频记录空态 ${width}px：说明和返回分镜入口完整可见`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 880 })
+    const panel = await openConversation(page, '夜景延时素材生成', { mobile: width === 390 })
+    await panel.getByRole('button', { name: '生成记录', exact: true }).click()
+    const records = panel.getByRole('complementary', { name: '生成记录' })
+    await expect(records.getByRole('heading', { name: '暂无视频记录' })).toBeVisible()
+    await expect(records).toBeInViewport({ ratio: 1 })
+    const back = records.getByRole('button', { name: '返回分镜' })
+    await expect(back).toBeInViewport({ ratio: 1 })
+    await screenshotBothThemes(page, `../.artifacts/design-qa/video-records-design/empty-${width}`)
 
-      await back.focus()
-      await page.keyboard.press('Enter')
-      await expect(records).toBeHidden()
-      await expect(
-        panel.getByRole('region', { name: '镜头组 1' }).getByRole('textbox', { name: '全局设定' }),
-      ).toBeVisible()
-    })
-  }
+    await back.focus()
+    await page.keyboard.press('Enter')
+    await expect(records).toBeHidden()
+    await expect(
+      panel.getByRole('region', { name: '镜头组 1' }).getByRole('textbox', { name: '全局设定' }),
+    ).toBeVisible()
+  })
 }
 
 for (const width of [1335, 390]) {
@@ -293,7 +287,7 @@ test('替换图标与拖放都可上传本地图片，保持当前帧并可继�
   }, Array.from(png))
   await imageArea.dispatchEvent('dragenter', { dataTransfer })
   await expect(imageArea.getByText('松开替换当前图片')).toBeVisible()
-  await expect(page.getByText('松开鼠标添加附件')).toBeHidden()
+  await expect(page.getByTestId('composer-drop-overlay')).toBeHidden()
   await page.screenshot({ path: '../.artifacts/design-qa/storyboard-replace-drop.png' })
   await page.emulateMedia({ colorScheme: 'dark' })
   await page.screenshot({
@@ -404,49 +398,44 @@ test('没有工作区文件的对话仍是折叠空态', async ({ page }) => {
 })
 
 for (const width of [1335, 390]) {
-  for (const colorScheme of ['light', 'dark'] as const) {
-    test(`记录下载 ${width}px ${colorScheme}：保存视频字节并保留记录界面`, async ({ page }) => {
-      await page.setViewportSize({ width, height: 934 })
-      await page.emulateMedia({ colorScheme })
-      const panel = await openConversation(page, '夜景延时素材生成', { mobile: width === 390 })
-      await panel.getByRole('button', { name: '第 2 组' }).click()
-      await panel.getByRole('button', { name: '生成记录' }).click()
-      const records = panel.getByRole('complementary', { name: '生成记录' })
-      const downloadButton = records.getByRole('button', { name: '下载视频' })
-      await expect(downloadButton).toHaveCount(1)
-      await expect(downloadButton).toBeInViewport({ ratio: 1 })
-      // 等入场动画结束，避免祖先滚动在聚焦后关闭 tooltip。
-      await records.evaluate(async (element) => {
-        await Promise.all(element.getAnimations().map((animation) => animation.finished))
-      })
-      await downloadButton.focus()
-      await expect(downloadButton).toBeFocused()
-      await expect(page.getByRole('tooltip', { name: '下载视频' })).toBeVisible()
-      await page.screenshot({
-        path: `../.artifacts/design-qa/download-record-video/${width}-${colorScheme}.png`,
-      })
-      // 这条记录上游给了水印版：回车先弹出选单，原片和水印版各自可下。
-      await downloadButton.press('Enter')
-      const menu = page.getByRole('menu')
-      await expect(menu.getByRole('menuitem', { name: '下载水印版' })).toBeVisible()
-      const saved = page.waitForEvent('download')
-      await menu.getByRole('menuitem', { name: '下载原片' }).click()
-      const download = await saved
-      expect(await download.failure()).toBeNull()
-      // 文件名取自地址（mock 的出片是构建产物里那条 WebM 测试卡），字节要和源文件一致。
-      expect(download.suggestedFilename()).toMatch(/^sample-video(-[^/]*)?\.webm$/)
-      const path = await download.path()
-      expect(path).not.toBeNull()
-      expect(await readFile(path)).toEqual(await readFile(SAMPLE_VIDEO))
-      await expect(records).toBeVisible()
-      await expect(downloadButton).toBeEnabled()
-      await expect(records.locator('video')).toHaveCount(0)
-
-      await downloadButton.press('Enter')
-      const savedMarked = page.waitForEvent('download')
-      await menu.getByRole('menuitem', { name: '下载水印版' }).click()
-      expect((await savedMarked).suggestedFilename()).toMatch(/^sample-video(-[^/]*)?\.webm$/)
-      await expect(downloadButton).toBeEnabled()
+  test(`记录下载 ${width}px：保存视频字节并保留记录界面`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 934 })
+    const panel = await openConversation(page, '夜景延时素材生成', { mobile: width === 390 })
+    await panel.getByRole('button', { name: '第 2 组' }).click()
+    await panel.getByRole('button', { name: '生成记录' }).click()
+    const records = panel.getByRole('complementary', { name: '生成记录' })
+    const downloadButton = records.getByRole('button', { name: '下载视频' })
+    await expect(downloadButton).toHaveCount(1)
+    await expect(downloadButton).toBeInViewport({ ratio: 1 })
+    // 等入场动画结束，避免祖先滚动在聚焦后关闭 tooltip。
+    await records.evaluate(async (element) => {
+      await Promise.all(element.getAnimations().map((animation) => animation.finished))
     })
-  }
+    await downloadButton.focus()
+    await expect(downloadButton).toBeFocused()
+    await expect(page.getByRole('tooltip', { name: '下载视频' })).toBeVisible()
+    await screenshotBothThemes(page, `../.artifacts/design-qa/download-record-video/${width}`)
+    // 这条记录上游给了水印版：回车先弹出选单，原片和水印版各自可下。
+    await downloadButton.press('Enter')
+    const menu = page.getByRole('menu')
+    await expect(menu.getByRole('menuitem', { name: '下载水印版' })).toBeVisible()
+    const saved = page.waitForEvent('download')
+    await menu.getByRole('menuitem', { name: '下载原片' }).click()
+    const download = await saved
+    expect(await download.failure()).toBeNull()
+    // 文件名取自地址（mock 的出片是构建产物里那条 WebM 测试卡），字节要和源文件一致。
+    expect(download.suggestedFilename()).toMatch(/^sample-video(-[^/]*)?\.webm$/)
+    const path = await download.path()
+    expect(path).not.toBeNull()
+    expect(await readFile(path)).toEqual(await readFile(SAMPLE_VIDEO))
+    await expect(records).toBeVisible()
+    await expect(downloadButton).toBeEnabled()
+    await expect(records.locator('video')).toHaveCount(0)
+
+    await downloadButton.press('Enter')
+    const savedMarked = page.waitForEvent('download')
+    await menu.getByRole('menuitem', { name: '下载水印版' }).click()
+    expect((await savedMarked).suggestedFilename()).toMatch(/^sample-video(-[^/]*)?\.webm$/)
+    await expect(downloadButton).toBeEnabled()
+  })
 }
