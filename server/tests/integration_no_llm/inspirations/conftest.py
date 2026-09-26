@@ -14,13 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from iclip.app.bootstrap import build_app
 from tests.helpers.app import make_runtime_config
-from tests.helpers.pdm import PDM_STYLES_DDL
+from tests.helpers.pdm import recreate_pdm_styles
 from tests.helpers.pg import reset_database
-
-_CATALOG_DDL = f"""
-DROP TABLE IF EXISTS pdm_styles CASCADE;
-{PDM_STYLES_DDL}
-"""
 
 
 @pytest.fixture
@@ -29,9 +24,7 @@ async def catalog_engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
 
     engine = create_async_engine(migrated_pg)
     try:
-        async with engine.begin() as conn:
-            for statement in filter(None, (part.strip() for part in _CATALOG_DDL.split(";"))):
-                await conn.execute(text(statement))
+        await recreate_pdm_styles(engine)
         yield engine
     finally:
         await engine.dispose()

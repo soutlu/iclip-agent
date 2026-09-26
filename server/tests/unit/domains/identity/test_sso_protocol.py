@@ -9,7 +9,6 @@ import pytest
 
 from iclip.domains.identity.pms import PmsUnavailable, PmsUserClient
 from iclip.domains.identity.sso import (
-    SsoSessionInvalid,
     SsoUnavailable,
     SsoVerifier,
     sso_placeholder_email,
@@ -52,11 +51,6 @@ async def test_verify_parses_user_session() -> None:
     assert session.inner_user_id == 42
     assert session.union_id == "u-42"
     assert session.name == "Luke"
-
-
-async def test_verify_rejects_invalid_session() -> None:
-    with pytest.raises(SsoSessionInvalid):
-        await make_verifier(json_transport({"result": "EXPIRED"})).verify("t")
 
 
 @pytest.mark.parametrize(

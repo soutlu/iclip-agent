@@ -8,7 +8,8 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from tests.helpers.auth import register_and_login
-from tests.helpers.inspirations import seed_style, seed_video, urls_of
+from tests.helpers.inspirations import seed_video, urls_of
+from tests.helpers.pdm import seed_pdm_style
 
 URL = "/inspirations/videos/search"
 STYLE = "SNMT241M"
@@ -44,7 +45,7 @@ async def test_exact_match_returns_own_videos(
     client: httpx.AsyncClient, business_engine: AsyncEngine, catalog_engine: AsyncEngine
 ) -> None:
     await register_and_login(client)
-    await seed_style(catalog_engine, style_no=STYLE)
+    await seed_pdm_style(catalog_engine, style_no=STYLE)
     await seed_video(business_engine, video_id="101", style_no=STYLE, orders=56)
 
     found = (await search(client)).json()
@@ -59,7 +60,7 @@ async def test_falls_back_to_same_brand_and_category(
     """本款没有视频时，优先拿同品牌同类目的替身。"""
 
     await register_and_login(client)
-    await seed_style(catalog_engine, style_no=STYLE, category_id=RUNNING, brand_code=NORTIV8)
+    await seed_pdm_style(catalog_engine, style_no=STYLE, category_id=RUNNING, brand_code=NORTIV8)
     await seed_video(
         business_engine,
         video_id="201",
@@ -89,7 +90,7 @@ async def test_falls_back_to_same_category(
     """同品牌同类目没有视频时，再退一级到同类目。"""
 
     await register_and_login(client)
-    await seed_style(catalog_engine, style_no=STYLE, category_id=RUNNING, brand_code=NORTIV8)
+    await seed_pdm_style(catalog_engine, style_no=STYLE, category_id=RUNNING, brand_code=NORTIV8)
     await seed_video(
         business_engine,
         video_id="301",
@@ -108,7 +109,7 @@ async def test_none_when_the_whole_category_has_no_videos(
     client: httpx.AsyncClient, business_engine: AsyncEngine, catalog_engine: AsyncEngine
 ) -> None:
     await register_and_login(client)
-    await seed_style(catalog_engine, style_no=STYLE, category_id=RUNNING, brand_code=NORTIV8)
+    await seed_pdm_style(catalog_engine, style_no=STYLE, category_id=RUNNING, brand_code=NORTIV8)
     await seed_video(
         business_engine, video_id="401", style_no="ELSEWHERE", category_id=BOOTS, brand_code=NORTIV8
     )
@@ -124,7 +125,7 @@ async def test_style_without_a_category_cannot_fall_back(
     """上游没给品类的款无从圈选同类款，落到 none 而不是拿全库凑数。"""
 
     await register_and_login(client)
-    await seed_style(catalog_engine, style_no=STYLE, category_id=None)
+    await seed_pdm_style(catalog_engine, style_no=STYLE, category_id=None)
     await seed_video(business_engine, video_id="501", style_no="OTHER", category_id=RUNNING)
 
     found = (await search(client)).json()
@@ -146,7 +147,7 @@ async def test_thresholds_do_not_change_match_level(
     """门槛筛空本款或同品牌候选，都不再放宽到指标更高的其他品牌。"""
 
     await register_and_login(client)
-    await seed_style(catalog_engine, style_no=STYLE, category_id=RUNNING, brand_code=NORTIV8)
+    await seed_pdm_style(catalog_engine, style_no=STYLE, category_id=RUNNING, brand_code=NORTIV8)
     await seed_video(business_engine, video_id="601", style_no=matched_style, orders=1)
     await seed_video(
         business_engine,
@@ -167,7 +168,7 @@ async def test_thresholds_filter_the_result(
     client: httpx.AsyncClient, business_engine: AsyncEngine, catalog_engine: AsyncEngine
 ) -> None:
     await register_and_login(client)
-    await seed_style(catalog_engine, style_no=STYLE)
+    await seed_pdm_style(catalog_engine, style_no=STYLE)
     await seed_video(business_engine, video_id="701", style_no=STYLE, orders=5, revenue="10.5")
     await seed_video(business_engine, video_id="702", style_no=STYLE, orders=50, revenue="900.25")
 
@@ -182,11 +183,13 @@ async def test_exact_and_fallback_scopes_share_one_deduplicated_top_n(
     """本款与两级替身范围重叠时，视频去重后共享排序和 limit。"""
 
     await register_and_login(client)
-    await seed_style(catalog_engine, style_no=STYLE, category_id=RUNNING, brand_code=NORTIV8)
-    await seed_style(
+    await seed_pdm_style(catalog_engine, style_no=STYLE, category_id=RUNNING, brand_code=NORTIV8)
+    await seed_pdm_style(
         catalog_engine, style_no="NO-OWN-NORTIV8", category_id=RUNNING, brand_code=NORTIV8
     )
-    await seed_style(catalog_engine, style_no="NO-OWN-BRUNO", category_id=RUNNING, brand_code=BRUNO)
+    await seed_pdm_style(
+        catalog_engine, style_no="NO-OWN-BRUNO", category_id=RUNNING, brand_code=BRUNO
+    )
     await seed_video(business_engine, video_id="801", style_no=STYLE, orders=20)
     await seed_video(business_engine, video_id="802", style_no="OTHER-NORTIV8", orders=30)
     await seed_video(business_engine, video_id="803", style_no="OTHER-NORTIV8", orders=10)
@@ -210,7 +213,7 @@ async def test_sort_by_selects_a_different_sample(
     client: httpx.AsyncClient, business_engine: AsyncEngine, catalog_engine: AsyncEngine
 ) -> None:
     await register_and_login(client)
-    await seed_style(catalog_engine, style_no=STYLE)
+    await seed_pdm_style(catalog_engine, style_no=STYLE)
     await seed_video(business_engine, video_id="901", style_no=STYLE, orders=90, views=1)
     await seed_video(business_engine, video_id="902", style_no=STYLE, orders=1, views=90)
 
@@ -226,7 +229,9 @@ async def test_a_video_shared_by_two_styles_appears_once(
 
     await register_and_login(client)
     for style_no in (STYLE, "SNMT242M"):
-        await seed_style(catalog_engine, style_no=style_no, category_id=RUNNING, brand_code=NORTIV8)
+        await seed_pdm_style(
+            catalog_engine, style_no=style_no, category_id=RUNNING, brand_code=NORTIV8
+        )
     await seed_video(
         business_engine,
         video_id="1001",
@@ -294,7 +299,7 @@ async def test_every_sort_key_is_accepted(
     sort_by: str,
 ) -> None:
     await register_and_login(client)
-    await seed_style(catalog_engine, style_no=STYLE)
+    await seed_pdm_style(catalog_engine, style_no=STYLE)
     await seed_video(business_engine, video_id="1101", style_no=STYLE)
 
     found = await search(client, sort_by=sort_by)

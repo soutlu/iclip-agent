@@ -213,12 +213,6 @@ async def test_missing_attribution_is_still_reported_as_such(
         assert corrected.json()["conversation"]["id"] == minted
 
 
-async def test_title_can_be_given_at_creation(client: httpx.AsyncClient, pg_url: str) -> None:
-    await login_as_editor(client, pg_url)
-    opened = await create(client, title="第三幕")
-    assert opened.json()["conversation"]["title"] == "第三幕"
-
-
 async def test_list_is_newest_first(client: httpx.AsyncClient, pg_url: str) -> None:
     """按建立时间倒序；改名这类后续操作不把对话换到别的位置。"""
 
@@ -712,6 +706,7 @@ async def test_title_given_at_creation_counts_as_the_users(
 ) -> None:
 
     await login_as_editor(client, pg_url)
-    conversation_id = (await create(client, title="第三幕")).json()["conversation"]["id"]
+    opened = (await create(client, title="第三幕")).json()["conversation"]
 
-    assert await _title_row(pg_url, conversation_id) == ("第三幕", "custom")
+    assert opened["title"] == "第三幕"
+    assert await _title_row(pg_url, opened["id"]) == ("第三幕", "custom")

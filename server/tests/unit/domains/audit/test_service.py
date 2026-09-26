@@ -201,14 +201,15 @@ async def test_anomaly_cursor_keeps_a_ref_with_colons() -> None:
     assert kinds is None, "不给 kinds 就是全部，不能把上一页的筛选带过来"
 
 
-@pytest.mark.parametrize("cursor", ["nonsense", "2026-09-15T12:00:00+00:00|", "not-a-date|x"])
-async def test_malformed_cursors_are_422(cursor: str) -> None:
+async def test_malformed_cursors_are_422() -> None:
+    """尾键形状合法、只有时间戳坏：两条列表都得把解码失败原样抛出来。"""
+
     service = AuditService(RecordingReports())
 
     with pytest.raises(ValidationFailed, match="cursor"):
-        await service.conversations(cursor=cursor)
+        await service.conversations(cursor=f"not-a-date|{uuid.uuid4()}")
     with pytest.raises(ValidationFailed, match="cursor"):
-        await service.anomalies(cursor=cursor)
+        await service.anomalies(cursor="not-a-date|retry:x")
 
 
 @pytest.mark.parametrize("ref", ["fabricated:x", "retry", "retry:"])

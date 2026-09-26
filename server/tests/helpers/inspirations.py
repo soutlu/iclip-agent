@@ -1,4 +1,4 @@
-"""爆款视频查询的测试数据：登记款的品类品牌、插入视频快照、按 video_id 推出默认地址。"""
+"""爆款视频查询的测试数据：插入视频快照、按 video_id 推出默认地址。"""
 
 from __future__ import annotations
 
@@ -9,13 +9,6 @@ from decimal import Decimal
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-_INSERT_STYLE = text(
-    "INSERT INTO pdm_styles"
-    " (pdm_entity_id, product_number, style_wms, source_status,"
-    "  product_category_id, brand)"
-    " VALUES (:entity_id, :style_no, :style_no, 'effective', :category_id, :brand_code)"
-)
-
 _INSERT_VIDEO = text(
     "INSERT INTO iclip.inspiration_videos"
     " (video_id, style_raw, style_no, category_id, category_name,"
@@ -25,28 +18,6 @@ _INSERT_VIDEO = text(
     "         :brand_code, :brand_name, :oss_url, :posted_date,"
     "         :impressions, :views, :clicks, :orders, :revenue)"
 )
-
-
-async def seed_style(
-    engine: AsyncEngine,
-    *,
-    style_no: str,
-    category_id: int | None = 70,
-    brand_code: str | None = "3",
-    entity_id: int | None = None,
-) -> None:
-    """登记一个款的品类与品牌归属。``None`` 表示上游缺这一项。"""
-
-    async with engine.begin() as conn:
-        await conn.execute(
-            _INSERT_STYLE,
-            {
-                "entity_id": entity_id if entity_id is not None else abs(hash(style_no)) % 10**9,
-                "style_no": style_no,
-                "category_id": category_id,
-                "brand_code": brand_code,
-            },
-        )
 
 
 async def seed_video(
@@ -97,4 +68,4 @@ def urls_of(video_ids: Sequence[str]) -> list[str]:
     return [f"https://bucket.example.com/{video_id}.mp4" for video_id in video_ids]
 
 
-__all__ = ["seed_style", "seed_video", "urls_of"]
+__all__ = ["seed_video", "urls_of"]

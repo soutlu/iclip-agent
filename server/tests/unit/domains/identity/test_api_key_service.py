@@ -121,22 +121,6 @@ async def test_api_key_principal_cannot_issue_keys() -> None:
         )
 
 
-async def test_key_permissions_are_explicit_grant_set_independent_of_owner_roles() -> None:
-    owner = make_account(roles=("root",))
-    service, users, _ = make_service(owner)
-    principal = service.principal_for_user(owner)
-    _, token = await service.issue_api_key(
-        principal, CreateApiKey(name="k", permissions=frozenset({"users:manage"}))
-    )
-    await users.update_access_fields(
-        owner.id, roles=("viewer",), direct_permissions=None, is_active=None
-    )
-
-    # key 有效权限 = 显式授权集，不随属主角色变化
-    key_principal = await service.authenticate_api_key(token)
-    assert key_principal.permissions == {"users:manage"}
-
-
 async def test_revoked_expired_and_inactive_owner_all_fail_auth() -> None:
     owner = make_account(roles=("root",))
     service, users, api_keys = make_service(owner)

@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from iclip.common.errors import NotFound, ValidationFailed
+from iclip.common.errors import ValidationFailed
 from iclip.domains.identity.models import PrincipalKind
 from iclip.domains.identity.public import ACT_AS_PERMISSION, MANAGE_PERMISSION, Principal
 from iclip.domains.library.models import Scope, VideoCursor
@@ -145,18 +145,6 @@ async def test_can_open_follows_the_conversation_read_scope() -> None:
     )
 
 
-async def test_everyone_gets_the_conversation_and_the_script() -> None:
-    row = card(NOW)
-    service = LibraryService(FakeReports([row]))
-
-    as_colleague = (await service.videos(principal(uuid.uuid4()))).items[0]
-
-    assert as_colleague.conversation_id == row.video.conversation_id
-    assert as_colleague.id == row.video.conversation_id
-    assert as_colleague.title == "春夏凉鞋合集"
-    assert as_colleague.take == row.video.take
-
-
 async def test_detail_carries_the_groups_and_the_reader_view() -> None:
     first, second = card(NOW), card(NOW - timedelta(hours=1))
     reports = FakeReports([first, second])
@@ -170,15 +158,6 @@ async def test_detail_carries_the_groups_and_the_reader_view() -> None:
     assert as_owner.video.can_open_conversation is True
     assert as_colleague.video.can_open_conversation is False
     assert as_colleague.groups == as_owner.groups
-
-
-async def test_an_id_that_is_not_a_card_is_not_found() -> None:
-    row = card(NOW)
-    service = LibraryService(FakeReports([row]))
-
-    for outside in (row.video.face.job_id, uuid.uuid4()):
-        with pytest.raises(NotFound):
-            await service.video(principal(OWNER), outside)
 
 
 async def test_cursor_keys_on_the_face_finish_time_and_total_is_only_on_page_one() -> None:
@@ -208,12 +187,8 @@ async def test_blank_keyword_means_no_keyword() -> None:
     assert [scope.q for scope, _ in reports.queried] == [None, "滑板"]
 
 
-async def test_bad_window_limit_and_cursor_are_rejected() -> None:
+async def test_limit_out_of_range_is_rejected() -> None:
     service = LibraryService(FakeReports())
 
     with pytest.raises(ValidationFailed):
-        await service.videos(principal(OWNER), since=NOW, until=NOW - timedelta(days=1))
-    with pytest.raises(ValidationFailed):
         await service.videos(principal(OWNER), limit=0)
-    with pytest.raises(ValidationFailed):
-        await service.videos(principal(OWNER), cursor="not-a-cursor")

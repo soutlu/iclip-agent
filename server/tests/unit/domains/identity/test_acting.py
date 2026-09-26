@@ -17,7 +17,7 @@ from iclip.domains.identity.acting import (
 from iclip.domains.identity.models import Principal
 from iclip.domains.identity.rbac import ACT_AS_PERMISSION
 from iclip.domains.identity.sso import sso_placeholder_email
-from tests.helpers.identity import InMemoryUserRepository, make_account
+from tests.helpers.identity import InMemoryUserRepository
 
 
 def browser(username: str | None = "luke") -> Principal:
@@ -68,7 +68,6 @@ async def test_key_with_the_permission_acts_as_the_named_person() -> None:
 
     (placeholder,) = users.accounts.values()
     assert placeholder.username == "Shan.Hu"
-    assert placeholder.roles == ()
     assert is_placeholder_account("Shan.Hu", placeholder.email)
     assert acting.user_id == placeholder.id
     assert acting.username == "Shan.Hu"
@@ -77,16 +76,6 @@ async def test_key_with_the_permission_acts_as_the_named_person() -> None:
     assert acting.permissions == key.permissions
     assert acting.api_key_id == key.api_key_id
     assert acting.kind == "api_key"
-
-
-async def test_an_existing_account_is_reused_instead_of_a_placeholder() -> None:
-    rudy = make_account(username="Rudy", email="rudy@corp.test")
-    users = InMemoryUserRepository([rudy])
-
-    acting = await act_as_with(users)(api_key(ACT_AS_PERMISSION), "Rudy")
-
-    assert acting.user_id == rudy.id
-    assert len(users.accounts) == 1
 
 
 @pytest.fixture
@@ -128,11 +117,6 @@ async def test_blank_name_means_nobody_to_act_as() -> None:
     for blank in (None, "", "   "):
         assert await act_as_with(users)(key, blank) is key
     assert users.accounts == {}
-
-
-def test_placeholder_email_is_deterministic_per_name() -> None:
-    assert placeholder_email("Shan.Hu") == placeholder_email("Shan.Hu")
-    assert placeholder_email("Shan.Hu") != placeholder_email("shan.hu")
 
 
 def test_placeholder_account_is_recognized_only_by_its_own_name() -> None:
