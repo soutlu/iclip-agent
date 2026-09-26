@@ -13,7 +13,7 @@ export const librarySearchSchema = z.object({
   orientation: z.enum(['portrait', 'landscape']).optional().catch(undefined),
   q: z.string().max(100).optional().catch(undefined),
   userName: z.string().min(1).optional().catch(undefined),
-  /** 打开着详情的那条出片；分享出去的链接也靠它直达。 */
+  /** 打开着详情的那张卡；分享出去的链接也靠它直达。 */
   video: z.uuid().optional().catch(undefined),
 })
 

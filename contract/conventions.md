@@ -348,7 +348,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 - `POST /generations/video-edits` 在一条成片上改一段：`source_job_id` 是基底，`range_start_ms` / `range_end_ms` 是要改的区间（毫秒；起点不小于 0、终点晚于起点，否则 `422`）；`model`、`prompt`、`user_name`、`reference_image_urls`、`seconds`、`provider_options` 与出片同义，照样转发上游；另收归属字段 `conversation_id`、`task_id` 与坐标 `metadata`。不收 `reference_video_urls`、`shot` 与 `root_job_id`，给了是 `422`。模型规则同出片。响应是 `GenerationEnvelope`。
 - 编辑段走视频上游。提交上游前，服务端按区间从基底上切一段参考片段交给模型：不重编码，放在已配过期规则的前缀下，按编辑段的 id 命名，不落行。起点落在之前最近的关键帧上，片段可能比区间长、多出来的在开头；记录上的 `rangeStartMs` / `rangeEndMs` 随之改记实际切点，也就是模型真正看到的那一段。终点超出基底时长按基底时长截；起点不在基底之内是 `EDIT_RANGE_OUT_OF_BOUNDS`（消息里带基底时长），取不到基底是 `MEDIA_SOURCE_UNREACHABLE`，切不出来是 `MEDIA_PROCESS_FAILED`，存不进桶是 `OUTPUT_STORE_FAILED`，这几种失败发生时上游还没被调用。落库的 `request.reference_video_urls` 为空，片段地址只进发给上游的那一次请求。
-- `POST /generations/video-composites` 只收编辑段的任务号 `sourceJobId`、`userName`，以及归属字段 `conversationId`、`taskId` 与坐标 `metadata`。服务端按编辑段的基底与实际区间算出各段——基底从头到起点（起点为 0 时没有这段）、编辑段产物整条、基底从终点到结尾——拼成同一原作下的新一版成片，存进本系统的桶、长期保留。记录的 `request.segments` 就是这几段，取到结尾的段 `end` 为 `null`，执行时按素材时长补齐，补出来为空的段跳过。一律重编码：画幅与帧率对齐到原片（按素材整条时长认），模型还回来的片段缩放去适配它，有一段带音轨就出音轨、没音轨的段补静音。
+- `POST /generations/video-composites` 只收编辑段的任务号 `sourceJobId`、`userName`，以及归属字段 `conversationId`、`taskId` 与坐标 `metadata`。服务端按编辑段的基底与实际区间算出各段——基底从头到起点（起点为 0 时没有这段）、编辑段产物整条、基底从终点到结尾——拼成一条新成片（原作与镜号随编辑段），存进本系统的桶、长期保留。记录的 `request.segments` 就是这几段，取到结尾的段 `end` 为 `null`，执行时按素材时长补齐，补出来为空的段跳过。一律重编码：画幅与帧率对齐到原片（按素材整条时长认），模型还回来的片段缩放去适配它，有一段带音轨就出音轨、没音轨的段补静音。
 - 合成取不到素材是 `MEDIA_SOURCE_UNREACHABLE`，ffmpeg 处理失败是 `MEDIA_PROCESS_FAILED`，存不进桶是 `OUTPUT_STORE_FAILED`。编辑段与合成的这些失败都是终态，不自动重试。
 - 记录上另有两个本地加工才填的字段：`durationMs` 是合成产物量出来的实际时长，完成后才有，别的记录恒为空；`clipStage` 是本地加工在途时跑到哪一步（`fetching` / `processing` / `uploading`，编辑段切片只有后两步），只在提交中、还没交给上游时非空，有了结论或交给上游后为空。阶段变化不发实时帧，调用方最多晚一轮轮询才看到。
 
@@ -375,7 +375,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 - 图片请求的 `prompt` 由调用方编译成最终文本，服务端原样存进请求快照，不解析也不改写。前端把引用写成 `@图片N` / `@标注N`，编号即图片在本次 `referenceImageUrls` 里的位置。
 - `metadata` 是调用方自己的标签：JSON 对象，四种提交都收，服务端原样存、原样回读（`GenerationOut.metadata`）、不读也不解释其中任何键，序列化后不超过 2000 字符，超了 `422`。它不进 `request`，也不发上游。这个形状归前端定义（`web/src/features/storyboard/generation-metadata.ts`）：分镜页给图片写 `{shot, frame}` 用来找格子，视频的镜号只在 `shot_index`。
-- `GET /generations` 的类型（`kind`）、操作（`operation`）、对话、需求单、镜号（`shotIndex`）、原作（`rootJobId`）、来源（`sourceJobId`）与 `metadata` 筛选在分页截断前执行，归属范围不因筛选扩大，唯一的例外是按对话列分叉副本时连同它继承的记录（§6）。`metadata` 在查询串里是一段 JSON 对象（如 `metadata={"frame":2}`），按 JSONB 包含匹配；不是 JSON 对象返回 `422`。使用上一页最后一项的 `id` 作为 `before` 继续读取；按创建时间与 ID 倒序，空列表表示读完。每条记录带 `operation`、`shotIndex`、`taskId`、`watermarkOutputUrl`（图片与合成恒为 `null`）与 `finishedAt`（到终态的时刻，数据库时钟，没到终态为 `null`；同一原作下的成片按它排版本）。
+- `GET /generations` 的类型（`kind`）、操作（`operation`）、对话、需求单、镜号（`shotIndex`）、原作（`rootJobId`）、来源（`sourceJobId`）与 `metadata` 筛选在分页截断前执行，归属范围不因筛选扩大，唯一的例外是按对话列分叉副本时连同它继承的记录（§6）。`metadata` 在查询串里是一段 JSON 对象（如 `metadata={"frame":2}`），按 JSONB 包含匹配；不是 JSON 对象返回 `422`。使用上一页最后一项的 `id` 作为 `before` 继续读取；按创建时间与 ID 倒序，空列表表示读完。每条记录带 `operation`、`shotIndex`、`taskId`、`watermarkOutputUrl`（图片与合成恒为 `null`）与 `finishedAt`（到终态的时刻，数据库时钟，没到终态为 `null`；同一镜头组的成片按它排版本，见 [CONTEXT.md「镜头组」](../docs/CONTEXT.md#术语)）。
 - 生成完成只产生候选图片。应用到参考帧须由用户确认，再经现有工作区文件版本校验保存；既有视频任务和视频结果不随候选生成或采用而改写。
 
 ## 12. 审计报表 (Audit)
@@ -391,11 +391,11 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ## 13. 资料库 (Library)
 
-全站成功出片连同出片时脚本的三个只读端点，都要 `generation:read`。收录口径、卡与卡面的定义见 [CONTEXT.md「资料库」](../docs/CONTEXT.md#术语)。
+全站成片连同出片时脚本的三个只读端点，都要 `generation:read`。收录口径、卡与卡面的定义见 [CONTEXT.md「资料库」](../docs/CONTEXT.md#术语)：一张卡是一段对话的分镜，装着这段对话读得到的全部成片（[ADR-0002](../docs/adr/0002-library-card-per-storyboard.md)）。
 
-- **看得到全站，拿不到别人的对话**：任何持 `generation:read` 的人都能看到全部卡与脚本；`conversationId` 只对来源对话的属主与治理者（`users:manage`）给出，其余人恒为 `null`。对话标题 `title` 照给，不挂对话的出片为 `null`。
-- `GET /library/videos` 按卡面时刻（`face.createdAt`）倒序，翻页 `limit` 与 `cursor`，规则同 §6。筛选：`userName`（归属的人）、`since` / `until`（左闭右开，作用在卡面时刻上）、`orientation`（`portrait` / `landscape`，按请求里的 `aspectRatio` 判，认不出比例的两边都不算）、`q`（按字面包含匹配卡面那次出片的正文与对话标题，不区分大小写；首尾空白去掉后为空即不筛）。`total` 是当前筛选下的卡数，只在第一页（不带 `cursor`）给，翻页时为 `null`。
-- 卡上 `id` 是卡面那次出片的 id，`face` 是卡面放的那条（`kind` 为 `take` 或 `master`；成片没有水印版，`watermarkOutputUrl` 为 `null`，`durationMs` 是量出来的时长），`take` 是卡面那次出片的参数、脚本与名下成片，`takeCount` 是这一镜成功出过几次。
-- `take.prompt` 是发给模型的原文；`take.script` 是镜头组（`globalSettings` 加 `timeline[]`，每镜 `start`、`end`、`prompt`、`imageIndexes`），为 `null` 表示纯文本。`imageIndexes` 指向 `referenceImageUrls` 的第 N 张。画面尺寸不在数据里，占位比例按 `aspectRatio`。
-- `GET /library/videos/{id}` 返回这一镜：`video`（卡本身）、`takes[]`（全部成功出片，早的在前，各带名下成片）、`siblings[]`（同一段对话的其他镜，镜号小的在前）。`id` 可以是这一镜里任何一次出片；不在资料库里的（没成、衍生记录、已删对话、不存在）一律 `404`。
-- `GET /library/authors` 列名下有卡的人与卡数（`userName`、`count`），多的在前、同数按名字，不受筛选影响。
+- **可见范围**：任何持 `generation:read` 的人都能看到全部卡、脚本与来源对话。卡的 `id` 是对话 id，不挂对话（对话不存在也算）的卡是那条出片的 id。`conversationId` 对所有人都给，不挂对话为 `null`；`title`、`agentId`、`taskId` 取自来源对话，对话删了照给。`canOpenConversation` 是这位读者能不能打开那段对话，口径同 §6 的对话可读范围：谁读得到那段对话，谁就能打开；治理者含墓碑。不挂对话的卡恒为 `false`。
+- `GET /library/videos` 按卡面完成时刻（`face.finishedAt`）倒序，是 §3 按建立时间排的例外（[ADR-0002](../docs/adr/0002-library-card-per-storyboard.md)）；翻页 `limit` 与 `cursor`，规则同 §6，游标是卡面完成时刻加卡 `id`。筛选：`userName`（卡的作者）、`since` / `until`（左闭右开，作用在卡面完成时刻上）、`orientation`（`portrait` / `landscape`，按卡面成片对应那条出片请求里的 `aspectRatio` 判，认不出比例的两边都不算）、`q`（按字面包含匹配卡面成片对应那条出片的正文与对话标题，不区分大小写；首尾空白去掉后为空即不筛）。有没有卡、卡面、排序与筛选只看对话自己的成片。`total` 是当前筛选下的卡数，只在第一页（不带 `cursor`）给，翻页时为 `null`。
+- **卡的字段**：`face` 是卡面那一版，即对话自己最新的成片；`take` 是它对应的出片（出片是它自己，合成沿原作取，原作可以在祖先对话里）；`userName` 是卡的作者，即对话属主的用户名，不挂对话的是出片属主的；`groupCount` / `versionCount` 是卡里有几个镜头组、一共几版，都含继承来的。
+- **版本的形状**（`face` 与详情里的每一版）：`kind` 是 `take`（出片）或 `composite`（合成）；`jobId` 是那条成片；`watermarkOutputUrl` 合成恒为 `null`；`durationMs` 是量出来的时长，只有合成有；`finishedAt` 是完成时刻；`userName` 是那条成片属主的用户名。详情里的每一版另带 `take`，合成的 `take` 沿原作取。`take.prompt` 是发给模型的原文；`take.script` 是镜头组（`globalSettings` 加 `timeline[]`，每镜 `start`、`end`、`prompt`、`imageIndexes`），为 `null` 表示纯文本。`imageIndexes` 指向 `referenceImageUrls` 的第 N 张。画面尺寸不在数据里，占位比例按 `aspectRatio`。账号没有用户名时各处 `userName` 为 `null`。
+- `GET /library/videos/{id}` 返回一张卡：`video`（卡本身）与 `groups[]`（每组 `shotIndex` 加 `versions[]`）。有镜号的组按镜号从小到大在前；没镜号的组是一条出片连同同原作的合成，排在后面、按出片完成先后。组内早完成的在前，第 N 条就是第 N 版。`id` 只认卡 id，出片 id、不存在的 id 一律 `404`；对话删了照常返回。
+- `GET /library/authors` 列作者与各自的卡数（`userName`、`count`），多的在前、同数按名字，不受筛选影响。

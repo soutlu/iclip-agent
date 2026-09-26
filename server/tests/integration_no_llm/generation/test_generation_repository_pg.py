@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from iclip.common.errors import NotFound
 from iclip.domains.conversations.infra_sql import SqlConversationRepository
-from iclip.domains.conversations.models import Conversation
 from iclip.domains.generation.infra_sql import SqlGenerationRepository
 from iclip.domains.generation.models import (
     STATUS_COMPLETED,
@@ -26,6 +25,12 @@ from iclip.domains.generation.models import (
     GenerationJob,
 )
 from iclip.domains.generation.schemas import GenerationRequest
+from tests.helpers.fork_lineage import (
+    finished,
+    make_user,
+    open_conversation,
+    three_level_fork,
+)
 from tests.helpers.generation import (
     compose_request,
     edit_request,
@@ -47,25 +52,6 @@ async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
         yield created
     finally:
         await created.dispose()
-
-
-async def make_user(engine: AsyncEngine) -> uuid.UUID:
-    """先创建用户以满足 generation_jobs 的属主外键。"""
-
-    user_id = uuid.uuid4()
-    async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "INSERT INTO iclip.users"
-                " (id, email, hashed_password, is_active, is_superuser, is_verified,"
-                "  display_name, avatar_url, roles, direct_permissions, city, job_title,"
-                "  departments)"
-                " VALUES (:id, :email, 'x', true, false, true, '', '',"
-                " '[\"editor\"]'::jsonb, '[]'::jsonb, '', '', '[]'::jsonb)"
-            ),
-            {"id": user_id, "email": f"{user_id}@example.test"},
-        )
-    return user_id
 
 
 async def insert_job(
@@ -610,70 +596,8 @@ async def test_a_reference_cut_records_the_actual_range_only_while_submitting(
     assert (stored.range_start_ms, stored.range_end_ms) == (0, 4000)
 
 
-async def _complete(repo: SqlGenerationRepository, job: GenerationJob, url: str) -> GenerationJob:
-    """把一条记录推到终态，使它带上输出地址。"""
-
-    await repo.mark_submitting(job.id)
-    await repo.mark_submitted(
-        job.id, provider_task_id=str(job.id), provider_status="queued", provider_snapshot={}
-    )
-    completed = await repo.mark_completed(
-        job.id, output_url=url, provider_status="succeeded", provider_snapshot={}
-    )
-    assert completed is not None
-    return completed
-
-
 # --- 分叉继承 -------------------------------------------------------------------
-# 对话行与生成记录都用各自仓储落库，时刻全是数据库时钟：调用的先后就是时刻的先后，
-# 边界两侧的记录因此是真的落在两侧，递归血缘查询也一起测到。
-
-
-async def open_conversation(
-    conversations: SqlConversationRepository,
-    owner: uuid.UUID,
-    *,
-    forked_from: uuid.UUID | None = None,
-) -> Conversation:
-    now = datetime.now(UTC)
-    created, _ = await conversations.create_if_absent(
-        Conversation(
-            id=uuid.uuid4(),
-            owner_user_id=owner,
-            agent_id="storyboard",
-            title="t",
-            title_kind="custom",
-            last_run_id=None,
-            task_id=None,
-            collection_id=None,
-            created_at=now,
-            updated_at=now,
-            forked_from=forked_from,
-            fork_turn=None if forked_from is None else 1,
-        )
-    )
-    return created
-
-
-async def finished(
-    repo: SqlGenerationRepository,
-    owner: uuid.UUID,
-    conversation_id: uuid.UUID,
-    name: str,
-    request: GenerationRequest | None = None,
-    **fields: Any,
-) -> GenerationJob:
-    """在这段对话里出一条已完成的记录，地址按 ``name`` 起。"""
-
-    job = await repo.create(
-        make_job(
-            request or video_request(),
-            owner_user_id=owner,
-            conversation_id=conversation_id,
-            **fields,
-        )
-    )
-    return await _complete(repo, job, f"https://example.test/{name}.mp4")
+# 场景与构造器在 tests/helpers/fork_lineage.py，资料库的集成测试用同一个场景。
 
 
 async def test_each_hop_has_its_own_boundary_and_only_finished_takes_are_inherited(
@@ -685,47 +609,26 @@ async def test_each_hop_has_its_own_boundary_and_only_finished_takes_are_inherit
 
     repo = SqlGenerationRepository(engine)
     conversations = SqlConversationRepository(engine)
-    author, forker = await make_user(engine), await make_user(engine)
-    grand = await open_conversation(conversations, author)
-    from_grand = await finished(repo, author, grand.id, "grand-early")
-    parent = await open_conversation(conversations, author, forked_from=grand.id)
-    await finished(repo, author, grand.id, "grand-after-parent")
-    from_parent = await finished(repo, author, parent.id, "parent-early")
-    in_flight = await repo.create(
-        make_job(video_request(), owner_user_id=author, conversation_id=parent.id)
-    )
-    parent_edit = await finished(
-        repo,
-        author,
-        parent.id,
-        "parent-edit",
-        edit_request(),
-        source_job_id=from_parent.id,
-        root_job_id=from_parent.id,
-        range_start_ms=1000,
-        range_end_ms=4000,
-    )
-    failed = await repo.create(
-        make_job(video_request(), owner_user_id=author, conversation_id=parent.id)
-    )
-    await repo.mark_failed(failed.id, error_code="UPSTREAM_FAILED", error_message="上游拒了")
-    child = await open_conversation(conversations, forker, forked_from=parent.id)
-    await _complete(repo, in_flight, "https://example.test/in-flight.mp4")
-    await finished(repo, author, parent.id, "parent-after-child")
-    own = await finished(repo, forker, child.id, "child-own")
+    chain = await three_level_fork(engine)
+    grand, parent, child = chain.grand, chain.parent, chain.child
 
     inheritance = await conversations.ancestry(child.id)
     assert inheritance == ((parent.id, child.created_at), (grand.id, parent.created_at)), (
         "近的祖先在前，边界是这条链上它的下一级对话的建立时刻"
     )
     listed = await repo.list_for_owner(
-        owner=forker, limit=20, conversation_id=child.id, inherited=inheritance
+        owner=chain.forker, limit=20, conversation_id=child.id, inherited=inheritance
     )
-    assert {job.id for job in listed} == {own.id, from_parent.id, parent_edit.id, from_grand.id}
+    assert {job.id for job in listed} == {
+        chain.own.id,
+        chain.from_parent.id,
+        chain.parent_edit.id,
+        chain.from_grand.id,
+    }
     assert {
         job.id
-        for job in await repo.list_for_owner(owner=forker, limit=20, conversation_id=child.id)
-    } == {own.id}, "不给边界对就只按属主"
+        for job in await repo.list_for_owner(owner=chain.forker, limit=20, conversation_id=child.id)
+    } == {chain.own.id}, "不给边界对就只按属主"
     assert await conversations.ancestry(grand.id) == (), "不是分叉来的没有祖先"
 
 

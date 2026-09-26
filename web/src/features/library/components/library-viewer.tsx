@@ -1,4 +1,4 @@
-/** 资料库详情：左边播这一镜的某个版本、下面排全部版本，右边是脚本与参数；上一条 / 下一条在已读的列表里走。 */
+/** 资料库详情：左边播这张卡某个镜头组的某个版本、下面排这一组的全部版本，右边是脚本与参数；上一条 / 下一条在已读的列表里走。 */
 
 import { useNavigate } from '@tanstack/react-router'
 import { useRef, useState, type KeyboardEvent } from 'react'
@@ -111,12 +111,11 @@ export function LibraryViewer({
             <ViewerBody
               detail={detail.data}
               detailError={
-                detail.isError ? errorMessageOf(detail.error, '读取这一镜的全部版本失败') : null
+                detail.isError ? errorMessageOf(detail.error, '读取这张卡的全部版本失败') : null
               }
               key={videoId}
               onAuthor={onAuthor}
               onClose={onClose}
-              onNavigate={onNavigate}
               onRetry={() => void detail.refetch()}
               shareLink={shareLink}
               startAt={startAt}
@@ -196,7 +195,6 @@ type ViewerBodyProps = {
   detailError: string | null
   startAt: number | null
   shareLink: string
-  onNavigate: (id: string) => void
   onClose: () => void
   onAuthor: (userName: string) => void
   onRetry: () => void
@@ -208,7 +206,6 @@ function ViewerBody({
   detailError,
   startAt,
   shareLink,
-  onNavigate,
   onClose,
   onAuthor,
   onRetry,
@@ -216,21 +213,28 @@ function ViewerBody({
   const playerRef = useRef<HTMLVideoElement>(null)
   // 起播位置只对打开时那个版本生效一次，换版本从头播。
   const pendingStartRef = useRef(startAt)
+  // 只记选中的那一版，所在的镜头组由它推出来；没选过就是卡面那一版。
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [preview, setPreview] = useState<LightboxMedia | null>(null)
   const { copied, copy } = useCopyFeedback()
 
-  // 详情回来之前只有卡面那次出片，版本条等它回来再出。
-  const versions = versionsOf(detail?.takes ?? [video.take])
-  const version =
-    versions.find((item) => item.id === (selectedId ?? video.face.jobId)) ?? versions.at(-1)
+  // 详情回来之前只有卡面那一版，版本条与其他镜头组等它回来再出。
+  const groups = detail?.groups ?? [
+    { shotIndex: null, versions: [{ ...video.face, take: video.take }] },
+  ]
+  const wanted = selectedId ?? video.face.jobId
+  const group =
+    groups.find((item) => item.versions.some((entry) => entry.jobId === wanted)) ?? groups[0]
+  if (group === undefined) return null
+  const versions = versionsOf(group)
+  const version = versions.find((item) => item.jobId === wanted) ?? versions.at(-1)
   if (version === undefined) return null
 
   const { w, h } = aspectOf(version.take.aspectRatio)
   const title = cardTitleOf(video)
-  const author = version.take.userName
-  const seconds = version.durationMs === null ? durationSecondsOf(video) : version.durationMs / 1000
+  const author = version.userName
+  const seconds = durationSecondsOf(version.durationMs, version.take)
   const tags = [
     version.take.model,
     version.take.aspectRatio,
@@ -264,7 +268,7 @@ function ViewerBody({
               autoPlay
               className="size-full object-contain"
               controls
-              key={version.id}
+              key={version.jobId}
               loop
               onLoadedMetadata={(event) => {
                 const at = pendingStartRef.current
@@ -281,17 +285,19 @@ function ViewerBody({
         </div>
         {detail === undefined || versions.length < 2 ? null : (
           <div
-            aria-label="这一镜的版本"
+            aria-label="这个镜头组的版本"
             className="flex shrink-0 items-center gap-2 overflow-x-auto px-5 pb-4.5 max-md:px-3 max-md:pb-3"
             role="group"
           >
-            <span className="library-viewer-faint mr-1 shrink-0 text-caption">这一镜的版本</span>
+            <span className="library-viewer-faint mr-1 shrink-0 text-caption">
+              这个镜头组的版本
+            </span>
             {versions.map((item) => (
               <button
-                aria-pressed={item.id === version.id}
+                aria-pressed={item.jobId === version.jobId}
                 className="library-viewer-version flex h-11 shrink-0 cursor-pointer items-center gap-2 rounded-sm py-1 pr-3 pl-1 text-left ui-focus"
-                key={item.id}
-                onClick={() => setSelectedId(item.id)}
+                key={item.jobId}
+                onClick={() => setSelectedId(item.jobId)}
                 type="button"
               >
                 <img
@@ -306,7 +312,7 @@ function ViewerBody({
                 <span className="text-caption">
                   <b className="block font-medium">{item.label}</b>
                   <span className="library-viewer-faint block">
-                    {formatRelativeTime(item.createdAt)}
+                    {formatRelativeTime(item.finishedAt)}
                   </span>
                 </span>
               </button>
@@ -331,7 +337,7 @@ function ViewerBody({
               <span className="min-w-0">
                 <span className="block truncate text-body font-semibold">{author}</span>
                 <span className="block text-caption text-on-surface-faint">
-                  {formatRelativeTime(version.createdAt)}
+                  {formatRelativeTime(version.finishedAt)}
                 </span>
               </span>
             </button>
@@ -372,10 +378,11 @@ function ViewerBody({
           >
             <LibraryScriptPanel
               currentTime={currentTime}
-              onOpenSibling={onNavigate}
+              groups={detail?.groups.filter((item) => item !== group)}
+              // 组不是卡：在这张卡里切到那一组最新的一版，不换详情。
+              onOpenGroup={(item) => setSelectedId(item.versions.at(-1)?.jobId ?? null)}
               onPreviewImage={setPreview}
               onSeek={seek}
-              siblings={detail?.siblings}
               take={version.take}
             />
           </TabsContent>
@@ -400,14 +407,17 @@ function ViewerBody({
           >
             {copied ? '已复制' : '复制提示词'}
           </Button>
-          {/* 版本是一次出片或它名下的一条成片，id 与地址取自同一条记录。 */}
+          {/* 版本是一条出片或合成，id 与地址取自同一条记录。 */}
           <VideoDownload
             className="size-(--control-height-lg) rounded-full"
-            jobId={version.id}
+            jobId={version.jobId}
             url={version.outputUrl}
             watermarkUrl={version.watermarkOutputUrl}
           />
-          <MoreMenu conversationId={video.conversationId} shareLink={shareLink} />
+          <MoreMenu
+            conversationId={video.canOpenConversation ? video.conversationId : null}
+            shareLink={shareLink}
+          />
         </footer>
       </section>
 
@@ -416,7 +426,7 @@ function ViewerBody({
   )
 }
 
-/** 复制链接人人都有；打开来源对话只给对话属主与管理员，其余人接口不给 conversationId，这里也就没有这一项。 */
+/** 复制链接人人都有；打开来源对话只给打得开那段对话的读者：对话 id 人人都拿得到，由调用方按 canOpenConversation 决定传不传。 */
 function MoreMenu({
   conversationId,
   shareLink,

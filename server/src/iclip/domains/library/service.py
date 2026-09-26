@@ -1,4 +1,4 @@
-"""资料库用例：整理筛选范围与游标，并按读者裁掉来源对话。端点权限由路由声明。"""
+"""资料库用例：整理筛选范围与游标，并按读者算能不能打开来源对话。端点权限由路由声明。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 
 from iclip.common.errors import NotFound, ValidationFailed
-from iclip.domains.identity.public import MANAGE_PERMISSION, Principal
+from iclip.domains.identity.public import MANAGE_PERMISSION, Principal, visible_owner_incl_act_as
 from iclip.domains.library.models import Orientation, Scope, VideoCursor
 from iclip.domains.library.repository import CardRow, LibraryReports
 from iclip.domains.library.schemas import (
@@ -54,12 +54,20 @@ def _after(cursor: str | None) -> VideoCursor | None:
     return VideoCursor(at=parsed.at, video_id=parsed.uuid_key())
 
 
-def _for_reader(principal: Principal, row: CardRow) -> LibraryVideoOut:
-    """来源对话只交给对话属主与治理者；其余人看得到片与脚本，拿不到对话。"""
+def _can_open(principal: Principal, row: CardRow) -> bool:
+    """口径同对话的读路径：治理者读得到任何对话，含墓碑；其余人要对话没删，且是属主或持
+    ``users:act_as`` 的钥匙。不挂对话的卡没有对话可开。"""
 
-    if row.conversation_owner == principal.user_id or principal.has(MANAGE_PERMISSION):
-        return row.video
-    return row.video.model_copy(update={"conversation_id": None})
+    if row.video.conversation_id is None:
+        return False
+    if principal.has(MANAGE_PERMISSION):
+        return True
+    owner = visible_owner_incl_act_as(principal)
+    return not row.conversation_deleted and (owner is None or owner == row.conversation_owner)
+
+
+def _for_reader(principal: Principal, row: CardRow) -> LibraryVideoOut:
+    return row.video.model_copy(update={"can_open_conversation": _can_open(principal, row)})
 
 
 class LibraryService:
@@ -78,7 +86,7 @@ class LibraryService:
         limit: int = 20,
         cursor: str | None = None,
     ) -> LibraryVideosOut:
-        """卡面时刻晚的排前面；满页才给下一页游标，总数只在第一页给。"""
+        """卡面完成时刻晚的排前面；满页才给下一页游标，总数只在第一页给。"""
 
         check_limit(limit)
         scope = _scope(user_name=user_name, since=since, until=until, orientation=orientation, q=q)
@@ -87,7 +95,7 @@ class LibraryService:
         next_cursor = None
         if len(rows) == limit:
             last = rows[-1].video
-            next_cursor = encode_cursor(last.face.created_at, last.id)
+            next_cursor = encode_cursor(last.face.finished_at, last.id)
         total = await self._reports.count(scope) if after is None else None
         return LibraryVideosOut(
             items=[_for_reader(principal, row) for row in rows],
@@ -95,19 +103,14 @@ class LibraryService:
             total=total,
         )
 
-    async def video(self, principal: Principal, video_id: uuid.UUID) -> LibraryVideoDetailOut:
-        """一镜的详情；这次出片不在资料库里就是 ``NotFound``。"""
+    async def video(self, principal: Principal, card_id: uuid.UUID) -> LibraryVideoDetailOut:
+        """一张卡的详情；``card_id`` 不是卡 id 就是 ``NotFound``。对话删了照常返回。"""
 
-        row = await self._reports.card_of(video_id)
+        row = await self._reports.card_of(card_id)
         if row is None:
             raise NotFound("资料库里没有这条视频")
-        takes = await self._reports.takes_of(video_id)
-        siblings = await self._reports.siblings_of(video_id)
-        return LibraryVideoDetailOut(
-            video=_for_reader(principal, row),
-            takes=list(takes),
-            siblings=[_for_reader(principal, sibling) for sibling in siblings],
-        )
+        groups = await self._reports.groups_of(card_id)
+        return LibraryVideoDetailOut(video=_for_reader(principal, row), groups=list(groups))
 
     async def authors(self) -> LibraryAuthorsOut:
         return LibraryAuthorsOut(items=list(await self._reports.authors()))

@@ -1,6 +1,12 @@
 /** 卡片与详情要显示的派生量：画幅、时长、正文、故事板取帧、版本。都从接口字段推，不读媒体本身。 */
 
-import type { LibraryScript, LibraryTake, LibraryVideo } from './library.api'
+import type {
+  LibraryScript,
+  LibraryShotGroup,
+  LibraryTake,
+  LibraryVersionOut,
+  LibraryVideo,
+} from './library.api'
 
 /** 画面尺寸不在数据里，占位按请求里的画幅；认不出的（如 adaptive）按竖版 9:16 占位。 */
 const FALLBACK_ASPECT = { h: 16, w: 9 } as const
@@ -14,11 +20,11 @@ export const aspectOf = (aspectRatio: string | null): { w: number; h: number } =
   return w > 0 && h > 0 ? { h, w } : FALLBACK_ASPECT
 }
 
-/** 这张卡的秒数：成片量出来的时长优先，其次请求里的秒数，再次分镜的末尾；都没有是 null。 */
-export const durationSecondsOf = (video: LibraryVideo): number | null => {
-  if (video.face.durationMs !== null) return video.face.durationMs / 1000
-  if (video.take.seconds !== null && video.take.seconds > 0) return video.take.seconds
-  return video.take.script?.timeline.at(-1)?.end ?? null
+/** 一版的秒数：这一版量出来的时长（只有合成有）优先，其次它对应那次出片请求里的秒数，再次分镜的末尾；都没有是 null。 */
+export const durationSecondsOf = (durationMs: number | null, take: LibraryTake): number | null => {
+  if (durationMs !== null) return durationMs / 1000
+  if (take.seconds !== null && take.seconds > 0) return take.seconds
+  return take.script?.timeline.at(-1)?.end ?? null
 }
 
 /** 分:秒，秒数补两位；不足一秒按一秒算，免得出现 0:00。 */
@@ -33,9 +39,8 @@ export const openingTextOf = (take: LibraryTake): string => {
   return text.replace(/@Image\d+\s?/g, '').trim()
 }
 
-/** 卡片标题：来源对话的标题加镜头组号；不挂对话的出片是接口调用方直接交的。 */
-export const cardTitleOf = (video: LibraryVideo): string =>
-  `${video.title ?? '接口提交'}${video.shotIndex === null ? '' : ` · 镜头组 ${video.shotIndex}`}`
+/** 卡片标题：来源对话的标题；不挂对话的出片是接口调用方直接交的。 */
+export const cardTitleOf = (video: LibraryVideo): string => video.title ?? '接口提交'
 
 /** 镜头数：有分镜就是分镜的镜数，纯文本没有镜的概念。 */
 export const cutCountOf = (take: LibraryTake): number | null =>
@@ -110,46 +115,13 @@ export const promptSegmentsOf = (
 export const cutIndexAt = (script: LibraryScript, seconds: number): number =>
   script.timeline.findIndex((cut) => seconds >= cut.start && seconds < cut.end)
 
-/** 详情里能切换的一个版本：一次出片，或它名下的一条成片。参数与脚本都取自那次出片。 */
-export type LibraryVersion = {
-  id: string
-  kind: 'take' | 'master'
-  label: string
-  take: LibraryTake
-  outputUrl: string
-  watermarkOutputUrl: string | null
-  durationMs: number | null
-  createdAt: string
-}
+/** 详情里能切换的一个版本：一条出片或合成，带上它在组里的名字。参数与脚本取自它对应的那次出片。 */
+export type LibraryVersion = LibraryVersionOut & { label: string }
 
-/** 这一镜的全部版本，早的在前：每次出片后面跟着它名下的成片。出片按次序叫「第 N 版」，成片不止一条时编号。 */
-export const versionsOf = (takes: readonly LibraryTake[]): LibraryVersion[] => {
-  const masterCount = takes.reduce((count, take) => count + take.masters.length, 0)
-  let masterOrder = 0
-  return takes.flatMap((take, order) => [
-    {
-      createdAt: take.createdAt,
-      durationMs: null,
-      id: take.id,
-      kind: 'take' as const,
-      label: `第 ${order + 1} 版`,
-      outputUrl: take.outputUrl,
-      take,
-      watermarkOutputUrl: take.watermarkOutputUrl,
-    },
-    ...take.masters.map((master) => {
-      masterOrder += 1
-      return {
-        createdAt: master.createdAt,
-        durationMs: master.durationMs,
-        id: master.id,
-        kind: 'master' as const,
-        label: masterCount > 1 ? `成片 ${masterOrder}` : '成片',
-        outputUrl: master.outputUrl,
-        take,
-        // 成片是本系统合成的，没有水印版。
-        watermarkOutputUrl: null,
-      }
-    }),
-  ])
-}
+/** 一个镜头组的全部版本：接口已按完成先后排好，第 N 条叫「第 N 版」，出片与合成一起数。 */
+export const versionsOf = (group: LibraryShotGroup): LibraryVersion[] =>
+  group.versions.map((version, order) => ({ ...version, label: `第 ${order + 1} 版` }))
+
+/** 组卡上的名字：有镜号是「镜头组 N」，没有就是「无镜号」。 */
+export const groupLabelOf = (group: LibraryShotGroup): string =>
+  group.shotIndex === null ? '无镜号' : `镜头组 ${group.shotIndex}`

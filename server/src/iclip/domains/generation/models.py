@@ -67,7 +67,7 @@ class GenerationJob:
     root_job_id: uuid.UUID | None = None
     """原作：编辑段与合成都指最初那条出片，不管基于哪一版，所以链只有一层；出片自己为空。
 
-    版本按原作分组。在分叉副本里剪继承来的出片，原作照样指源对话里那条。"""
+    原作用于血缘与没有镜号时的分组（ADR-0002）。在分叉副本里剪继承来的出片，原作照样指源对话里那条。"""
     source_job_id: uuid.UUID | None = None
     """直接来源：编辑段指它的基底成片，合成指它的编辑段；出片与图片为空。可以指继承来的记录。"""
     range_start_ms: int | None = None

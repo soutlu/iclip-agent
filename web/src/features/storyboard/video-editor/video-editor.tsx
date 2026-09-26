@@ -308,7 +308,7 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
     !busy &&
     edit.preview !== undefined &&
     layoutSegments(edit.preview, durations) !== undefined &&
-    (edit.stage === 'ready' || (edit.stage === 'failed' && edit.master !== undefined))
+    (edit.stage === 'ready' || (edit.stage === 'failed' && edit.composite !== undefined))
   // 只在看着那条时说，它正好和灰着的合成按钮同时在屏幕上。
   const composeBlocked =
     selected?.kind === 'pending' &&
@@ -336,7 +336,7 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
       >
         {selected.edit.stage === 'composing'
           ? '合成中'
-          : selected.edit.master === undefined
+          : selected.edit.composite === undefined
             ? '合成成片'
             : '重新合成'}
       </Button>

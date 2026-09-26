@@ -1703,13 +1703,8 @@
       },
       "FaceOut": {
         "additionalProperties": false,
-        "description": "卡面放哪一条：这一镜最新的成片，没有成片就是最新一次出片。",
+        "description": "一版成片的版本头：卡面放的那一版，也是详情里每一版的公共部分。",
         "properties": {
-          "createdAt": {
-            "format": "date-time",
-            "title": "Createdat",
-            "type": "string"
-          },
           "durationMs": {
             "anyOf": [
               {
@@ -1721,6 +1716,11 @@
             ],
             "title": "Durationms"
           },
+          "finishedAt": {
+            "format": "date-time",
+            "title": "Finishedat",
+            "type": "string"
+          },
           "jobId": {
             "format": "uuid",
             "title": "Jobid",
@@ -1729,7 +1729,7 @@
           "kind": {
             "enum": [
               "take",
-              "master"
+              "composite"
             ],
             "title": "Kind",
             "type": "string"
@@ -1737,6 +1737,17 @@
           "outputUrl": {
             "title": "Outputurl",
             "type": "string"
+          },
+          "userName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
           },
           "watermarkOutputUrl": {
             "anyOf": [
@@ -1756,7 +1767,8 @@
           "outputUrl",
           "watermarkOutputUrl",
           "durationMs",
-          "createdAt"
+          "finishedAt",
+          "userName"
         ],
         "title": "FaceOut",
         "type": "object"
@@ -2468,18 +2480,11 @@
       "LibraryVideoDetailOut": {
         "additionalProperties": false,
         "properties": {
-          "siblings": {
+          "groups": {
             "items": {
-              "$ref": "#/components/schemas/LibraryVideoOut"
+              "$ref": "#/components/schemas/ShotGroupOut"
             },
-            "title": "Siblings",
-            "type": "array"
-          },
-          "takes": {
-            "items": {
-              "$ref": "#/components/schemas/TakeOut"
-            },
-            "title": "Takes",
+            "title": "Groups",
             "type": "array"
           },
           "video": {
@@ -2488,15 +2493,14 @@
         },
         "required": [
           "video",
-          "takes",
-          "siblings"
+          "groups"
         ],
         "title": "LibraryVideoDetailOut",
         "type": "object"
       },
       "LibraryVideoOut": {
         "additionalProperties": false,
-        "description": "资料库的一张卡：一镜，即（对话，镜号）下的全部成功出片；没有镜号的出片一条一张。",
+        "description": "资料库的一张卡：一段对话的分镜，装着这段对话读得到的全部成片（自己的加继承来的）；\n不挂对话的出片一条一张卡，同原作的合成跟着它。",
         "properties": {
           "agentId": {
             "anyOf": [
@@ -2508,6 +2512,10 @@
               }
             ],
             "title": "Agentid"
+          },
+          "canOpenConversation": {
+            "title": "Canopenconversation",
+            "type": "boolean"
           },
           "conversationId": {
             "anyOf": [
@@ -2524,28 +2532,17 @@
           "face": {
             "$ref": "#/components/schemas/FaceOut"
           },
+          "groupCount": {
+            "title": "Groupcount",
+            "type": "integer"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
             "type": "string"
           },
-          "shotIndex": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Shotindex"
-          },
           "take": {
             "$ref": "#/components/schemas/TakeOut"
-          },
-          "takeCount": {
-            "title": "Takecount",
-            "type": "integer"
           },
           "taskId": {
             "anyOf": [
@@ -2569,16 +2566,33 @@
               }
             ],
             "title": "Title"
+          },
+          "userName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          },
+          "versionCount": {
+            "title": "Versioncount",
+            "type": "integer"
           }
         },
         "required": [
           "id",
-          "shotIndex",
           "conversationId",
+          "canOpenConversation",
           "title",
           "agentId",
           "taskId",
-          "takeCount",
+          "userName",
+          "groupCount",
+          "versionCount",
           "face",
           "take"
         ],
@@ -2624,45 +2638,6 @@
           "total"
         ],
         "title": "LibraryVideosOut",
-        "type": "object"
-      },
-      "MasterOut": {
-        "additionalProperties": false,
-        "description": "挂在一次出片名下的成片（视频编辑确认合成的那条）。",
-        "properties": {
-          "createdAt": {
-            "format": "date-time",
-            "title": "Createdat",
-            "type": "string"
-          },
-          "durationMs": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Durationms"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "outputUrl": {
-            "title": "Outputurl",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "outputUrl",
-          "durationMs",
-          "createdAt"
-        ],
-        "title": "MasterOut",
         "type": "object"
       },
       "MetaMergeOp": {
@@ -3462,6 +3437,36 @@
         "title": "ScriptOut",
         "type": "object"
       },
+      "ShotGroupOut": {
+        "additionalProperties": false,
+        "description": "卡里的一个镜头组：有镜号的按镜号成组；没有镜号的是一条出片连同同原作的合成。",
+        "properties": {
+          "shotIndex": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shotindex"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/VersionOut"
+            },
+            "title": "Versions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "shotIndex",
+          "versions"
+        ],
+        "title": "ShotGroupOut",
+        "type": "object"
+      },
       "ShotOut": {
         "additionalProperties": false,
         "properties": {
@@ -3869,7 +3874,7 @@
       },
       "TakeOut": {
         "additionalProperties": false,
-        "description": "一次成功出片。参数与脚本照出片那一刻的请求。",
+        "description": "一版成片对应的出片：参数与脚本照出片那一刻的请求。合成沿原作取，原作可以在祖先对话里。",
         "properties": {
           "aspectRatio": {
             "anyOf": [
@@ -3881,11 +3886,6 @@
               }
             ],
             "title": "Aspectratio"
-          },
-          "createdAt": {
-            "format": "date-time",
-            "title": "Createdat",
-            "type": "string"
           },
           "generateAudio": {
             "anyOf": [
@@ -3903,13 +3903,6 @@
             "title": "Id",
             "type": "string"
           },
-          "masters": {
-            "items": {
-              "$ref": "#/components/schemas/MasterOut"
-            },
-            "title": "Masters",
-            "type": "array"
-          },
           "model": {
             "anyOf": [
               {
@@ -3920,10 +3913,6 @@
               }
             ],
             "title": "Model"
-          },
-          "outputUrl": {
-            "title": "Outputurl",
-            "type": "string"
           },
           "prompt": {
             "title": "Prompt",
@@ -3967,45 +3956,18 @@
               }
             ],
             "title": "Seconds"
-          },
-          "userName": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Username"
-          },
-          "watermarkOutputUrl": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Watermarkoutputurl"
           }
         },
         "required": [
           "id",
-          "createdAt",
-          "userName",
           "model",
           "aspectRatio",
           "seconds",
           "resolution",
           "generateAudio",
-          "outputUrl",
-          "watermarkOutputUrl",
           "prompt",
           "script",
-          "referenceImageUrls",
-          "masters"
+          "referenceImageUrls"
         ],
         "title": "TakeOut",
         "type": "object"
@@ -6326,6 +6288,82 @@
           "pageSize"
         ],
         "title": "UsersPageOut",
+        "type": "object"
+      },
+      "VersionOut": {
+        "additionalProperties": false,
+        "description": "详情里的一版：版本头加它对应的出片。",
+        "properties": {
+          "durationMs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Durationms"
+          },
+          "finishedAt": {
+            "format": "date-time",
+            "title": "Finishedat",
+            "type": "string"
+          },
+          "jobId": {
+            "format": "uuid",
+            "title": "Jobid",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "take",
+              "composite"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "outputUrl": {
+            "title": "Outputurl",
+            "type": "string"
+          },
+          "take": {
+            "$ref": "#/components/schemas/TakeOut"
+          },
+          "userName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          },
+          "watermarkOutputUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Watermarkoutputurl"
+          }
+        },
+        "required": [
+          "kind",
+          "jobId",
+          "outputUrl",
+          "watermarkOutputUrl",
+          "durationMs",
+          "finishedAt",
+          "userName",
+          "take"
+        ],
+        "title": "VersionOut",
         "type": "object"
       },
       "VideoComposeIn": {
@@ -10368,7 +10406,7 @@
     },
     "/generations/video-composites": {
       "post": {
-        "description": "把一条编辑段夹回它的基底，合成同一原作下的新一版成片。不经外部服务。\n\n``sourceJobId`` 必须是这段对话自己的或继承来的一条已完成编辑段。``userName`` 的规则同出片。",
+        "description": "把一条编辑段夹回它的基底，拼成一条新成片，原作与镜号随编辑段。不经外部服务。\n\n``sourceJobId`` 必须是这段对话自己的或继承来的一条已完成编辑段。``userName`` 的规则同出片。",
         "operationId": "submit_video_composite_generations_video_composites_post",
         "requestBody": {
           "content": {
@@ -10679,7 +10717,7 @@
     },
     "/library/authors": {
       "get": {
-        "description": "名下有卡的人与各自的卡数，多的排前面；给按人筛选用。",
+        "description": "卡的作者与各自的卡数，多的排前面；给按人筛选用。",
         "operationId": "authors_library_authors_get",
         "responses": {
           "200": {
@@ -10713,7 +10751,7 @@
     },
     "/library/videos": {
       "get": {
-        "description": "全站的成功出片，一镜一张卡，卡面时刻晚的排前面。\n\n时间窗 ``[since, until)`` 作用在卡面时刻上；``q`` 按字面包含匹配卡面那次出片的正文与\n对话标题。``total`` 只在第一页给。来源对话只交给对话属主与治理者。",
+        "description": "全站的成片，一段对话一张卡，卡面成片完成得晚的排前面。\n\n``userName`` 筛卡的作者（对话属主）；时间窗 ``[since, until)`` 作用在卡面成片的完成时刻上；\n``q`` 按字面包含匹配卡面成片对应那条出片的正文与对话标题。``total`` 只在第一页给。\n来源对话人人拿得到，``canOpenConversation`` 说这位读者打不打得开。",
         "operationId": "videos_library_videos_get",
         "parameters": [
           {
@@ -10875,7 +10913,7 @@
     },
     "/library/videos/{video_id}": {
       "get": {
-        "description": "这次出片所在那一镜：卡片本身、全部成功出片与名下成片、同一段对话的其他镜。\n\n``video_id`` 可以是这一镜里任何一次出片的 id；不在资料库里的是 ``404``。",
+        "description": "一张卡：卡片本身与按镜头组分好的全部版本，含继承来的。\n\n``video_id`` 是卡 id（对话 id，不挂对话的卡是出片 id），别的 id 一律 ``404``；\n对话删了照常返回。",
         "operationId": "video_library_videos__video_id__get",
         "parameters": [
           {

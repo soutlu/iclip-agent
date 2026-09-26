@@ -88,7 +88,7 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
         body: VideoComposeIn,
         principal: Annotated[Principal, require_permission("generation:submit")],
     ) -> GenerationEnvelope:
-        """把一条编辑段夹回它的基底，合成同一原作下的新一版成片。不经外部服务。
+        """把一条编辑段夹回它的基底，拼成一条新成片，原作与镜号随编辑段。不经外部服务。
 
         ``sourceJobId`` 必须是这段对话自己的或继承来的一条已完成编辑段。``userName`` 的规则同出片。
         """

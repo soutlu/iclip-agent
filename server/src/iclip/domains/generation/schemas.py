@@ -464,7 +464,7 @@ class GenerationOut(CamelModel):
     排队中、已有结论、交给上游之后都为空。"""
     created_at: datetime
     finished_at: datetime | None = None
-    """到终态的时刻（数据库时钟）；同一原作下的成片按它排版本。"""
+    """到终态的时刻（数据库时钟）；同一镜头组的成片按它排版本。"""
 
 
 def generation_out(job: GenerationJob) -> GenerationOut:
