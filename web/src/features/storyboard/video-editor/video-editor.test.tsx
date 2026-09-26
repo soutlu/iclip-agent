@@ -34,27 +34,25 @@ afterEach(() => {
 })
 
 describe('VideoEditor', () => {
-  it('模型默认取清单里的默认项；默认项不支持编辑就退到第一个支持的', async () => {
+  it.each([
+    {
+      name: '默认项能编辑但不在首位时用默认项',
+      models: { default: 'wan3.0-video', items: ['moyu-seedance-2-5', 'wan3.0-video'] },
+      expected: 'wan3.0-video',
+    },
+    {
+      name: '默认项不能编辑时退到第一个能编辑的',
+      models: {
+        default: 'moyu-seedance-2-0',
+        items: ['wan3.0-video', 'moyu-seedance-2-0', 'moyu-seedance-2-5'],
+      },
+      expected: 'wan3.0-video',
+    },
+  ])('编辑模型：$name', async ({ models, expected }) => {
+    server.use(http.get('*/api/generations/video-models', () => HttpResponse.json(models)))
     await renderEditor()
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: '编辑模型' })).toHaveTextContent(
-        'moyu-seedance-2-5',
-      ),
-    )
-  })
-
-  it('默认模型不在编辑名单里时用第一个能编辑的', async () => {
-    server.use(
-      http.get('*/api/generations/video-models', () =>
-        HttpResponse.json({
-          default: 'moyu-seedance-2-0',
-          items: ['wan3.0-video', 'moyu-seedance-2-0', 'moyu-seedance-2-5'],
-        }),
-      ),
-    )
-    await renderEditor()
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: '编辑模型' })).toHaveTextContent('wan3.0-video'),
+      expect(screen.getByRole('button', { name: '编辑模型' })).toHaveTextContent(expected),
     )
   })
 

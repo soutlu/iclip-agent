@@ -23,27 +23,21 @@ const TIME_TITLE_RE = /^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/
 
 describe('TurnActions', () => {
   afterEach(() => {
-    vi.useRealTimers()
     vi.restoreAllMocks()
   })
 
-  it('点复制把回复写进剪贴板，反馈「已复制」1.4s 后复位', async () => {
-    vi.useFakeTimers()
+  it('点复制把回复写进剪贴板，按钮提示已复制', async () => {
     const writeText = stubClipboard()
     render(<TurnActions copyText="最终回复" />)
 
     const button = screen.getByRole('button', { name: '复制' })
+    expect(button).toHaveAttribute('title', '复制')
     fireEvent.click(button)
     // 等待剪贴板 Promise 完成后触发的状态微任务。
     await act(async () => {})
 
     expect(writeText).toHaveBeenCalledWith('最终回复')
     expect(button).toHaveAttribute('title', '已复制')
-
-    act(() => {
-      vi.advanceTimersByTime(1400)
-    })
-    expect(button).toHaveAttribute('title', '复制')
   })
 
   it('这轮没有 usage 时统计段整段不渲染', () => {

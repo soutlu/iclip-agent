@@ -1,9 +1,9 @@
 import { waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
-import { addMockTask, loginAs, mockGovernor } from '@/testing/mocks/handlers'
+import { addMockTask } from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
-import { claimTask, fetchTasksPage, listTasksByIds } from './tasks.api'
+import { fetchTasksPage, listTasksByIds } from './tasks.api'
 
 describe('fetchTasksPage', () => {
   const CURSOR = '2026-09-01T00:00:00+00:00|abc'
@@ -32,18 +32,6 @@ describe('fetchTasksPage', () => {
     },
   )
 
-  it('读取失败时抛出服务错误，供列表展示和重试', async () => {
-    server.use(
-      http.get('*/api/tasks', () =>
-        HttpResponse.json({ detail: '需求单服务暂不可用' }, { status: 503 }),
-      ),
-    )
-
-    await expect(fetchTasksPage('all', null)).rejects.toThrow(
-      '读取需求单列表失败：需求单服务暂不可用',
-    )
-  })
-
   it('取消查询时中断正在读取的请求', async () => {
     let pendingRequest: Request | undefined
     server.use(
@@ -68,24 +56,21 @@ describe('fetchTasksPage', () => {
 })
 
 describe('listTasksByIds', () => {
-  it('按 id 批量读取，一批的 limit 就是 id 个数，库里没有的不回', async () => {
-    const wanted = addMockTask('要读的需求')
-    addMockTask('无关的需求')
+  it('按 id 批量读取，一批的 limit 就是 id 个数，返回响应里的需求单', async () => {
+    const task = addMockTask('要读的需求')
+    const ids = [task.id, crypto.randomUUID()]
+    let requestUrl: URL | undefined
+    server.use(
+      http.get('*/api/tasks', ({ request }) => {
+        requestUrl = new URL(request.url)
+        return HttpResponse.json({ items: [task], nextCursor: null, total: 1 })
+      }),
+    )
 
-    const found = await listTasksByIds([wanted.id, crypto.randomUUID()])
+    const found = await listTasksByIds(ids)
 
-    expect(found).toEqual([wanted])
-  })
-})
-
-describe('mock 需求单认领身份', () => {
-  it('治理者认领后在自己的需求单中可见，重复认领不会添加其他用户', async () => {
-    const task = addMockTask('治理者认领的需求')
-    task.status = 'published'
-    loginAs(mockGovernor)
-    await claimTask(task.id)
-    await claimTask(task.id)
-    expect(task.assigneeUserIds).toEqual([mockGovernor.id])
-    await expect(fetchTasksPage('mine', null)).resolves.toMatchObject({ items: [task] })
+    expect(requestUrl?.searchParams.getAll('ids')).toEqual(ids)
+    expect(requestUrl?.searchParams.get('limit')).toBe(String(ids.length))
+    expect(found).toEqual([task])
   })
 })

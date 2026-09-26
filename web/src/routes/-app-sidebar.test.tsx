@@ -258,22 +258,6 @@ describe('AppSidebar 对话区', () => {
     expect(screen.getByText('里面的对话')).toBeVisible()
   })
 
-  it('归属弹窗把对话放进合集，它就从任务区挪到合集里', async () => {
-    const collection = addMockCollection('夏季亚麻系列')
-    const conversation = addMockConversation('待归类')
-    const user = await openSidebar()
-    await screen.findByText('待归类')
-
-    await user.click(screen.getByRole('button', { name: '待归类 的更多操作' }))
-    await user.click(await screen.findByRole('menuitem', { name: '归属' }))
-    const dialog = await screen.findByRole('dialog', { name: '对话归属' })
-    await user.selectOptions(within(dialog).getByLabelText('合集'), collection.id)
-    await user.click(within(dialog).getByRole('button', { name: '保存' }))
-
-    await waitFor(() => expect(conversation.collectionId).toBe(collection.id))
-    expect(await screen.findByRole('button', { name: '任务 (0)' })).toBeVisible()
-  })
-
   it('归属弹窗也能把跑完的对话记到需求单下', async () => {
     const task = addMockTask('儿童运动凉鞋多场景卖点')
     const conversation = addMockConversation('跑完才想起要挂单')

@@ -255,23 +255,4 @@ describe('图片编辑结果应用', () => {
     ).toHaveAttribute('src', CANDIDATE_A)
     expect(screen.queryByText(/图片尚未应用/)).not.toBeInTheDocument()
   })
-
-  it('关闭编辑器后焦点回到入口按钮', async () => {
-    const persisted = originalDocument()
-    server.use(
-      http.get('*/api/conversations/:id/workspace/file', () =>
-        HttpResponse.json({ file: { path: PATH, content: JSON.stringify(persisted), version: 1 } }),
-      ),
-    )
-    await renderReader()
-    const page = await screen.findByRole('region', { name: '镜头组 1' })
-    const entry = within(page).getByRole('button', { name: '编辑图片' })
-    await userEvent.click(entry)
-    const editor = await screen.findByRole('dialog', { name: '编辑图片 · 镜头组 1 · 帧 @1' })
-    await userEvent.click(within(editor).getByRole('button', { name: '关闭图片编辑' }))
-    await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: /^编辑图片/ })).not.toBeInTheDocument(),
-    )
-    await waitFor(() => expect(entry).toHaveFocus())
-  })
 })

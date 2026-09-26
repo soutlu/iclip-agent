@@ -10,7 +10,7 @@ export const DialogTitle = DialogPrimitive.Title
 
 type DialogSurfaceProps = ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
   children: ReactNode
-  /** 不画圆角、底色与阴影：整块交给内部各面板自己承载表面；本体标 `data-variant="bare"`。 */
+  /** 不画圆角、底色与阴影：整块交给内部各面板自己承载表面。 */
   bare?: boolean
   /** 画布弹层通过遮罩类名声明 nodrag / nopan。 */
   overlayClassName?: string
@@ -42,7 +42,6 @@ export function DialogSurface({
           'max-sm:data-[state=closed]:zoom-out-100 max-sm:data-[state=closed]:slide-out-to-bottom max-sm:data-[state=open]:zoom-in-100 max-sm:data-[state=open]:slide-in-from-bottom',
           className,
         )}
-        data-variant={bare ? 'bare' : undefined}
         {...props}
         {...refuseFileDropProps}
       >

@@ -2,36 +2,12 @@ import { http, HttpResponse } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
 import { server } from '@/testing/mocks/server'
 import { mockTranscriptPage } from '@/testing/mocks/transcript'
+import { FakeSocket, SERVER_HELLO } from '@/testing/ws'
 import { TranscriptConnection } from './connection'
 import { TranscriptReader } from './reader'
 
 const TAIL_TEXT = '这是第 2 轮的回复。'
 const TAIL_FRAME = { frameId: 't2.1.f3', stepId: 't2.1', turnId: 't2', type: 'frame' } as const
-
-class FakeSocket {
-  readyState = 1
-  sent: string[] = []
-  onmessage: ((event: { data: string }) => void) | null = null
-  onclose: (() => void) | null = null
-  onerror: (() => void) | null = null
-
-  send(data: string): void {
-    this.sent.push(data)
-  }
-
-  close(): void {
-    this.readyState = 3
-  }
-
-  deliver(frame: unknown): void {
-    this.onmessage?.({ data: JSON.stringify(frame) })
-  }
-}
-
-const HELLO = {
-  payload: { heartbeat_ms: 10_000, protocol_version: 2, ws_connection_id: 'w1' },
-  type: 'server_hello',
-}
 
 const EMPTY_SNAPSHOT = {
   attachments: [],
@@ -68,7 +44,7 @@ const startReader = () => {
   connection.connect()
   const reader = new TranscriptReader('c1', connection)
   reader.start()
-  socket.deliver(HELLO)
+  socket.deliver(SERVER_HELLO)
   return { connection, reader, socket }
 }
 
@@ -350,7 +326,7 @@ describe('TranscriptReader', () => {
     reader.start()
     reader.stop()
     reader.start()
-    socket.deliver(HELLO)
+    socket.deliver(SERVER_HELLO)
 
     await vi.waitFor(() => {
       expect(reader.view().status).toBe('ready')
@@ -442,16 +418,14 @@ describe('TranscriptReader', () => {
     connection.connect()
     const reader = new TranscriptReader('c1', connection, 'delta', 'run-child')
     reader.start()
-    socket.deliver(HELLO)
+    socket.deliver(SERVER_HELLO)
 
     await vi.waitFor(() => {
       expect(reader.view().status).toBe('ready')
     })
     expect(asked).toBe('run-child')
-    const table = JSON.parse(socket.sent.find((raw) => raw.includes('subscribe_v2')) ?? '{}') as {
-      payload?: { transcript?: Record<string, string> }
-    }
-    expect(table.payload?.transcript).toEqual({ 'run-child': 'delta' })
+    const table = socket.frames().find((frame) => frame.type === 'subscribe_v2')
+    expect(table?.payload?.['transcript']).toEqual({ 'run-child': 'delta' })
   })
 
   it('停下就把内容清掉，再开从基线重来', async () => {
@@ -463,7 +437,7 @@ describe('TranscriptReader', () => {
     reader.stop()
     expect(reader.view().status).toBe('loading')
     expect(reader.view().items).toEqual([])
-    expect(socket.sent.some((raw) => raw.includes('unsubscribe_v2'))).toBe(true)
+    expect(socket.frames().some((frame) => frame.type === 'unsubscribe_v2')).toBe(true)
   })
 
   it('对话不存在就停在错误态，不一直重试', async () => {

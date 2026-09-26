@@ -1,15 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  metadataFilterParam,
-  readStoryboardMetadata,
-  storyboardMetadata,
-} from './generation-metadata'
-
-describe('storyboardMetadata', () => {
-  it('图片任务记下镜头组与帧号', () => {
-    expect(storyboardMetadata(2, 3)).toEqual({ frame: 3, shot: 2 })
-  })
-})
+import { readStoryboardMetadata } from './generation-metadata'
 
 describe('readStoryboardMetadata', () => {
   it('分镜页写的形状原样读回', () => {
@@ -33,11 +23,5 @@ describe('readStoryboardMetadata', () => {
     ['帧号不是正整数', { shot: 1, frame: 0 }],
   ])('%s 就当没有坐标', (_name, metadata) => {
     expect(readStoryboardMetadata({ metadata })).toBeUndefined()
-  })
-})
-
-describe('metadataFilterParam', () => {
-  it('筛选参数是 JSON 对象，按给的键包含匹配', () => {
-    expect(JSON.parse(metadataFilterParam({ shot: 1, frame: 2 }))).toEqual({ frame: 2, shot: 1 })
   })
 })
