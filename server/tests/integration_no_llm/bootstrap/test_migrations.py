@@ -1071,6 +1071,9 @@ SHOT_INDEX = "3403faebf6dc"
 OWNER_FIX = "69f785644eb5"
 """0019：早期钥匙行的属主校正成请求里指名的那个人的那一版。"""
 
+IMAGE_SOURCE = "fd0a5be42793"
+"""0020：图片记来源，上传与切图各落一行的那一版。"""
+
 _INSERT_BEFORE_OPERATION = text(
     "INSERT INTO iclip.generation_jobs (id, owner_user_id, kind, provider, request, status, "
     "metadata, root_job_id, output_url, created_at, updated_at, finished_at) VALUES (:id, :owner, "
@@ -1425,7 +1428,7 @@ async def test_operation_migration_refuses_to_downgrade_an_open_ended_composite(
 ) -> None:
     """0017 之后的合成有取到结尾的段，旧形状要求每段都有 end：拒绝降级。
 
-    一次命令一个事务，0017 拒绝会把前面 0019、0018 的降级一起回滚，库留在 0019。"""
+    一次命令一个事务，0017 拒绝会把前面 0020、0019、0018 的降级一起回滚，库留在 0020。"""
 
     cfg = _alembic(migrated_pg)
     owner = uuid.uuid4()
@@ -1451,7 +1454,7 @@ async def test_operation_migration_refuses_to_downgrade_an_open_ended_composite(
         command.upgrade(cfg, "head")
 
     assert str(composite) in str(refused.value)
-    assert version == OWNER_FIX
+    assert version == IMAGE_SOURCE
 
 
 async def _index_definition(migrated_pg: str, name: str) -> str:
@@ -1932,3 +1935,394 @@ async def test_owner_fix_migration_refuses_names_it_cannot_place(
     assert version == SHOT_INDEX, "整个迁移回滚"
     assert users == seeded, "占位账号没留下"
     assert owners[fine] == luke, "能校正的那行也跟着回滚"
+
+
+_INSERT_BEFORE_IMAGE_SOURCE = text(
+    "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind, operation, "
+    "provider, request, status, metadata, output_url, created_at, updated_at, finished_at) "
+    "VALUES (:id, :owner, :conversation, :kind, 'generate', 'test', CAST(:request AS jsonb), "
+    "'completed', CAST(:metadata AS jsonb), :url, :created, :created, :finished)"
+)
+_IMAGE_REQUEST = '{"prompt": "p", "aspectRatio": "1:1", "userName": "luke"}'
+
+_ImageRow = tuple[uuid.UUID, uuid.UUID | None, Mapping[str, object] | None, int, int]
+"""(id, 对话, metadata, 建立分钟, 完成分钟)；都是已完成的 image / generate，产物地址按 id 起。"""
+
+
+def _image_url(job_id: uuid.UUID) -> str:
+    return f"https://example.test/{job_id}.png"
+
+
+async def _seed_before_image_source(
+    migrated_pg: str,
+    owner: uuid.UUID,
+    *,
+    conversations: Sequence[tuple[uuid.UUID, uuid.UUID | None, int]] = (),
+    images: Sequence[_ImageRow] = (),
+    videos: Sequence[tuple[uuid.UUID, Mapping[str, object] | None, str]] = (),
+) -> None:
+    """在 0019 的表上种对话 (id, 来源, 建立分钟)、图片与视频 (id, metadata, 请求原文)。
+
+    不用会带 ``user_name`` 的种子：0019 重升时会为那些名字建占位账号，与这里无关。"""
+
+    engine = create_async_engine(migrated_pg)
+    try:
+        async with engine.begin() as conn:
+            await _insert_generation_owner(conn, owner)
+            for conversation_id, parent, minute in conversations:
+                await conn.execute(
+                    _INSERT_FORK_CONVERSATION,
+                    {
+                        "id": conversation_id,
+                        "owner": owner,
+                        "at": _minute(minute),
+                        "parent": parent,
+                        "turn": None if parent is None else 1,
+                    },
+                )
+            for job_id, conversation_id, metadata, created, finished in images:
+                await conn.execute(
+                    _INSERT_BEFORE_IMAGE_SOURCE,
+                    {
+                        "id": job_id,
+                        "owner": owner,
+                        "conversation": conversation_id,
+                        "kind": "image",
+                        "request": _IMAGE_REQUEST,
+                        "metadata": None if metadata is None else json.dumps(metadata),
+                        "url": _image_url(job_id),
+                        "created": _minute(created),
+                        "finished": _minute(finished),
+                    },
+                )
+            for job_id, metadata, request in videos:
+                await conn.execute(
+                    _INSERT_BEFORE_IMAGE_SOURCE,
+                    {
+                        "id": job_id,
+                        "owner": owner,
+                        "conversation": None,
+                        "kind": "video",
+                        "request": request,
+                        "metadata": None if metadata is None else json.dumps(metadata),
+                        "url": f"https://example.test/{job_id}.mp4",
+                        "created": _minute(0),
+                        "finished": _minute(0),
+                    },
+                )
+    finally:
+        await engine.dispose()
+
+
+async def _generation_columns(migrated_pg: str) -> set[str]:
+    engine = create_async_engine(migrated_pg)
+    try:
+        async with engine.connect() as conn:
+            return await conn.run_sync(
+                lambda sync_conn: {
+                    str(column["name"])
+                    for column in inspect(sync_conn).get_columns(
+                        "generation_jobs", schema=DB_SCHEMA
+                    )
+                }
+            )
+    finally:
+        await engine.dispose()
+
+
+_IMAGE_SOURCE_CHECKS = {
+    "ck_generation_jobs_kind",
+    "ck_generation_jobs_operation",
+    "ck_generation_jobs_request",
+    "ck_generation_jobs_video_shape",
+    "ck_generation_jobs_image_shape",
+    "ck_generation_jobs_cut_shape",
+    "ck_generation_jobs_upload_shape",
+    "ck_generation_jobs_settled",
+}
+
+
+async def test_image_source_migration_resolves_bases_and_strips_the_key(migrated_pg: str) -> None:
+    """0020：帧图编辑的底图地址对上本对话里提交时已完成的图（上一次编辑也算）、或按继承读得到的祖先
+    记录，就记 source_job_id；对不上的（分叉之后才完成、别的对话、提交时还没完成、外部地址）进
+    source_url。图片行擦掉 sourceUrl 键、只剩它的 metadata 变空，视频行一个键不动。降级按来源写回
+    原值，重升结果不变。"""
+
+    cfg = _alembic(migrated_pg)
+    owner = uuid.uuid4()
+    source, fork, other = (uuid.uuid4() for _ in range(3))
+    base, edit, edit_of_edit, after_fork, inherited, beyond = (uuid.uuid4() for _ in range(6))
+    foreign, elsewhere, late_base, too_early, external, bare, plain, take = (
+        uuid.uuid4() for _ in range(8)
+    )
+    cell = "https://example.test/shot-frames/old/out/S1-1.jpg"
+    seeded: dict[uuid.UUID, Mapping[str, object] | None] = {
+        base: None,
+        edit: {"shot": 1, "frame": 1, "sourceUrl": _image_url(base)},
+        edit_of_edit: {"shot": 1, "frame": 1, "sourceUrl": _image_url(edit)},
+        after_fork: None,
+        inherited: {"shot": 1, "frame": 2, "sourceUrl": _image_url(base)},
+        beyond: {"shot": 1, "frame": 3, "sourceUrl": _image_url(after_fork)},
+        foreign: None,
+        elsewhere: {"shot": 2, "frame": 1, "sourceUrl": _image_url(foreign)},
+        late_base: None,
+        too_early: {"shot": 2, "frame": 2, "sourceUrl": _image_url(late_base)},
+        external: {"shot": 3, "frame": 1, "sourceUrl": cell},
+        bare: {"sourceUrl": _image_url(base)},
+        plain: {"shot": 3, "frame": 2},
+        take: {"sourceUrl": "https://example.test/still.jpg"},
+    }
+    placed = {  # (对话, 建立分钟, 完成分钟)；副本在第 10 分钟从源对话分出来
+        base: (source, 1, 2),
+        edit: (source, 3, 4),
+        edit_of_edit: (source, 5, 6),
+        after_fork: (source, 11, 12),
+        inherited: (fork, 13, 14),
+        beyond: (fork, 15, 16),
+        foreign: (other, 1, 2),
+        elsewhere: (source, 17, 18),
+        late_base: (source, 19, 21),
+        too_early: (source, 20, 22),
+        external: (source, 23, 24),
+        bare: (source, 25, 26),
+        plain: (source, 27, 28),
+    }
+    try:
+        command.downgrade(cfg, OWNER_FIX)
+        await _seed_before_image_source(
+            migrated_pg,
+            owner,
+            conversations=((source, None, 0), (other, None, 0), (fork, source, 10)),
+            images=[
+                (job_id, conversation, seeded[job_id], created, finished)
+                for job_id, (conversation, created, finished) in placed.items()
+            ],
+            videos=[(take, seeded[take], '{"model": "m", "prompt": "p"}')],
+        )
+        command.upgrade(cfg, IMAGE_SOURCE)
+        upgraded = await _select_rows(migrated_pg, owner, "source_job_id, source_url, metadata")
+        shape = await _generation_shape(migrated_pg)
+        command.downgrade(cfg, OWNER_FIX)
+        restored = await _select_rows(migrated_pg, owner, "source_job_id, metadata")
+        columns = await _generation_columns(migrated_pg)
+        command.upgrade(cfg, IMAGE_SOURCE)
+        replayed = await _select_rows(migrated_pg, owner, "source_job_id, source_url, metadata")
+    finally:
+        await _clear(migrated_pg)
+        command.upgrade(cfg, "head")
+
+    assert {
+        job_id: (row["source_job_id"], row["source_url"], row["metadata"])
+        for job_id, row in upgraded.items()
+    } == {
+        base: (None, None, None),
+        edit: (base, None, {"shot": 1, "frame": 1}),
+        edit_of_edit: (edit, None, {"shot": 1, "frame": 1}),
+        after_fork: (None, None, None),
+        inherited: (base, None, {"shot": 1, "frame": 2}),
+        beyond: (None, _image_url(after_fork), {"shot": 1, "frame": 3}),
+        foreign: (None, None, None),
+        elsewhere: (None, _image_url(foreign), {"shot": 2, "frame": 1}),
+        late_base: (None, None, None),
+        too_early: (None, _image_url(late_base), {"shot": 2, "frame": 2}),
+        external: (None, cell, {"shot": 3, "frame": 1}),
+        bare: (base, None, None),
+        plain: (None, None, {"shot": 3, "frame": 2}),
+        take: (None, None, {"sourceUrl": "https://example.test/still.jpg"}),
+    }
+    assert shape["checks"] == _IMAGE_SOURCE_CHECKS
+    assert "ix_generation_jobs_conversation_image_output" in shape["indexes"]
+    assert "request" not in shape["not_null"], "上传与切图没有请求"
+
+    assert {job_id: row["metadata"] for job_id, row in restored.items()} == seeded
+    assert {row["source_job_id"] for row in restored.values()} == {None}
+    assert "source_url" not in columns
+    assert replayed == upgraded, "降级再升，回填出同样的结果"
+
+
+@pytest.mark.parametrize(
+    ("flaw", "message"),
+    [
+        ("request", "请求不是 JSON 对象"),
+        ("number", r"metadata\.sourceUrl 不是 http\(s\) 地址"),
+        ("data_url", r"metadata\.sourceUrl 不是 http\(s\) 地址"),
+        ("ambiguous", "底图地址对得上不止一条记录"),
+    ],
+    ids=["请求是 JSON 字符串", "sourceUrl 是数字", "sourceUrl 是 data 地址", "底图对上两条"],
+)
+async def test_image_source_migration_refuses_rows_it_cannot_place(
+    migrated_pg: str, flaw: str, message: str
+) -> None:
+    """放不进新形状、说不清底图是哪一条的行交人判断：点名报错，库停在 0019，能回填的那行也不动。"""
+
+    cfg = _alembic(migrated_pg)
+    owner, conversation = uuid.uuid4(), uuid.uuid4()
+    base, fine, offender, twin = (uuid.uuid4() for _ in range(4))
+    fine_metadata = {"shot": 1, "frame": 1, "sourceUrl": _image_url(base)}
+    images: list[_ImageRow] = [
+        (base, conversation, None, 1, 2),
+        (fine, conversation, fine_metadata, 3, 4),
+    ]
+    videos: list[tuple[uuid.UUID, Mapping[str, object] | None, str]] = []
+    if flaw == "request":
+        videos.append((offender, None, '"x"'))
+    elif flaw == "number":
+        images.append((offender, conversation, {"shot": 1, "frame": 2, "sourceUrl": 42}, 5, 6))
+    elif flaw == "data_url":
+        bad = {"shot": 1, "frame": 2, "sourceUrl": "data:image/png;base64,AAAA"}
+        images.append((offender, conversation, bad, 5, 6))
+    else:
+        images.append((twin, conversation, None, 1, 2))
+        shared = {"shot": 1, "frame": 2, "sourceUrl": _image_url(twin)}
+        images.append((offender, conversation, shared, 5, 6))
+    engine = create_async_engine(migrated_pg)
+    try:
+        command.downgrade(cfg, OWNER_FIX)
+        await _seed_before_image_source(
+            migrated_pg,
+            owner,
+            conversations=((conversation, None, 0),),
+            images=images,
+            videos=videos,
+        )
+        if flaw == "ambiguous":
+            # 两张图产物地址相同：说不清编辑改的是哪一张。
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text("UPDATE iclip.generation_jobs SET output_url = :url WHERE id = :id"),
+                    {"url": _image_url(twin), "id": base},
+                )
+        with pytest.raises(RuntimeError, match=message) as refused:
+            command.upgrade(cfg, IMAGE_SOURCE)
+        version = await _alembic_version(migrated_pg)
+        kept = await _select_rows(migrated_pg, owner, "metadata")
+    finally:
+        await engine.dispose()
+        await _clear(migrated_pg)
+        command.upgrade(cfg, "head")
+
+    assert str(offender) in str(refused.value), "报错要点名是哪一行"
+    assert version == OWNER_FIX, "整个迁移回滚"
+    assert kept[fine]["metadata"] == fine_metadata, "能回填的那行也跟着回滚"
+
+
+_INSERT_AT_IMAGE_SOURCE = text(
+    "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind, operation, "
+    "provider, request, status, metadata, source_job_id, source_url, output_url, created_at, "
+    "updated_at, finished_at) VALUES (:id, :owner, :conversation, 'image', :operation, "
+    ":operation, CAST(:request AS jsonb), 'completed', CAST(:metadata AS jsonb), :source, "
+    ":source_url, :url, now(), now(), now())"
+)
+
+
+async def _seed_settled_rows(
+    conn: AsyncConnection, owner: uuid.UUID, conversation: uuid.UUID
+) -> dict[str, uuid.UUID]:
+    """按 0020 的形状种一条上传、一张宫格与它切出的两格，以及以切格、上传、外部地址为底图的三条编辑。
+
+    以切格为底图的那条 metadata 是 JSON null：仓储把 ``None`` 存成它，降级写回不能把它拼成数组。"""
+
+    ids = {
+        name: uuid.uuid4()
+        for name in ("upload", "grid", "cell_1", "cell_2", "on_cell", "on_upload", "on_external")
+    }
+    rows: list[tuple[str, str, uuid.UUID | None, str | None, str | None, str | None]] = [
+        ("upload", "upload", None, None, None, None),
+        ("grid", "generate", conversation, _IMAGE_REQUEST, None, None),
+        ("cell_1", "cut", conversation, None, None, "grid"),
+        ("cell_2", "cut", conversation, None, None, "grid"),
+        ("on_cell", "generate", conversation, _IMAGE_REQUEST, "null", "cell_1"),
+        (
+            "on_upload",
+            "generate",
+            conversation,
+            _IMAGE_REQUEST,
+            '{"shot": 1, "frame": 2}',
+            "upload",
+        ),
+        ("on_external", "generate", conversation, _IMAGE_REQUEST, None, None),
+    ]
+    await _insert_generation_owner(conn, owner)
+    for name, operation, conversation_id, request, metadata, source in rows:
+        await conn.execute(
+            _INSERT_AT_IMAGE_SOURCE,
+            {
+                "id": ids[name],
+                "owner": owner,
+                "conversation": conversation_id,
+                "operation": operation,
+                "request": request,
+                "metadata": metadata,
+                "source": None if source is None else ids[source],
+                "source_url": _EXTERNAL_BASE if name == "on_external" else None,
+                "url": _image_url(ids[name]),
+            },
+        )
+    return ids
+
+
+_EXTERNAL_BASE = "https://example.test/shot-frames/old/out/S2-1.jpg"
+
+
+async def test_image_source_downgrade_drops_settled_rows_and_writes_bases_back(
+    migrated_pg: str,
+) -> None:
+    """降级删掉切图行与上传行，帧图编辑的来源写回 metadata.sourceUrl：库内来源取那条的产物地址，
+    外部地址原样；原来的键留着，JSON null 的从空对象起。"""
+
+    cfg = _alembic(migrated_pg)
+    owner, conversation = uuid.uuid4(), uuid.uuid4()
+    engine = create_async_engine(migrated_pg)
+    try:
+        async with engine.begin() as conn:
+            ids = await _seed_settled_rows(conn, owner, conversation)
+        await engine.dispose()
+        command.downgrade(cfg, OWNER_FIX)
+        restored = await _select_rows(migrated_pg, owner, "source_job_id, metadata")
+    finally:
+        await engine.dispose()
+        await _clear(migrated_pg)
+        command.upgrade(cfg, "head")
+
+    assert restored == {
+        ids["grid"]: {"source_job_id": None, "metadata": None},
+        ids["on_cell"]: {
+            "source_job_id": None,
+            "metadata": {"sourceUrl": _image_url(ids["cell_1"])},
+        },
+        ids["on_upload"]: {
+            "source_job_id": None,
+            "metadata": {"shot": 1, "frame": 2, "sourceUrl": _image_url(ids["upload"])},
+        },
+        ids["on_external"]: {"source_job_id": None, "metadata": {"sourceUrl": _EXTERNAL_BASE}},
+    }, "切图行与上传行删掉，其余写回底图地址"
+
+
+async def test_image_source_downgrade_refuses_settled_rows_with_tracking_events(
+    migrated_pg: str,
+) -> None:
+    """切图或上传记录上挂着埋点事件，删不掉：点名拒绝，停在 0020，一行不动。"""
+
+    cfg = _alembic(migrated_pg)
+    owner, conversation = uuid.uuid4(), uuid.uuid4()
+    engine = create_async_engine(migrated_pg)
+    try:
+        async with engine.begin() as conn:
+            ids = await _seed_settled_rows(conn, owner, conversation)
+            await conn.execute(
+                _INSERT_DOWNLOAD, {"id": uuid.uuid4(), "job": ids["cell_2"], "owner": owner}
+            )
+        await engine.dispose()
+        with pytest.raises(RuntimeError, match="切图或上传记录上挂着埋点事件") as refused:
+            command.downgrade(cfg, OWNER_FIX)
+        version = await _alembic_version(migrated_pg)
+        kept = await _select_rows(migrated_pg, owner, "source_job_id")
+    finally:
+        await engine.dispose()
+        await _clear(migrated_pg)
+        command.upgrade(cfg, "head")
+
+    assert str(ids["cell_2"]) in str(refused.value), "报错要点名是哪一行"
+    assert version == IMAGE_SOURCE
+    assert set(kept) == set(ids.values())
+    assert kept[ids["on_cell"]]["source_job_id"] == ids["cell_1"]
