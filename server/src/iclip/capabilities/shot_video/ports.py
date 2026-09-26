@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
@@ -52,13 +53,19 @@ class ImageJob:
 
 
 class ImageGenerations(Protocol):
-    """图像生成提交与状态查询协议。"""
+    """图像生成提交、状态查询与切图登记协议。"""
 
     async def submit(self, principal: Principal, request: ImageRequest) -> ImageJob:
         """受理生成并返回任务记录；实际 Provider 调用由后台执行。"""
         ...
 
     async def get(self, principal: Principal, job_id: uuid.UUID) -> ImageJob: ...
+
+    async def record_cuts(
+        self, principal: Principal, grid_job_id: uuid.UUID, urls: Sequence[str]
+    ) -> None:
+        """把从这张宫格切出来、已转存的几格各记一条切图记录，来源是那张宫格；与 ``urls`` 同序。"""
+        ...
 
 
 class ObjectWriteFailed(Exception):

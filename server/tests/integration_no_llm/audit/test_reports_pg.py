@@ -24,7 +24,14 @@ from iclip.domains.audit.models import (
 )
 from iclip.domains.audit.reports_pg import PgAuditReports
 from iclip.domains.generation.models import STATUS_COMPLETED, STATUS_FAILED, STATUS_SUBMITTED
-from iclip.domains.generation.schemas import KIND_VIDEO, OPERATION_COMPOSE, OPERATION_GENERATE
+from iclip.domains.generation.schemas import (
+    KIND_IMAGE,
+    KIND_VIDEO,
+    OPERATION_COMPOSE,
+    OPERATION_CUT,
+    OPERATION_GENERATE,
+    OPERATION_UPLOAD,
+)
 from iclip.domains.tracking.models import VIDEO_DOWNLOADED
 from tests.helpers.pg import reset_database
 
@@ -1005,3 +1012,52 @@ async def test_videos_of_an_owner_without_username_count_overall_only(
     assert [row.user_name for row in rows] == before_users
     [missing] = [item for item in anomalies if item.generation_id == unmarked]
     assert missing.user_name is None
+
+
+async def test_uploads_and_cuts_do_not_count_toward_any_metric(
+    reports: PgAuditReports, seed: Seed, engine: AsyncEngine
+) -> None:
+    """上传与切图不是出片：一条不挂对话的视频上传、挂在对话上的一张宫格切出的格子，总览、分人与
+    漏标镜号都不变。"""
+
+    before = await reports.overall(Scope())
+    before_users = await reports.by_user(Scope())
+    before_missing = await reports.anomalies(
+        Scope(), Thresholds(), kinds=["missing_shot"], limit=50, after=None
+    )
+    grid, cell, upload = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    at = ago(hours=1)
+    async with engine.begin() as conn:
+        for job_id, conversation_id, kind, operation, request, source in (
+            (upload, None, KIND_VIDEO, OPERATION_UPLOAD, None, None),
+            (grid, seed.c1, KIND_IMAGE, OPERATION_GENERATE, '{"prompt": "p"}', None),
+            (cell, seed.c1, KIND_IMAGE, OPERATION_CUT, None, grid),
+        ):
+            await conn.execute(
+                text(
+                    "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id,"
+                    " kind, operation, provider, request, status, source_job_id, output_url,"
+                    " created_at, updated_at, finished_at)"
+                    " VALUES (:id, :owner, :conversation_id, :kind, :operation, 'p',"
+                    " CAST(:request AS jsonb), :status, :source, :url, :at, :at, :at)"
+                ),
+                {
+                    "id": job_id,
+                    "owner": seed.shan,
+                    "conversation_id": conversation_id,
+                    "kind": kind,
+                    "operation": operation,
+                    "request": request,
+                    "status": STATUS_COMPLETED,
+                    "source": source,
+                    "url": f"https://example.test/{job_id}",
+                    "at": at,
+                },
+            )
+
+    assert await reports.overall(Scope()) == before
+    assert await reports.by_user(Scope()) == before_users
+    assert (
+        await reports.anomalies(Scope(), Thresholds(), kinds=["missing_shot"], limit=50, after=None)
+        == before_missing
+    )

@@ -1,4 +1,4 @@
-"""上传的类型与尺寸限制。上传不登记：确认后只交回桶里那个对象的公开地址。"""
+"""上传的类型与尺寸限制，以及签名、确认两步交回的事实。"""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ MAX_LONG_EDGE_PIXELS: Final = 6000
 
 @dataclass(frozen=True, slots=True)
 class UploadTicket:
-    """无持久状态的直传凭证；确认时的对象位置由 upload_id 推导。"""
+    """无持久状态的直传凭证；确认时的对象位置由 upload_id 推导，确认后它也是那条上传记录的 id。"""
 
     upload_id: uuid.UUID
     upload_url: str

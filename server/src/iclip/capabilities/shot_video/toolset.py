@@ -191,6 +191,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         if job.status != "completed" or not job.output_url:
             job_failure(job, message="镜头帧生成失败。")
         cut = await self._cap.generator.cut(
+            principal,
             job,
             object_keys=[
                 self._cap.paths.shot_cell(job_id=job.job_id, cell_id=cell_id)
@@ -237,6 +238,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         if job.status != "completed" or not job.output_url:
             job_failure(job, message="设定图生成失败。")
         cut = await self._cap.generator.cut(
+            principal,
             job,
             object_keys=[
                 self._cap.paths.anchor_sheet(job_id=job.job_id, index=index)

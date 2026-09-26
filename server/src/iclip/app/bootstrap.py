@@ -64,8 +64,9 @@ from iclip.domains.generation.module import (
     build_generation_module,
 )
 from iclip.domains.generation.queue import GenerationQueueSettings, queue_dsn
+from iclip.domains.generation.repository import GenerationRepository
 from iclip.domains.generation.schemas import KIND_VIDEO
-from iclip.domains.generation.service import ClearCompletion, ConversationLineage
+from iclip.domains.generation.service import ClearCompletion, ConversationLineage, SettledRecords
 from iclip.domains.generation.video import VideoProviderSettings
 from iclip.domains.identity.accounts import CookieAuthSettings
 from iclip.domains.identity.infra_sql import DB_SCHEMA
@@ -231,7 +232,7 @@ def _read_only_engine(database_url: str) -> AsyncEngine:
 
 def _generation_module(
     settings: ResolvedMediaGeneration,
-    engine: AsyncEngine,
+    repo: GenerationRepository,
     *,
     act_as: ActAs,
     clear_completion: ClearCompletion,
@@ -239,14 +240,13 @@ def _generation_module(
     database_url: str,
     object_store: PublicObjectStore,
     queue_connector: procrastinate.BaseConnector | None,
-    live: LiveConnections,
 ) -> GenerationModule:
     """将配置解析结果转换为生成域的运行设置，保持业务域与配置层隔离。
 
-    仓库包一层状态广播：受理与队列共用这一个实例，状态每跳一格都经它落库。"""
+    ``repo`` 是组合根建的那一个带状态广播的仓储，受理、队列与创建即完成的记录共用它。"""
 
     return build_generation_module(
-        AnnouncingGenerationRepository(SqlGenerationRepository(engine), live),
+        repo,
         act_as=act_as,
         clear_completion=clear_completion,
         lineage=lineage,
@@ -375,6 +375,13 @@ def build_app(
 
     conversation_repo = SqlConversationRepository(active_engine)
 
+    # 生成记录的仓储无条件建：上传确认要落上传行，媒体生成没开也一样。包一层状态广播，
+    # 受理、队列、上传与切图共用这一个实例，每一跳都经它落库。
+    generation_repo = AnnouncingGenerationRepository(
+        SqlGenerationRepository(active_engine), live_connections
+    )
+    settled_records = SettledRecords(generation_repo)
+
     # 镜头能力依赖生成服务，须先于 Agent 装配。
     generation: GenerationModule | None = None
     if settings.media_generation is not None:
@@ -382,7 +389,7 @@ def build_app(
             raise RuntimeError("媒体生成已启用却没有对象存储；resolve_settings 应当已拒绝这种配置")
         generation = _generation_module(
             settings.media_generation,
-            active_engine,
+            generation_repo,
             act_as=identity.act_as,
             clear_completion=clear_conversation_completion,
             lineage=ForkLineageAdapter(
@@ -391,7 +398,6 @@ def build_app(
             database_url=settings.database_url,
             object_store=public_objects,
             queue_connector=queue_connector,
-            live=live_connections,
         )
 
     # step store、工作区与 identity 共用同一个 engine（表在 agent_runtime schema）。
@@ -456,6 +462,7 @@ def build_app(
         material_ledger=material_ledger,
         http_client=http_client,
         generation_service=generation.service if generation is not None else None,
+        settled_records=settled_records,
         image_models=generation.image_models if generation is not None else frozenset(),
         object_store=public_objects,
         video=settings.video,
@@ -505,7 +512,14 @@ def build_app(
         fork_transcript=ForkTranscriptAdapter(queue=job_queue, history=transcript_history),
         copy_workspace=WorkspaceCopier(store=workspace_store, ledger=material_ledger),
     )
-    uploads = build_uploads_module(public_objects) if public_objects is not None else None
+    # 确认上传经 uploads 声明的端口落一条上传记录；绑定方法与端口的签名结构一致，不另写适配器。
+    uploads = (
+        build_uploads_module(
+            public_objects, act_as=identity.act_as, record=settled_records.record_upload
+        )
+        if public_objects is not None
+        else None
+    )
     context_limits = live_context_limits(agent_layer)
 
     # 删除不中止在跑的 run，删掉那一刻在跑或排队的几轮收尾时对话已是墓碑：

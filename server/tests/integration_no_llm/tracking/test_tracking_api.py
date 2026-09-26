@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Sequence
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from sqlalchemy import text
@@ -17,6 +17,7 @@ from iclip.domains.generation.schemas import (
     KIND_VIDEO,
     OPERATION_COMPOSE,
     OPERATION_GENERATE,
+    OPERATION_UPLOAD,
 )
 from iclip.domains.tracking.models import VIDEO_DOWNLOADED
 from tests.helpers.auth import register_and_login, set_roles_in_db
@@ -32,6 +33,7 @@ _JOBS: tuple[tuple[str, str, str, str, str | None, bool], ...] = (
     ("failed", KIND_VIDEO, OPERATION_GENERATE, STATUS_FAILED, None, False),
     ("no_url", KIND_VIDEO, OPERATION_GENERATE, STATUS_COMPLETED, None, False),
     ("image", KIND_IMAGE, OPERATION_GENERATE, STATUS_COMPLETED, None, True),
+    ("upload", KIND_VIDEO, OPERATION_UPLOAD, STATUS_COMPLETED, None, True),
 )
 DOWNLOADABLE = ("video", "composite")
 
@@ -44,7 +46,8 @@ async def login_as(client: httpx.AsyncClient, pg_url: str, username: str, role: 
 
 
 async def plant_jobs(pg_url: str, *, owner: uuid.UUID) -> dict[str, uuid.UUID]:
-    """一段对话里一条成了的出片，它上面的一段编辑与那次合成，外加没成的、没地址的出片与一张图。"""
+    """一段对话里一条成了的出片，它上面的一段编辑与那次合成，外加没成的、没地址的出片与一张图；
+    另有一条不挂对话、没有请求的视频上传。"""
 
     conversation_id = uuid.uuid4()
     ids = {label: uuid.uuid4() for label, *_ in _JOBS}
@@ -57,8 +60,13 @@ async def plant_jobs(pg_url: str, *, owner: uuid.UUID) -> dict[str, uuid.UUID]:
             {"id": conversation_id, "owner": owner},
         )
         for label, kind, operation, status, source, has_url in _JOBS:
+            upload = operation == OPERATION_UPLOAD
             request = (
-                {"segments": [{"url": "https://oss.example.test/edit.mp4", "start": 0, "end": 3}]}
+                None
+                if upload
+                else {
+                    "segments": [{"url": "https://oss.example.test/edit.mp4", "start": 0, "end": 3}]
+                }
                 if operation == OPERATION_COMPOSE
                 else {"model": "m", "prompt": "p", "user_name": "nina"}
             )
@@ -67,18 +75,20 @@ async def plant_jobs(pg_url: str, *, owner: uuid.UUID) -> dict[str, uuid.UUID]:
                 text(
                     "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind,"
                     " operation, provider, request, status, source_job_id, root_job_id,"
-                    " range_start_ms, range_end_ms, output_url, created_at, updated_at)"
+                    " range_start_ms, range_end_ms, output_url, created_at, updated_at,"
+                    " finished_at)"
                     " VALUES (:id, :owner, :conversation_id, :kind, :operation, 'test',"
                     " CAST(:request AS jsonb), :status, :source, :root, :range_start_ms,"
-                    " :range_end_ms, :output_url, now(), now())"
+                    " :range_end_ms, :output_url, now(), now(), :finished_at)"
                 ),
                 {
                     "id": ids[label],
                     "owner": owner,
-                    "conversation_id": conversation_id,
+                    "conversation_id": None if upload else conversation_id,
                     "kind": kind,
                     "operation": operation,
-                    "request": json.dumps(request),
+                    "request": None if request is None else json.dumps(request),
+                    "finished_at": datetime.now(UTC) if upload else None,
                     "status": status,
                     "source": None if source is None else ids[source],
                     "root": None if source is None else ids["video"],
@@ -137,7 +147,7 @@ async def test_anyone_who_reads_generations_records_a_download_of_any_take_or_co
 async def test_anything_but_a_downloadable_video_is_the_same_404(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """编辑段、没成的、没地址的、图片与根本不存在的，状态码与报错一字不差。"""
+    """编辑段、没成的、没地址的、图片、视频上传与根本不存在的，状态码与报错一字不差。"""
 
     owner = await login_as(client, pg_url, "nina", "editor")
     jobs = await plant_jobs(pg_url, owner=owner)

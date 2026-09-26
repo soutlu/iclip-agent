@@ -113,12 +113,19 @@ class FrameGenerator:
         raise AssertionError("重试策略至少要有一个渠道")
 
     async def cut(
-        self, job: ImageJob, *, object_keys: Sequence[str], aspect: str | None, failure_message: str
+        self,
+        principal: Principal,
+        job: ImageJob,
+        *,
+        object_keys: Sequence[str],
+        aspect: str | None,
+        failure_message: str,
     ) -> CellCut:
-        """下载整图、裁剪并转存，逐格地址与 ``object_keys`` 同序。
+        """下载整图、裁剪并转存，逐格地址与 ``object_keys`` 同序；转存成功的每一格各记一条切图。
 
         整图恒为 GRID_CELLS 格，``object_keys`` 只给实际请求的那几格，多出来的是补位格，
-        不转存。失败时向模型报告简短错误，诊断信息留日志。"""
+        不转存也不记。切格、下载、转存失败时向模型报告简短错误，诊断信息留日志；记录落不下是
+        数据库的事，原样抛出，不让模型重出一张付费宫格。"""
 
         grid_url = job.output_url
         if not grid_url:
@@ -136,6 +143,7 @@ class FrameGenerator:
             )
         except ObjectWriteFailed as exc:
             job_failure(job, message=failure_message, reason=str(exc))
+        await self._generations.record_cuts(principal, job.job_id, urls)
         return CellCut(grid_url=grid_url, urls=tuple(urls))
 
     async def _run_one(

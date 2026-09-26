@@ -31,13 +31,18 @@ from iclip.capabilities.workspace.capability import Workspace
 from iclip.capabilities.workspace.ports import ImageInfo, MediaProbeFailed
 from iclip.common.errors import ValidationFailed
 from iclip.config import ResolvedShotVideo, ResolvedVideo
-from iclip.domains.generation.models import GenerationJob
+from iclip.domains.generation.models import STATUS_COMPLETED, GenerationJob
 from iclip.domains.generation.schemas import ImageGenerationIn
-from iclip.domains.generation.service import GenerationService
+from iclip.domains.generation.service import GenerationService, SettledRecords
 from iclip.domains.identity.public import Principal
 from iclip.platform.object_store.store import ObjectStoreUnavailable
 from tests.helpers.file_store import FakeFileStore
-from tests.helpers.generation import MemoryObjectStore, make_job
+from tests.helpers.generation import (
+    InMemoryGenerationRepository,
+    MemoryObjectStore,
+    image_request,
+    make_job,
+)
 from tests.helpers.material_ledger import FakeMaterialLedger
 
 IMAGE_URL = "https://bucket.oss-cn-hangzhou.aliyuncs.com/style.jpg"
@@ -140,6 +145,7 @@ def test_shot_video_is_registered_when_backed(
         workspace_store=FakeFileStore(),
         material_ledger=FakeMaterialLedger(),
         generation_service=cast("GenerationService", object()),
+        settled_records=cast("SettledRecords", object()),
         object_store=MemoryObjectStore(),
         http_client=idle_client(),
         video=video_settings,
@@ -161,6 +167,7 @@ def test_shot_video_without_workspace_and_video_fails_at_assembly(
         workspace_store=FakeFileStore(),
         material_ledger=FakeMaterialLedger(),
         generation_service=cast("GenerationService", object()),
+        settled_records=cast("SettledRecords", object()),
         object_store=MemoryObjectStore(),
         http_client=idle_client(),
         video=video_settings,
@@ -184,6 +191,7 @@ def test_the_display_registry_covers_every_mounted_tool(
         workspace_store=FakeFileStore(),
         material_ledger=FakeMaterialLedger(),
         generation_service=cast("GenerationService", object()),
+        settled_records=cast("SettledRecords", object()),
         object_store=MemoryObjectStore(),
         http_client=idle_client(),
         video=video_settings,
@@ -222,7 +230,9 @@ def test_a_capability_without_a_table_is_skipped(table: CapabilityTable) -> None
 async def test_generations_adapter_translates_and_reports_bad_parameters() -> None:
     """生成域定义请求约束，适配器负责映射参数与错误。"""
 
-    adapter = GenerationsAdapter(cast("GenerationService", object()))
+    adapter = GenerationsAdapter(
+        cast("GenerationService", object()), cast("SettledRecords", object())
+    )
     with pytest.raises(InvalidImageRequest, match="aspect_ratio"):
         await adapter.submit(
             cast("Principal", object()),
@@ -250,7 +260,9 @@ async def test_generations_adapter_carries_the_conversation_onto_the_job() -> No
             return make_job(request)
 
     conversation_id = uuid.uuid4()
-    adapter = GenerationsAdapter(cast("GenerationService", _Recording()))
+    adapter = GenerationsAdapter(
+        cast("GenerationService", _Recording()), cast("SettledRecords", object())
+    )
     await adapter.submit(
         cast("Principal", object()),
         ImageRequest(
@@ -391,7 +403,9 @@ async def test_generations_adapter_turns_intake_rejection_into_a_fixable_error()
             _ = principal, request
             raise ValidationFailed("nano_banana_pro 不支持分辨率 8k")
 
-    adapter = GenerationsAdapter(cast("GenerationService", _Rejecting()))
+    adapter = GenerationsAdapter(
+        cast("GenerationService", _Rejecting()), cast("SettledRecords", object())
+    )
     with pytest.raises(InvalidImageRequest, match="不支持分辨率 8k"):
         await adapter.submit(
             cast("Principal", object()),
@@ -406,6 +420,69 @@ async def test_generations_adapter_turns_intake_rejection_into_a_fixable_error()
         )
 
 
+def cutter(user_id: uuid.UUID) -> Principal:
+    return Principal(
+        kind="user",
+        user_id=user_id,
+        permissions=frozenset({"agent:run"}),
+        audit_label="luke",
+    )
+
+
+async def test_cut_cells_are_recorded_against_their_grid_under_the_run_principal() -> None:
+    """切出来的每一格各落一条切图：来源是宫格，对话与需求单抄宫格，属主是运行主体，与地址同序。"""
+
+    owner = uuid.uuid4()
+    grid = make_job(
+        image_request(),
+        status=STATUS_COMPLETED,
+        owner_user_id=owner,
+        conversation_id=uuid.uuid4(),
+        task_id=uuid.uuid4(),
+        output_url="https://cdn.test/grid.png",
+    )
+    repo = InMemoryGenerationRepository([grid])
+    adapter = GenerationsAdapter(cast("GenerationService", object()), SettledRecords(repo))
+    urls = ["https://cdn.test/cells/S1-1.jpg", "https://cdn.test/cells/S2-1.jpg"]
+
+    await adapter.record_cuts(cutter(owner), grid.id, urls)
+
+    cells = [job for job in repo.jobs.values() if job.operation == "cut"]
+    assert [job.output_url for job in cells] == urls
+    assert {
+        (
+            job.kind,
+            job.source_job_id,
+            job.conversation_id,
+            job.task_id,
+            job.owner_user_id,
+            job.status,
+            job.request,
+        )
+        for job in cells
+    } == {("image", grid.id, grid.conversation_id, grid.task_id, owner, STATUS_COMPLETED, None)}
+
+
+@pytest.mark.parametrize("grid_state", ["还没完成", "是视频"])
+async def test_cutting_from_anything_but_a_finished_image_is_a_bug(grid_state: str) -> None:
+    """工具刚等到宫格完成才切；对不上是装配或状态坏了，不当成模型能改的输入。"""
+
+    owner = uuid.uuid4()
+    grid = (
+        make_job(image_request(), owner_user_id=owner)
+        if grid_state == "还没完成"
+        else make_job(
+            status=STATUS_COMPLETED, owner_user_id=owner, output_url="https://cdn.test/take.mp4"
+        )
+    )
+    repo = InMemoryGenerationRepository([grid])
+    adapter = GenerationsAdapter(cast("GenerationService", object()), SettledRecords(repo))
+
+    with pytest.raises(RuntimeError, match="宫格"):
+        await adapter.record_cuts(cutter(owner), grid.id, ["https://cdn.test/cells/S1-1.jpg"])
+    assert list(repo.jobs) == [grid.id]
+
+
 def test_shot_video_refuses_to_mount_when_its_image_model_is_not_wired(
     shot_video_settings: ResolvedShotVideo,
 ) -> None:
@@ -416,6 +493,7 @@ def test_shot_video_refuses_to_mount_when_its_image_model_is_not_wired(
             workspace_store=FakeFileStore(),
             material_ledger=FakeMaterialLedger(),
             generation_service=cast("GenerationService", object()),
+            settled_records=cast("SettledRecords", object()),
             object_store=MemoryObjectStore(),
             http_client=idle_client(),
             shot_video=shot_video_settings,

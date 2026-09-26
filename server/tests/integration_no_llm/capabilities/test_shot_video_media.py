@@ -479,6 +479,36 @@ async def test_generate_cuts_the_grid_and_records_the_batch(media: dict[str, byt
     }
 
     assert {frame["url"] for frame in payload["frames"]} | {GRID_URL} <= materials.urls(NAMESPACE)
+    assert generations.cuts == [
+        (generations.job_ids[0], tuple(frame["url"] for frame in payload["frames"]))
+    ], "请求的两格各记一条切图，来源是这张宫格；补位格不转存也不记"
+
+
+async def test_generate_fails_loudly_when_the_cut_cells_cannot_be_recorded(
+    media: dict[str, bytes],
+) -> None:
+    """切图记录落不下是数据库的事：原样抛出，不包成让模型重出一张付费宫格的重试；格子也不登记素材。"""
+
+    files = FakeFileStore()
+    materials = FakeMaterialLedger()
+    await files.write(NAMESPACE, video_doc_path(VIDEO_URL), DOCUMENT)
+    generations = FakeGenerations(
+        outcomes=[Outcome(output_url=GRID_URL)], cut_error=ConnectionError("数据库断了")
+    )
+    client = make_client(media)
+    try:
+        tools = make_tools(client, FakeObjects(), files, generations=generations, ledger=materials)
+        await tools.plan_shot_frames(make_context(), VIDEO_URL)
+        boards = set(materials.urls(NAMESPACE))
+        with pytest.raises(ConnectionError, match="数据库断了"):
+            await tools.generate_shot_frames(
+                make_context(), [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
+            )
+    finally:
+        await client.aclose()
+
+    assert len(generations.job_ids) == 1
+    assert materials.urls(NAMESPACE) == boards, "先记切图、再登记素材：记不下就一格都不登记"
 
 
 async def test_generate_reports_an_unreachable_grid_without_pretending_it_worked(
@@ -525,6 +555,7 @@ async def test_generate_fails_when_cut_frames_cannot_be_stored(
 
     assert "Read timed out" not in str(raised.value)
     assert len(generations.job_ids) == 1
+    assert generations.cuts == [], "没转存成的格子不记切图"
 
 
 async def test_anchor_sheet_reports_unstored_cells_the_same_way(media: dict[str, bytes]) -> None:
@@ -577,6 +608,9 @@ async def test_anchor_sheet_cuts_the_sheet_and_records_each_entity(
     written = list(objects.written.values())
     assert written[0] != written[1]
     assert {image["url"] for image in payload["images"]} | {GRID_URL} <= materials.urls(NAMESPACE)
+    assert generations.cuts == [
+        (generations.job_ids[0], tuple(image["url"] for image in payload["images"]))
+    ]
 
 
 async def test_processing_failure_is_an_error_in_real_agent_live_and_history(
