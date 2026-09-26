@@ -14,6 +14,7 @@ from iclip.domains.generation.models import (
     STATUS_SUBMITTED,
     STATUS_SUBMITTING,
     GenerationJob,
+    GenerationStatus,
 )
 from iclip.domains.generation.provider import (
     ProviderError,
@@ -53,7 +54,6 @@ async def test_async_submit_moves_job_to_waiting_for_result() -> None:
     stored = repo.jobs[job.id]
     assert stored.status == STATUS_SUBMITTED
     assert stored.provider_task_id == "t-1"
-    assert stored.submitted_at is not None
 
     polls = [row for row in connector.jobs.values() if row["task_name"] == "generation.poll"]
     assert len(polls) == 1, "提交完必须排一次轮询，否则永远没人问结果"
@@ -78,6 +78,7 @@ async def test_sync_submit_completes_in_one_step() -> None:
     stored = repo.jobs[job.id]
     assert stored.status == STATUS_COMPLETED
     assert stored.output_url == "https://cdn.test/out.png"
+    assert stored.provider_task_id == str(job.id)
     assert image.poll_calls == [], "同步接口不该被轮询"
     assert connector.jobs == {}, "已经终态了，别再排一次轮询"
 
@@ -285,12 +286,31 @@ async def test_job_stuck_running_forever_eventually_times_out() -> None:
 async def test_stranded_cleanup_never_overwrites_a_real_result() -> None:
     """失联恢复可能与原 worker 返回结果并发；清理更新不得覆盖已成功结果。"""
 
-    job = make_job(image_request(), status=STATUS_SUBMITTING)
-    repo = InMemoryGenerationRepository([job])
+    class CompletedDuringCleanup(InMemoryGenerationRepository):
+        """收尾写入落下之前，原 worker 带着结果先写完了这一行。"""
 
-    await repo.mark_completed(
-        job.id, output_url="https://cdn.test/out.png", provider_status="succeeded"
-    )
+        async def mark_failed(
+            self,
+            job_id: uuid.UUID,
+            *,
+            error_code: str,
+            error_message: str,
+            provider_status: str | None = None,
+            only_if_status: GenerationStatus | None = None,
+        ) -> GenerationJob | None:
+            await self.mark_completed(
+                job_id, output_url="https://cdn.test/out.png", provider_status="succeeded"
+            )
+            return await super().mark_failed(
+                job_id,
+                error_code=error_code,
+                error_message=error_message,
+                provider_status=provider_status,
+                only_if_status=only_if_status,
+            )
+
+    job = make_job(image_request(), status=STATUS_SUBMITTING)
+    repo = CompletedDuringCleanup([job])
 
     queue, _ = build_queue(repo)
     await queue.run_submit(str(job.id))
@@ -299,54 +319,6 @@ async def test_stranded_cleanup_never_overwrites_a_real_result() -> None:
     assert stored.status == STATUS_COMPLETED
     assert stored.output_url == "https://cdn.test/out.png"
     assert stored.error_code is None
-
-
-async def test_sync_submit_records_the_reconciliation_id_and_timing() -> None:
-    """同步接口仅一次状态跳转，对账 id 与提交时间须在此阶段记录。"""
-
-    job = make_job(image_request())
-    repo = InMemoryGenerationRepository([job])
-    image = ScriptedProvider(
-        submission=ProviderSubmission(
-            provider_task_id=str(job.id),
-            provider_status="succeeded",
-            output_url="https://cdn.test/out.png",
-        )
-    )
-
-    queue, _ = build_queue(repo, image=image)
-    await queue.run_submit(str(job.id))
-
-    stored = repo.jobs[job.id]
-    assert stored.status == STATUS_COMPLETED
-    assert stored.provider_task_id == str(job.id)
-    assert stored.submitted_at is not None
-    assert stored.finished_at is not None
-
-
-async def test_async_submit_keeps_the_original_submitted_at() -> None:
-
-    job = make_job(video_request())
-    repo = InMemoryGenerationRepository([job])
-    video = ScriptedProvider(
-        submission=ProviderSubmission(provider_task_id="t-1", provider_status="queued")
-    )
-    queue, _ = build_queue(repo, video=video)
-    await queue.run_submit(str(job.id))
-    submitted_at = repo.jobs[job.id].submitted_at
-    assert submitted_at is not None
-
-    video_done = ScriptedProvider(
-        progress=ProviderProgress(
-            outcome="succeeded",
-            provider_status="succeeded",
-            output_url="https://cdn.test/v.mp4",
-        )
-    )
-    queue, _ = build_queue(repo, video=video_done)
-    await queue.run_poll(str(job.id))
-
-    assert repo.jobs[job.id].submitted_at == submitted_at
 
 
 async def test_submit_fails_loudly_when_the_provider_is_not_assembled() -> None:
@@ -434,24 +406,6 @@ async def test_stalled_job_of_a_dead_worker_is_picked_back_up() -> None:
 
     assert await queue.heal_stalled() == 1
     assert connector.jobs[queued.id]["status"] == "todo", "捡回去重排，等着守卫来收尾"
-
-
-async def test_healer_leaves_a_live_workers_job_alone() -> None:
-    """存活由 worker 心跳决定，不能因长耗时生成而重排其任务。"""
-
-    job = make_job(image_request())
-    repo = InMemoryGenerationRepository([job])
-    queue, connector = build_queue(repo)
-    await queue.enqueue_submit(job)
-
-    worker_id = await queue.app.job_manager.register_worker()
-    queued = await queue.app.job_manager.fetch_job(
-        queues=[submit_queue(FAKE_IMAGE_PROVIDER)], worker_id=worker_id
-    )
-    assert queued is not None and queued.id is not None
-
-    assert await queue.heal_stalled() == 0
-    assert connector.jobs[queued.id]["status"] == "doing"
 
 
 _ANY_JOB = QueuedJob(

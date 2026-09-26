@@ -148,7 +148,7 @@ async def test_an_edit_is_cut_recorded_and_sent_upstream_with_the_clip() -> None
     assert body["reference_video_urls"] == [
         store.public_url(f"iclip/agent/video-clips/{edit.id}.mp4")
     ]
-    assert (body["seconds"], body["user_name"]) == (-1, "tester")
+    assert (body["seconds"], body["user_name"], body["prompt"]) == (-1, "tester", "换一双鞋")
     assert edit.range_end_ms == 3000
     assert edit.range_start_ms is not None and edit.range_start_ms < 1500, "改记关键帧上的实际起点"
     assert stored_request(edit).model_dump()["reference_video_urls"] == [], (

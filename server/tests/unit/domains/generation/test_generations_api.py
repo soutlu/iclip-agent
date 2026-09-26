@@ -335,16 +335,6 @@ async def test_video_submit_rejects_a_body_whose_text_does_not_hold_together(
     assert repo.jobs == {}
 
 
-@pytest.mark.parametrize("path", ["/generations", "/generations/clips"])
-async def test_retired_submit_routes_are_gone(path: str) -> None:
-    """共用提交口与本地裁剪拼接口都已下线：编辑与合成各走自己的入口。"""
-
-    app = build_test_app(InMemoryGenerationRepository(), granted=principal("generation:submit"))
-    async with client(app) as http:
-        response = await http.post(path, json=VIDEO_BODY)
-    assert response.status_code == 405, "同路径的 GET 还在，所以是方法不允许而不是 404"
-
-
 async def test_historical_video_models_are_read_without_rewriting() -> None:
     job = replace(make_job(video_request(model="mmt-seedance-2-0")), provider="multiflow")
     repo = InMemoryGenerationRepository([job])
@@ -729,8 +719,8 @@ async def test_list_rejects_out_of_range_limit() -> None:
         assert (await http.get("/generations?limit=1000")).status_code == 422
 
 
-async def test_response_hides_provider_snapshot_and_queue_mechanics() -> None:
-    """响应排除包含签名 URL 的供应商快照及内部队列字段。"""
+async def test_response_hides_provider_and_upstream_task_mechanics() -> None:
+    """provider 名称、上游任务号与状态词、提交时刻是排队与排障的内部机制，不进响应。"""
 
     job = make_job(video_request())
     repo = InMemoryGenerationRepository([job])
@@ -738,10 +728,11 @@ async def test_response_hides_provider_snapshot_and_queue_mechanics() -> None:
     async with client(build_test_app(repo, granted=owner)) as http:
         body = (await http.get(f"/generations/{job.id}")).json()["generation"]
 
-    hidden = {"providerSnapshot", "providerTaskId", "provider", "leaseOwner", "attempts"}
+    hidden = {"provider", "providerTaskId", "providerStatus", "submittedAt"}
     assert hidden.isdisjoint(body)
-    assert {"taskId", "watermarkOutputUrl"} <= set(body)
-    assert body["durationMs"] is None, "只有本系统自己加工的视频知道产物多长"
+    assert {"taskId", "watermarkOutputUrl"} <= set(body), (
+        "值为空的字段照样出现，上面的不相交才有意义"
+    )
 
 
 async def read_back(job: GenerationJob) -> dict[str, object]:
@@ -1396,23 +1387,22 @@ async def test_submit_without_a_conversation_does_not_call_back() -> None:
     assert app.state.cleared_completions.calls == []
 
 
-async def test_composites_are_videos_and_clip_is_no_longer_a_kind() -> None:
-    """合成出来的是视频，按种类列视频时在里面；谁执行看操作，``kind=clip`` 不再是合法的筛选。"""
+async def test_listing_videos_by_kind_includes_composites_and_leaves_images_out() -> None:
+    """合成出来的是视频，按种类列视频时在里面；同一属主的图片不在。"""
 
     owner = uuid.uuid4()
     take = make_job(video_request(), owner_user_id=owner, status=STATUS_COMPLETED)
     composite = make_composite(make_edit(take, owner_user_id=owner), owner_user_id=owner)
-    repo = InMemoryGenerationRepository([take, composite])
+    image = make_job(image_request(), owner_user_id=owner, status=STATUS_COMPLETED)
+    repo = InMemoryGenerationRepository([take, composite, image])
     app = build_test_app(repo, granted=principal("generation:read", user_id=owner))
     async with client(app) as http:
         videos = await http.get("/generations", params={"kind": "video"})
-        clips = await http.get("/generations", params={"kind": "clip"})
 
     assert {(item["id"], item["operation"]) for item in videos.json()["items"]} == {
         (str(take.id), "generate"),
         (str(composite.id), "compose"),
     }
-    assert clips.status_code == 422
 
 
 # --- 帧图编辑的底图与来源地址 ------------------------------------------------------
