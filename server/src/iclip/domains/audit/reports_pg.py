@@ -1,4 +1,4 @@
-"""审计报表的 Postgres 查询：跨 ``iclip.*`` 与 ``agent_runtime.*`` 六张表只读聚合，不建表、不写入。
+"""审计报表的 Postgres 查询：跨 ``iclip.*`` 与 ``agent_runtime.*`` 七张表只读聚合，不建表、不写入。
 
 同一份指标 SQL 服务全体、人、需求单、时段、对话五个维度，差别只在五段 CTE 各自的分组键
 表达式（``_DIMENSIONS``）——各指标的时间锚点不同，键要在各自的 CTE 里算。键表达式是本文件
@@ -41,8 +41,8 @@ from iclip.domains.audit.schemas import (
 
 # ---------------------------------------------------------------------------
 # 公共 CTE。videos 是全部口径的基础：只认有镜号（shot_index 列）且挂着对话的出片，
-# 需求单从对话取；person 给每段对话定一个人：最近一轮运行的 user_name，没有运行
-# 就取最近一条视频的。
+# 需求单从对话取；视频的人是属主的用户名，request 里的 user_name 只发给上游、报表不读。
+# person 给每段对话定一个人：最近一轮运行的 user_name，没有运行就取最近一条视频的属主。
 # 分叉出来的副本一律不进报表（``forked_from`` 非空）：它继承的出片记在源对话名下，源那边
 # 已经数过；副本自己跑的是试验数据。挡在 videos / person / runs 三个根 CTE 上，其余口径都
 # 从它们派生。
@@ -66,10 +66,11 @@ videos AS (
                WHERE t.name = 'video.downloaded'
            ) AS downloaded,
            g.shot_index AS shot,
-           g.request->>'user_name' AS user_name,
+           u.username AS user_name,
            c.task_id
     FROM iclip.generation_jobs g
     JOIN iclip.conversations c ON c.id = g.conversation_id
+    JOIN iclip.users u ON u.id = g.owner_user_id
     -- 出片 = 没有来源的视频 generate，且有镜号；编辑段与合成抄了原作的镜号，也一律不算。
     WHERE g.kind = 'video' AND g.operation = 'generate' AND g.source_job_id IS NULL
       AND g.shot_index IS NOT NULL
@@ -475,8 +476,9 @@ no_task AS (
 missing_shot AS (
     SELECT 'missing_shot', g.created_at, 'missing_shot:' || g.id,
            NULL::float8, NULL::float8,
-           g.conversation_id, c.task_id, g.request->>'user_name', NULL::int, g.id
+           g.conversation_id, c.task_id, u.username, NULL::int, g.id
     FROM iclip.generation_jobs g
+    JOIN iclip.users u ON u.id = g.owner_user_id
     LEFT JOIN iclip.conversations c ON c.id = g.conversation_id
     WHERE g.kind = 'video' AND g.shot_index IS NULL
       -- 只有出片才谈漏标；编辑段与合成的镜号抄自原作，不是调用方给的。
@@ -484,7 +486,7 @@ missing_shot AS (
       -- 挂在副本下的记录不算异常；没挂对话的孤儿记录照旧要算，所以放过 c 整行为空的。
       AND c.forked_from IS NULL
     {_WINDOW.format(anchor="g.created_at")}
-      AND (CAST(:user_name AS text) IS NULL OR g.request->>'user_name' = CAST(:user_name AS text))
+      AND (CAST(:user_name AS text) IS NULL OR u.username = CAST(:user_name AS text))
       AND (CAST(:task_id AS uuid) IS NULL OR c.task_id = CAST(:task_id AS uuid))
       AND (CAST(:conversation_ids AS uuid[]) IS NULL
            OR g.conversation_id = ANY(CAST(:conversation_ids AS uuid[])))

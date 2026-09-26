@@ -333,6 +333,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 ### 归属标签 `user_name`
 
 - 四种提交都带 `user_name`（图片与合成端点按 camelCase 叫 `userName`），含义与取值规则同发消息（§5）。
+- 它只作发给上游对账的输入：记录的作者是属主的用户名，不看这个字段；持 `users:act_as` 的钥匙已按它换好属主（§2）。见 [CONTEXT.md「生成任务」](../docs/CONTEXT.md#术语)。
 
 ### 视频：镜像上游异步接口
 
