@@ -91,7 +91,6 @@ class GenerationRepository(Protocol):
         *,
         provider_task_id: str,
         provider_status: str,
-        provider_snapshot: dict[str, Any],
     ) -> GenerationJob:
         """记下 provider 回执，转入等结果。"""
         ...
@@ -102,7 +101,6 @@ class GenerationRepository(Protocol):
         *,
         output_url: str,
         provider_status: str,
-        provider_snapshot: dict[str, Any],
         provider_task_id: str | None = None,
         watermark_output_url: str | None = None,
         duration_ms: int | None = None,
@@ -121,7 +119,6 @@ class GenerationRepository(Protocol):
         error_code: str,
         error_message: str,
         provider_status: str | None = None,
-        provider_snapshot: dict[str, Any] | None = None,
         only_if_status: GenerationStatus | None = None,
     ) -> GenerationJob | None:
         """记录失败终态；指定 only_if_status 时原子校验状态，不匹配返回 None，避免覆盖并发结果。"""
@@ -132,12 +129,10 @@ class GenerationRepository(Protocol):
         job_id: uuid.UUID,
         *,
         provider_status: str,
-        provider_snapshot: dict[str, Any] | None = None,
         only_if_status: GenerationStatus | None = None,
     ) -> GenerationJob | None:
         """保存本次 Provider 状态；后续查询时间由队列管理。
 
-        省略 snapshot 时不动原快照——它整份覆盖写，本地加工上报阶段时带上会把完成时那次写打掉。
         指定 only_if_status 时原子校验状态，不匹配返回 None，表示这条已经不在预期状态上。"""
         ...
 

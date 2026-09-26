@@ -46,8 +46,6 @@ NANO_BANANA_PRO: Final = GatewayImageModel(
     ),
     timeout_seconds=300.0,
     fields=_fields,
-    # 快照记下实际走的渠道：两档价钱不同。
-    snapshot_keys=("channel",),
 )
 
 

@@ -102,14 +102,10 @@ class AnnouncingGenerationRepository:
         *,
         provider_task_id: str,
         provider_status: str,
-        provider_snapshot: dict[str, Any],
     ) -> GenerationJob:
         return self._announce(
             await self._inner.mark_submitted(
-                job_id,
-                provider_task_id=provider_task_id,
-                provider_status=provider_status,
-                provider_snapshot=provider_snapshot,
+                job_id, provider_task_id=provider_task_id, provider_status=provider_status
             )
         )
 
@@ -119,7 +115,6 @@ class AnnouncingGenerationRepository:
         *,
         output_url: str,
         provider_status: str,
-        provider_snapshot: dict[str, Any],
         provider_task_id: str | None = None,
         watermark_output_url: str | None = None,
         duration_ms: int | None = None,
@@ -129,7 +124,6 @@ class AnnouncingGenerationRepository:
             job_id,
             output_url=output_url,
             provider_status=provider_status,
-            provider_snapshot=provider_snapshot,
             provider_task_id=provider_task_id,
             watermark_output_url=watermark_output_url,
             duration_ms=duration_ms,
@@ -144,7 +138,6 @@ class AnnouncingGenerationRepository:
         error_code: str,
         error_message: str,
         provider_status: str | None = None,
-        provider_snapshot: dict[str, Any] | None = None,
         only_if_status: GenerationStatus | None = None,
     ) -> GenerationJob | None:
         job = await self._inner.mark_failed(
@@ -152,7 +145,6 @@ class AnnouncingGenerationRepository:
             error_code=error_code,
             error_message=error_message,
             provider_status=provider_status,
-            provider_snapshot=provider_snapshot,
             only_if_status=only_if_status,
         )
         return None if job is None else self._announce(job)
@@ -162,14 +154,10 @@ class AnnouncingGenerationRepository:
         job_id: uuid.UUID,
         *,
         provider_status: str,
-        provider_snapshot: dict[str, Any] | None = None,
         only_if_status: GenerationStatus | None = None,
     ) -> GenerationJob | None:
         return await self._inner.record_progress(
-            job_id,
-            provider_status=provider_status,
-            provider_snapshot=provider_snapshot,
-            only_if_status=only_if_status,
+            job_id, provider_status=provider_status, only_if_status=only_if_status
         )
 
     async def record_reference_cut(

@@ -89,18 +89,11 @@ async def test_state_transitions_round_trip_through_the_table(engine: AsyncEngin
     job = await insert_job(repo, owner, request)
 
     assert (await repo.mark_submitting(job.id)).status == STATUS_SUBMITTING
-    submitted = await repo.mark_submitted(
-        job.id,
-        provider_task_id="t-1",
-        provider_status="queued",
-        provider_snapshot={"task_id": "t-1"},
-    )
+    submitted = await repo.mark_submitted(job.id, provider_task_id="t-1", provider_status="queued")
     assert submitted.status == STATUS_SUBMITTED
     assert submitted.submitted_at is not None
 
-    running = await repo.record_progress(
-        job.id, provider_status="running", provider_snapshot={"status": "running"}
-    )
+    running = await repo.record_progress(job.id, provider_status="running")
     assert running is not None
     assert running.provider_status == "running"
     assert running.status == STATUS_SUBMITTED, "还在跑不改状态"
@@ -110,7 +103,6 @@ async def test_state_transitions_round_trip_through_the_table(engine: AsyncEngin
         output_url="https://cdn.test/v.mp4",
         watermark_output_url="https://cdn.test/v-wm.mp4",
         provider_status="succeeded",
-        provider_snapshot={"status": "succeeded"},
     )
     assert completed is not None
     assert completed.finished_at is not None
@@ -130,7 +122,6 @@ async def test_sync_result_backfills_the_submitted_moment(engine: AsyncEngine) -
         job.id,
         output_url="https://cdn.test/out.png",
         provider_status="succeeded",
-        provider_snapshot={},
         provider_task_id="img-1",
     )
     assert completed is not None
@@ -147,10 +138,7 @@ async def test_status_guard_never_overwrites_a_real_result(engine: AsyncEngine) 
 
     await repo.mark_submitting(job.id)
     await repo.mark_completed(
-        job.id,
-        output_url="https://cdn.test/out.png",
-        provider_status="succeeded",
-        provider_snapshot={},
+        job.id, output_url="https://cdn.test/out.png", provider_status="succeeded"
     )
 
     missed = await repo.mark_failed(
@@ -185,7 +173,6 @@ async def test_a_late_result_cannot_revive_a_job_that_was_already_failed(
         job.id,
         output_url="https://cdn.test/late.png",
         provider_status="succeeded",
-        provider_snapshot={},
         only_if_status=STATUS_SUBMITTING,
     )
     assert missed is None, "状态已经不是 submitting，这次写入必须一行都不动"
@@ -195,10 +182,8 @@ async def test_a_late_result_cannot_revive_a_job_that_was_already_failed(
     assert stored.output_url is None
 
 
-async def test_stage_reports_keep_the_snapshot_and_stop_at_a_conclusion(
-    engine: AsyncEngine,
-) -> None:
-    """阶段上报只写 provider_status：带上快照会把完成时那次写打掉。"""
+async def test_stage_reports_stop_at_a_conclusion(engine: AsyncEngine) -> None:
+    """阶段上报只写 provider_status；已有结论后，迟到的上报不许改它。"""
 
     repo = SqlGenerationRepository(engine)
     owner = await make_user(engine)
@@ -210,13 +195,9 @@ async def test_stage_reports_keep_the_snapshot_and_stop_at_a_conclusion(
     )
     assert reported is not None
     assert reported.provider_status == "processing"
-    assert reported.provider_snapshot is None, "没给快照就不动它"
 
     await repo.mark_completed(
-        job.id,
-        output_url="https://cdn.test/out.mp4",
-        provider_status="completed",
-        provider_snapshot={"durationMs": 4213},
+        job.id, output_url="https://cdn.test/out.mp4", provider_status="completed"
     )
     late = await repo.record_progress(
         job.id, provider_status="uploading", only_if_status=STATUS_SUBMITTING
@@ -225,7 +206,6 @@ async def test_stage_reports_keep_the_snapshot_and_stop_at_a_conclusion(
 
     stored = await repo.get(job.id, owner=owner)
     assert stored.provider_status == "completed"
-    assert stored.provider_snapshot == {"durationMs": 4213}
 
 
 async def test_status_guard_lets_the_write_through_when_it_matches(engine: AsyncEngine) -> None:
@@ -371,10 +351,7 @@ async def test_in_flight_by_conversation_summarises_unfinished_video_jobs(
         make_job(video_request(), owner_user_id=owner, conversation_id=settled)
     )
     await repo.mark_completed(
-        finished.id,
-        output_url="https://cdn.example.test/a.mp4",
-        provider_status="succeeded",
-        provider_snapshot={},
+        finished.id, output_url="https://cdn.example.test/a.mp4", provider_status="succeeded"
     )
     await repo.create(make_job(image_request(), owner_user_id=owner, conversation_id=images_only))
     edit = await repo.create(make_edit(finished, owner_user_id=owner, conversation_id=editing))
@@ -478,7 +455,7 @@ async def test_shot_index_round_trips_and_filters_alongside_the_coordinates(
 
 
 async def test_duration_is_written_only_when_completion_brings_one(engine: AsyncEngine) -> None:
-    """时长落列，快照照给的写；完成时没给时长就不动这一列。"""
+    """时长落列；完成时没给时长就不动这一列。"""
 
     repo = SqlGenerationRepository(engine)
     owner = await make_user(engine)
@@ -492,20 +469,16 @@ async def test_duration_is_written_only_when_completion_brings_one(engine: Async
         composite.id,
         output_url="https://cdn.test/master.mp4",
         provider_status="completed",
-        provider_snapshot={},
         duration_ms=7040,
         only_if_status=STATUS_SUBMITTING,
     )
     await repo.mark_completed(
-        image.id,
-        output_url="https://cdn.test/out.png",
-        provider_status="succeeded",
-        provider_snapshot={},
+        image.id, output_url="https://cdn.test/out.png", provider_status="succeeded"
     )
 
     assert measured is not None and measured.duration_ms == 7040
     stored = await repo.get(composite.id, owner=owner)
-    assert (stored.duration_ms, stored.provider_snapshot) == (7040, {})
+    assert stored.duration_ms == 7040
     assert (await repo.get(image.id, owner=owner)).duration_ms is None
 
 
@@ -542,9 +515,9 @@ async def test_combined_constraints_refuse_rows_of_no_known_shape(
                 text(
                     "INSERT INTO iclip.generation_jobs (id, owner_user_id, kind, operation, "
                     "provider, request, status, source_job_id, root_job_id, range_start_ms, "
-                    "range_end_ms, created_at, updated_at) VALUES (:id, :owner, :kind, :operation, "
+                    "range_end_ms, created_at) VALUES (:id, :owner, :kind, :operation, "
                     "'test', CAST(:request AS jsonb), 'pending', :source, :root, :start, :end, "
-                    "now(), now())"
+                    "now())"
                 ),
                 {
                     "id": uuid.uuid4(),
@@ -628,9 +601,9 @@ async def _insert_shaped(engine: AsyncEngine, shape: Mapping[str, Any]) -> None:
             text(
                 "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, kind, "
                 "operation, provider, request, status, source_job_id, source_url, root_job_id, "
-                "output_url, created_at, updated_at, finished_at) VALUES (:id, :owner, "
+                "output_url, created_at, finished_at) VALUES (:id, :owner, "
                 ":conversation, :kind, :operation, 'test', CAST(:request AS jsonb), :status, "
-                ":source, :source_url, :root, :output_url, now(), now(), :finished_at)"
+                ":source, :source_url, :root, :output_url, now(), :finished_at)"
             ),
             {
                 "id": uuid.uuid4(),

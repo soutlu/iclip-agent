@@ -83,7 +83,7 @@ async def test_sync_submit_completes_in_one_step() -> None:
 
 
 async def test_a_sync_result_lands_its_measured_duration_on_the_record() -> None:
-    """本地加工一次出结果，量出来的时长随完成落进记录；快照照 provider 给的写。"""
+    """本地加工一次出结果，量出来的时长随完成落进记录。"""
 
     job = make_job(compose_request())
     repo = InMemoryGenerationRepository([job])
@@ -100,11 +100,7 @@ async def test_a_sync_result_lands_its_measured_duration_on_the_record() -> None
     await queue.run_submit(str(job.id))
 
     stored = repo.jobs[job.id]
-    assert (stored.status, stored.duration_ms, stored.provider_snapshot) == (
-        STATUS_COMPLETED,
-        7040,
-        {},
-    )
+    assert (stored.status, stored.duration_ms) == (STATUS_COMPLETED, 7040)
 
 
 async def test_marks_submitting_before_calling_provider() -> None:
@@ -293,10 +289,7 @@ async def test_stranded_cleanup_never_overwrites_a_real_result() -> None:
     repo = InMemoryGenerationRepository([job])
 
     await repo.mark_completed(
-        job.id,
-        output_url="https://cdn.test/out.png",
-        provider_status="succeeded",
-        provider_snapshot={},
+        job.id, output_url="https://cdn.test/out.png", provider_status="succeeded"
     )
 
     queue, _ = build_queue(repo)

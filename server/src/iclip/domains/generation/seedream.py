@@ -76,7 +76,6 @@ SEEDREAM_V5_PRO: Final = GatewayImageModel(
     # 比 nano 长一倍：出图更慢，而它自己一条队列，占着不影响别家。
     timeout_seconds=600.0,
     fields=_fields,
-    snapshot_keys=("size",),
 )
 
 

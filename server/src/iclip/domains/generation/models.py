@@ -48,13 +48,10 @@ class GenerationJob:
     provider_task_id: str | None
     provider_status: str | None
     """Provider 原始状态，不映射为内部枚举。"""
-    provider_snapshot: dict[str, Any] | None
-    """provider 最近一次返回的原始响应，排障用。"""
     output_url: str | None
     error_code: str | None
     error_message: str | None
     created_at: datetime
-    updated_at: datetime
     submitted_at: datetime | None
     finished_at: datetime | None
     conversation_id: uuid.UUID | None = None

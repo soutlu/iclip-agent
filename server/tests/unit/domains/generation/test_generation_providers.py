@@ -326,7 +326,6 @@ async def test_video_poll_preserves_upstream_error_message() -> None:
     assert progress.outcome == "failed"
     assert progress.error_code == "PROVIDER_ERROR"
     assert progress.error_message == upstream_error["upstream_message"]
-    assert progress.raw["error"] == upstream_error
 
 
 async def test_video_poll_rejects_unknown_status() -> None:
@@ -482,10 +481,9 @@ async def test_image_sends_the_channel_from_the_request(channel: str) -> None:
             )
         return httpx.Response(200, content=b"PNG", headers={"content-type": "image/png"})
 
-    submission = await nano_provider(handler).submit(make_job(image_request(channel=channel)))
+    await nano_provider(handler).submit(make_job(image_request(channel=channel)))
 
     assert sent["channel"] == channel
-    assert submission.raw["channel"] == channel, "落库的快照要记下实际走的渠道"
 
 
 async def test_video_model_comes_from_the_request_when_given() -> None:
@@ -495,11 +493,8 @@ async def test_video_model_comes_from_the_request_when_given() -> None:
         sent.update(httpx.Response(200, content=request.content).json())
         return httpx.Response(200, json={"task_id": "t-1"})
 
-    submission = await video_provider(handler).submit(
-        make_job(video_request(model="mmt-seedance-3-0"))
-    )
+    await video_provider(handler).submit(make_job(video_request(model="mmt-seedance-3-0")))
     assert sent["model"] == "mmt-seedance-3-0"
-    assert submission.raw == {"response": {"task_id": "t-1"}}, "模型在请求快照里，回执只存上游响应"
 
 
 async def test_image_edit_sends_the_urls_in_the_order_the_caller_gave() -> None:
@@ -564,7 +559,6 @@ async def test_seedream_sends_a_pixel_size_and_no_channel() -> None:
     }, "键集变了就是上游合同变了"
     assert (sent[0]["task_source"], sent[0]["env"]) == ("iclip_agent", "test")
     assert sent[0]["size"] == "1584*2816"
-    assert submission.raw["size"] == "1584*2816", "落库的快照要记下实际发的尺寸"
     assert submission.provider_task_id == str(job.id), "上游不回任务 id，用 data_id 对账"
 
     key = MEDIA_PATHS.generated_image(job_id=job.id, ext="jpg")

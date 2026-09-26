@@ -90,11 +90,7 @@ class HttpVideoProvider:
                 code="PROVIDER_SUBMIT_MALFORMED",
                 retryable=False,
             )
-        return ProviderSubmission(
-            provider_task_id=task_id.strip(),
-            provider_status="queued",
-            raw={"response": body},
-        )
+        return ProviderSubmission(provider_task_id=task_id.strip(), provider_status="queued")
 
     async def poll(self, job: GenerationJob) -> ProviderProgress:
         request = request_of(job, VideoGenerationIn, provider=PROVIDER_NAME)
@@ -218,7 +214,6 @@ def _progress_from_body(body: dict[str, Any]) -> ProviderProgress:
         return ProviderProgress(
             outcome="succeeded",
             provider_status=status,
-            raw=body,
             output_url=str(urls["output_url"]),
             watermark_output_url=str(urls["watermark_output_url"]),
         )
@@ -228,13 +223,12 @@ def _progress_from_body(body: dict[str, Any]) -> ProviderProgress:
         return ProviderProgress(
             outcome="failed",
             provider_status=status,
-            raw=body,
             error_code=code or f"PROVIDER_{status.upper()}",
             error_message=message or f"provider 状态为 {status}",
         )
 
     if status in _RUNNING_STATUSES:
-        return ProviderProgress(outcome="running", provider_status=status, raw=body)
+        return ProviderProgress(outcome="running", provider_status=status)
 
     raise ProviderError(
         f"没见过的视频生成状态: {status}",

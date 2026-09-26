@@ -759,16 +759,14 @@ def a_composite(**fields: object) -> GenerationJob:
     return make_composite(make_edit(make_job(video_request())), **fields)
 
 
-async def test_the_duration_comes_from_its_column_not_from_any_snapshot() -> None:
-    """合成是本系统自己拼的，量过的时长记在列上交出来；快照里有同名键也不认。"""
+async def test_the_duration_comes_from_its_column() -> None:
+    """合成是本系统自己拼的，量过的时长记在列上交出来；别的记录没有。"""
 
-    composite = a_composite(status=STATUS_COMPLETED, duration_ms=7040, provider_snapshot={})
-    take = make_job(video_request(), provider_snapshot={"durationMs": 5000})
-    unmeasured = a_composite(status=STATUS_COMPLETED, provider_snapshot={"durationMs": 7040})
+    composite = a_composite(status=STATUS_COMPLETED, duration_ms=7040)
+    take = make_job(video_request())
+    unmeasured = a_composite(status=STATUS_COMPLETED)
 
-    body = await read_back(composite)
-    assert body["durationMs"] == 7040
-    assert "providerSnapshot" not in body, "快照本身仍不外露"
+    assert (await read_back(composite))["durationMs"] == 7040
     assert (await read_back(take))["durationMs"] is None
     assert (await read_back(unmeasured))["durationMs"] is None
 

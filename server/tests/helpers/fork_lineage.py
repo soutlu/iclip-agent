@@ -45,12 +45,8 @@ async def complete(repo: SqlGenerationRepository, job: GenerationJob, url: str) 
     """把一条记录推到终态，使它带上输出地址。"""
 
     await repo.mark_submitting(job.id)
-    await repo.mark_submitted(
-        job.id, provider_task_id=str(job.id), provider_status="queued", provider_snapshot={}
-    )
-    completed = await repo.mark_completed(
-        job.id, output_url=url, provider_status="succeeded", provider_snapshot={}
-    )
+    await repo.mark_submitted(job.id, provider_task_id=str(job.id), provider_status="queued")
+    completed = await repo.mark_completed(job.id, output_url=url, provider_status="succeeded")
     assert completed is not None
     return completed
 

@@ -130,7 +130,6 @@ def make_job(
     status: GenerationStatus = STATUS_PENDING,
     provider: str | None = None,
     provider_task_id: str | None = None,
-    provider_snapshot: dict[str, Any] | None = None,
     submitted_at: datetime | None = None,
     created_at: datetime | None = None,
     finished_at: datetime | None = None,
@@ -188,14 +187,12 @@ def make_job(
         status=status,
         provider_task_id=provider_task_id,
         provider_status=None,
-        provider_snapshot=provider_snapshot,
         output_url=output_url,
         watermark_output_url=watermark_output_url,
         duration_ms=duration_ms,
         error_code=error_code,
         error_message=error_message,
         created_at=created_at or now,
-        updated_at=now,
         submitted_at=submitted_at,
         finished_at=finished_at,
     )
@@ -272,7 +269,7 @@ class InMemoryGenerationRepository:
         for job in jobs:
             if job.id in self.jobs:
                 continue
-            stored = replace(job, created_at=now, updated_at=now, finished_at=now)
+            stored = replace(job, created_at=now, finished_at=now)
             self.jobs[job.id] = stored
             created.append(stored)
         return tuple(created)
@@ -385,14 +382,12 @@ class InMemoryGenerationRepository:
         *,
         provider_task_id: str,
         provider_status: str,
-        provider_snapshot: dict[str, Any],
     ) -> GenerationJob:
         return self._replace(
             job_id,
             status=STATUS_SUBMITTED,
             provider_task_id=provider_task_id,
             provider_status=provider_status,
-            provider_snapshot=provider_snapshot,
             submitted_at=datetime.now(UTC),
         )
 
@@ -402,7 +397,6 @@ class InMemoryGenerationRepository:
         *,
         output_url: str,
         provider_status: str,
-        provider_snapshot: dict[str, Any],
         provider_task_id: str | None = None,
         watermark_output_url: str | None = None,
         duration_ms: int | None = None,
@@ -417,7 +411,6 @@ class InMemoryGenerationRepository:
             output_url=output_url,
             watermark_output_url=watermark_output_url,
             provider_status=provider_status,
-            provider_snapshot=provider_snapshot,
             provider_task_id=provider_task_id or current.provider_task_id,
             duration_ms=current.duration_ms if duration_ms is None else duration_ms,
             submitted_at=current.submitted_at or datetime.now(UTC),
@@ -431,7 +424,6 @@ class InMemoryGenerationRepository:
         error_code: str,
         error_message: str,
         provider_status: str | None = None,
-        provider_snapshot: dict[str, Any] | None = None,
         only_if_status: GenerationStatus | None = None,
     ) -> GenerationJob | None:
         if only_if_status is not None and self.jobs[job_id].status != only_if_status:
@@ -439,8 +431,6 @@ class InMemoryGenerationRepository:
         extra: dict[str, Any] = {}
         if provider_status is not None:
             extra["provider_status"] = provider_status
-        if provider_snapshot is not None:
-            extra["provider_snapshot"] = provider_snapshot
         return self._replace(
             job_id,
             status=STATUS_FAILED,
@@ -455,13 +445,11 @@ class InMemoryGenerationRepository:
         job_id: uuid.UUID,
         *,
         provider_status: str,
-        provider_snapshot: dict[str, Any] | None = None,
         only_if_status: GenerationStatus | None = None,
     ) -> GenerationJob | None:
         if only_if_status is not None and self.jobs[job_id].status != only_if_status:
             return None
-        extra = {} if provider_snapshot is None else {"provider_snapshot": provider_snapshot}
-        return self._replace(job_id, provider_status=provider_status, **extra)
+        return self._replace(job_id, provider_status=provider_status)
 
     async def record_reference_cut(
         self,
@@ -490,7 +478,7 @@ class InMemoryGenerationRepository:
     def _replace(self, job_id: uuid.UUID, **values: Any) -> GenerationJob:
         from dataclasses import replace
 
-        updated = replace(self.jobs[job_id], updated_at=datetime.now(UTC), **values)
+        updated = replace(self.jobs[job_id], **values)
         self.jobs[job_id] = updated
         return updated
 

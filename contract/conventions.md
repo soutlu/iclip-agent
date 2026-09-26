@@ -370,14 +370,14 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ### 图片
 
-- `POST /generations/image` 只接受运行配置接入的那几家模型，`GET /generations/image-models` 声明有哪几家、各家支持的画幅与分辨率档位、以及有没有渠道这个轴。`model` 省略或为 `null` 时使用该接口给出的 `default`；受理阶段将选定模型写入请求快照。
+- `POST /generations/image` 只接受运行配置接入的那几家模型，`GET /generations/image-models` 声明有哪几家、各家支持的画幅与分辨率档位、以及有没有渠道这个轴。`model` 省略或为 `null` 时使用该接口给出的 `default`；受理阶段将选定模型写入 `request`。
 - 图片的画幅与分辨率枚举是各家的并集。所选模型不支持这次的画幅或分辨率、点了没接入的模型、或给没有渠道轴的模型传了 `channel`，都返回 `422`，不创建任务、不入队。
 - 图片的 `channel` 只对声明了渠道轴的模型合法，省略时按该模型声明的默认渠道填；它与视频的模型策略互不相干。
 - `outputUrl` 存本系统地址。
 
 ### 参考帧图片编辑
 
-- 图片请求的 `prompt` 由调用方编译成最终文本，服务端原样存进请求快照，不解析也不改写。前端把引用写成 `@图片N` / `@标注N`，编号即图片在本次 `referenceImageUrls` 里的位置。
+- 图片请求的 `prompt` 由调用方编译成最终文本，服务端原样存进 `request`，不解析也不改写。前端把引用写成 `@图片N` / `@标注N`，编号即图片在本次 `referenceImageUrls` 里的位置。
 - 帧图编辑在请求里带 `sourceUrl`：这次改的是哪张图。只收具有主机名的 HTTP(S) 地址，至多 2000 字，不合规 `422`。服务端先在这段对话自己的与它继承的已完成图片里按产物地址找（继承的只在调用方读得到这段对话时才算，§6），再在调用方可见的上传里找；找到记 `sourceJobId`，找不到记外部地址，不报错。给了就一定落一个来源，回来的 `sourceUrl` 就是给的那个地址。它不进 `request`、不发上游：底图要不要给模型看，由 `referenceImageUrls` 决定。
 - `metadata` 是调用方自己的标签：JSON 对象，四种提交都收，服务端原样存、原样回读（`GenerationOut.metadata`）、不读也不解释其中任何键，序列化后不超过 2000 字符，超了 `422`。它不进 `request`，也不发上游。这个形状归前端定义（`web/src/features/storyboard/generation-metadata.ts`）：分镜页给图片写 `{shot, frame}` 用来找格子，视频的镜号只在 `shot_index`；写进 `metadata` 的 `sourceUrl` 也不是底图。
 - `GET /generations` 的类型（`kind`）、操作（`operation`）、对话、需求单、镜号（`shotIndex`）、原作（`rootJobId`）、来源（`sourceJobId`）与 `metadata` 筛选在分页截断前执行，归属范围不因筛选扩大，唯一的例外是按对话列分叉副本时连同它继承的记录（§6）。按属主列（不带 `conversationId`）会看到上传记录，按对话列图片会看到切图记录；只要调模型的，按 `operation=generate` 筛。`metadata` 在查询串里是一段 JSON 对象（如 `metadata={"frame":2}`），按 JSONB 包含匹配；不是 JSON 对象返回 `422`。使用上一页最后一项的 `id` 作为 `before` 继续读取；按创建时间与 ID 倒序，空列表表示读完。每条记录带 `operation`、`shotIndex`、`taskId`、`watermarkOutputUrl`（图片与合成恒为 `null`）与 `finishedAt`（到终态的时刻，数据库时钟，没到终态为 `null`；同一镜头组的成片按它排版本，见 [CONTEXT.md「镜头组」](../docs/CONTEXT.md#术语)）。
